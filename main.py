@@ -21,16 +21,21 @@ from scipy.sparse.linalg import svds
 from IPython import embed
 
 from optimizer.sam import SAM, disable_running_stats, enable_running_stats
-from normalized_sgd import Normalized_Optimizer
-from goldstein import Goldstein
+from optimizer.normalized_sgd import Normalized_Optimizer
+from optimizer.goldstein import Goldstein
 from data import load_cifar, load_mnist
+
+torch.manual_seed(32)
  
 # setting path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-sys.path.append(parent_dir)
-print(parent_dir)
+#current_dir = os.path.dirname(os.path.abspath(__file__))
+#parent_dir = os.path.dirname(current_dir)
+#sys.path.append(parent_dir)
+#print(parent_dir)
 from utilities import get_hessian_eigenvalues_weight_decay, get_hessian_eigenvalues
+from analysis.loss import compute_loss
+from analysis.eigs import compute_eigenvalues
+from analysis.nc import get_nc_statistics
      
 
 def train(model, criterion, device, num_classes, train_loader, optimizer, epoch):
@@ -44,17 +49,12 @@ def train(model, criterion, device, num_classes, train_loader, optimizer, epoch)
         
         data, target = data.to(device), target.to(device)
 
-        #if opt_name == 'sam':
-        #    enable_running_stats(model)
-
         optimizer.zero_grad()
         out = model(data)
         if str(criterion) == 'CrossEntropyLoss()':
             loss = criterion(out, target)
         elif str(criterion) == 'MSELoss()':
-            #print(out[0], target[0])
             loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
-            #loss = criterion(out, target).float() * num_classes
         
         loss.backward()
         if opt_name == "sam":
@@ -101,77 +101,16 @@ def train(model, criterion, device, num_classes, train_loader, optimizer, epoch)
             break
 
     pbar.close()
-    """
-    for batch_idx, (data, target) in enumerate(train_loader, start=1):
-        data, target = data.to(device), target.to(device)
-        optimizer.zero_grad()
-        out = model(data)
-        loss = criterion(out, F.one_hot(target, num_classes=num_classes).float())
-        print("loss after train:", loss.item())
-    """
-    #eigs, _ = get_hessian_eigenvalues_weight_decay(model, criterion_summed, weight_decay, analysis_loader, neigs=10, num_classes=10, device=device)
-    #print("in train:", eigs)
 
-def analysis(graphs, model, criterion_summed, device, num_classes, loader_abridged, test_loader):
-    model.train()
-    disable_running_stats(model)
-    eigs, _ = get_hessian_eigenvalues_weight_decay(model, criterion_summed, weight_decay, loader_abridged, neigs=10, num_classes=num_classes, device=device)
-    #eigs, _, _, _ = get_hessian_eigenvalues(model, criterion_summed, lr, analysis_dataset, neigs=10, return_smallest = False)
-    graphs.eigs.append(eigs[0].item())
-    print("train eigs:", graphs.eigs)
+def analysis(graphs, analysis_list, model, criterion_summed, device, num_classes, train_loader, test_loader, analysis_loader, analysis_test_loader):
+    if 'loss' in analysis_list:
+        compute_loss(graphs, model, criterion, criterion_summed, device, num_classes, train_loader, test_loader)
+    
+    if 'eigs' in analysis_list:
+        compute_eigenvalues(graphs, model, criterion_summed, weight_decay, analysis_loader, analysis_test_loader, num_classes, device)
 
-    loss_sum = 0
-    accuracy_sum = 0
-    for batch_idx, (data, target) in enumerate(loader_abridged, start=1):
-        data, target = data.to(device), target.to(device)
-        out = model(data)
-        if str(criterion) == 'CrossEntropyLoss()':
-            loss = criterion(out, target)
-        elif str(criterion) == 'MSELoss()':
-            #print(out[0], target[0])
-            loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
-            #loss = criterion_summed(out, target).float()
-
-        accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
-        loss_sum += loss.item()
-        accuracy_sum += accuracy
-    graphs.loss.append(loss_sum / len(loader_abridged.dataset))
-    graphs.accuracy.append(accuracy_sum / len(loader_abridged.dataset))
-
-    enable_running_stats(model)
-
-    model.eval()
-    pbar = tqdm(total=len(test_loader), position=0, leave=True)
-    loss_sum = 0
-    accuracy_sum = 0
-    for batch_idx, (data, target) in enumerate(test_loader, start=1):
-        data, target = data.to(device), target.to(device)
-        out = model(data)
-        if str(criterion) == 'CrossEntropyLoss()':
-            loss = criterion(out, target)
-        elif str(criterion) == 'MSELoss()':
-            #print(out[0], target[0])
-            loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
-            #loss = criterion_summed(out, target).float()
-
-        accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
-
-        pbar.update(1)
-        pbar.set_description(
-            'Test\t\t [{}/{} ({:.0f}%)] \t'
-            'Batch Loss: {:.6f} \t'
-            'Batch Accuracy: {:.6f}'.format(
-                batch_idx,
-                len(test_loader),
-                100. * batch_idx / len(test_loader),
-                (loss / data.shape[0]).item(),
-                accuracy / data.shape[0]))
-        loss_sum += loss.item()
-        accuracy_sum += accuracy
-    pbar.close()
-    graphs.test_loss.append(loss_sum / len(test_loader.dataset))
-    graphs.test_accuracy.append(accuracy_sum / len(test_loader.dataset))
-    print("Mean Test Loss: {} \t Accuarcy: {}".format(graphs.test_loss[-1], graphs.test_accuracy[-1]))
+    if 'nc' in analysis_list:
+        get_nc_statistics(graphs, model, features, classifier, loss_name, criterion_summed, weight_decay, num_classes, analysis_loader, analysis_test_loader, device, debug=False)
 
 class features:
     pass
@@ -185,9 +124,56 @@ class graphs:
         self.accuracy     = []
         self.loss         = []
         self.eigs         = []
+        self.eigs_test    = []
 
         self.test_loss    = []
-        self.test_accuracy= []
+        self.test_accuracy = []
+
+        self.reg_loss     = []
+        self.test_reg_loss     = []
+
+        # NC1
+        self.Sw_invSb     = []
+
+        # NC2
+        self.norm_M_CoV   = []
+        self.norm_W_CoV   = []
+        self.cos_M        = []
+        self.cos_W        = []
+
+        # NC3
+        self.W_M_dist     = []
+
+        # NC4
+        self.NCC_mismatch = []
+
+        # Decomposition
+        self.MSE_wd_features = []
+        self.LNC1 = []
+        self.LNC23 = []
+        self.Lperp = []
+
+        # NC1
+        self.test_Sw_invSb     = []
+
+        # NC2
+        self.test_norm_M_CoV   = []
+        self.test_norm_W_CoV   = []
+        self.test_cos_M        = []
+        self.test_cos_W        = []
+
+        # NC3
+        self.test_W_M_dist     = []
+
+        # NC4
+        self.test_NCC_mismatch = []
+
+        # Decomposition
+        self.test_MSE_wd_features = []
+        self.test_LNC1 = []
+        self.test_LNC23 = []
+        self.test_Lperp = []
+
 
 def get_directory(lr, weight_decay, batch_size, epochs):
     results_dir = "results"
@@ -219,12 +205,13 @@ if __name__ == "__main__":
     # Optimization Criterion
     # loss_name = 'CrossEntropyLoss'
     loss_name = 'MSELoss'
-    opt_name = 'goldstein'#'norm-sgd'
+    opt_name = 'sgd'#'goldstein'#'norm-sgd'
+    analysis_list = ['loss','eigs','nc']
 
     # Optimization hyperparameters
     lr_decay            = 1# 0.1
 
-    epochs              = 80000
+    epochs              = 20000
     epochs_lr_decay     = [epochs//3, epochs*2//3]
 
     batch_size          = 512 # 128
@@ -242,10 +229,10 @@ if __name__ == "__main__":
     elif loss_name == 'MSELoss':
         lr = 0.005 #0.0184
     momentum            = 0 # 0.9
-    weight_decay        = 0 # 5e-4 * 10
+    weight_decay        = 5e-4 * 10
 
     if dataset_name == "cifar":
-        train_loader, test_loader, analysis_loader, input_ch = load_cifar(loss_name, batch_size)
+        train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch = load_cifar(loss_name, batch_size)
     elif dataset_name == "mnist":
         train_loader, test_loader, analysis_loader, input_ch = load_mnist(loss_name, batch_size)
 
@@ -260,7 +247,7 @@ if __name__ == "__main__":
                         225, 245, 268, 293, 320, 350]
     """
     #epoch_list = np.arange(1, epochs+1, 100).tolist()
-    epoch_list = np.arange(load_from_epoch+1, epochs+1, 1000).tolist()
+    epoch_list = np.arange(load_from_epoch+1, epochs+1, 200).tolist()
 
     train_graphs = graphs()
     
@@ -324,6 +311,7 @@ if __name__ == "__main__":
 
         if epoch in epoch_list:
             train_graphs.log_epochs.append(epoch)
-            analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
+            #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
+            analysis(train_graphs, analysis_list, model, criterion_summed, device, C, train_loader, test_loader, analysis_loader, analysis_test_loader)
             pickle.dump(train_graphs, open(f"{directory}/train_graphs.pk", "wb"))
             torch.save(model.state_dict(), f"{directory}/model.ckpt")
