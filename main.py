@@ -180,7 +180,7 @@ def get_lookup_directory(lr, model_name, weight_decay, batch_size, **kwargs):
     directory = f"{results_dir}/{model_name}/"
     for key, value in kwargs.items():
         directory += f"{key}_{value}/"
-    directory += f"{dataset_name}/{opt_name}/lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/epoch_{epochs}/"
+    directory += f"{dataset_name}/{opt_name}/lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/"
     return directory
 
 def get_directory(lr, model_name, weight_decay, batch_size, epochs, **kwargs):
