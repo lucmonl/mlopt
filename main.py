@@ -225,7 +225,7 @@ if __name__ == "__main__":
     C                   = 10
 
     # model parameters
-    model_name          = "weight_norm_torch" #"weight_norm" #"resnet18"
+    model_name          = "weight_norm" #"weight_norm" #"resnet18"
     wn_width            = 512 #1024, 2048
     wn_init_mode        = "O(1/sqrt{m})"
     wn_basis_var        = 5
