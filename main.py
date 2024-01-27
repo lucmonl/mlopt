@@ -36,6 +36,7 @@ from utilities import get_hessian_eigenvalues_weight_decay, get_hessian_eigenval
 from analysis.loss import compute_loss
 from analysis.eigs import compute_eigenvalues
 from analysis.nc import get_nc_statistics
+from arch.weight_norm import weight_norm_net
      
 
 def train(model, criterion, device, num_classes, train_loader, optimizer, epoch):
@@ -174,15 +175,24 @@ class graphs:
         self.test_LNC23 = []
         self.test_Lperp = []
 
-
-def get_directory(lr, weight_decay, batch_size, epochs):
+def get_lookup_directory(lr, model_name, weight_decay, batch_size, **kwargs):
     results_dir = "results"
-    directory = f"{results_dir}/{dataset_name}/{opt_name}/lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/epoch_{epochs}/"
+    directory = f"{results_dir}/{model_name}/"
+    for key, value in kwargs.items():
+        directory += f"{key}_{value}/"
+    directory += f"{dataset_name}/{opt_name}/lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/epoch_{epochs}/"
     return directory
 
-def continue_training(lr, weight_decay, batch_size, epochs):
-    results_dir = "results"
-    lookup_dir = f"{results_dir}/{dataset_name}/{opt_name}/lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/"
+def get_directory(lr, model_name, weight_decay, batch_size, epochs, **kwargs):
+    #results_dir = "results"
+    #directory = f"{results_dir}/{model_name}/{dataset_name}/{opt_name}/lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/epoch_{epochs}/"
+    directory = get_lookup_directory(lr, model_name, weight_decay, batch_size, **kwargs) + f"epoch_{epochs}/"
+    return directory
+
+def continue_training(lr, model_name, weight_decay, batch_size, epochs, **kwargs):
+    #results_dir = "results"
+    #lookup_dir = f"{results_dir}/{model_name}/{dataset_name}/{opt_name}/lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/"
+    lookup_dir = get_lookup_directory(lr, model_name, weight_decay, batch_size, **kwargs)
     if not os.path.exists(lookup_dir):
         return 0
     epoch_dir = os.listdir(lookup_dir)
@@ -202,16 +212,23 @@ if __name__ == "__main__":
     dataset_name        = "cifar"
     C                   = 10
 
+    # model parameters
+    model_name          = "weight_norm" #"resnet18"
+    wn_width            = 512 #1024, 2048
+    wn_init_mode        = "O(1/sqrt{m})"
+    wn_basis_var        = 5
+    wn_scale            = 10
+
     # Optimization Criterion
     # loss_name = 'CrossEntropyLoss'
     loss_name = 'MSELoss'
     opt_name = 'sgd'#'goldstein'#'norm-sgd'
-    analysis_list = ['loss','eigs','nc']
+    analysis_list = ['loss']#['loss','eigs','nc']
 
     # Optimization hyperparameters
     lr_decay            = 1# 0.1
 
-    epochs              = 20000
+    epochs              = 40000
     epochs_lr_decay     = [epochs//3, epochs*2//3]
 
     batch_size          = 512 # 128
@@ -227,16 +244,25 @@ if __name__ == "__main__":
     if loss_name == 'CrossEntropyLoss':
         lr = 0.0679
     elif loss_name == 'MSELoss':
-        lr = 0.005 #0.0184
+        lr = 0.001 #0.0184
     momentum            = 0 # 0.9
     weight_decay        = 5e-4 * 10
 
     if dataset_name == "cifar":
-        train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch = load_cifar(loss_name, batch_size)
+        train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels = load_cifar(loss_name, batch_size)
     elif dataset_name == "mnist":
         train_loader, test_loader, analysis_loader, input_ch = load_mnist(loss_name, batch_size)
 
-    load_from_epoch = continue_training(lr, weight_decay, batch_size, epochs)
+    if model_name == "resnet18":
+        model = models.resnet18(pretrained=False, num_classes=C)
+        model_params = {}
+    elif model_name == "weight_norm":
+        model = weight_norm_net(num_pixels, [wn_width, wn_width], wn_init_mode, wn_basis_var, wn_scale)
+        model_params = {"width": wn_width, "init": wn_init_mode, "var": wn_basis_var, "scale": wn_scale}
+    else:
+        raise NotImplementedError
+
+    load_from_epoch = continue_training(lr, model_name, weight_decay, batch_size, epochs, **model_params)
 
     # analysis parameters
     """
@@ -250,14 +276,13 @@ if __name__ == "__main__":
     epoch_list = np.arange(load_from_epoch+1, epochs+1, 200).tolist()
 
     train_graphs = graphs()
-    
-    model = models.resnet18(pretrained=False, num_classes=C)
+
     if dataset_name == "mnist":
         model.conv1 = nn.Conv2d(input_ch, model.conv1.weight.shape[0], 3, 1, 1, bias=False) # Small dataset filter size used by He et al. (2015)
         model.maxpool = nn.MaxPool2d(kernel_size=1, stride=1, padding=0)
     if load_from_epoch != 0:
         print("loading from trained epoch {}".format(load_from_epoch))
-        load_from_dir = get_directory(lr, weight_decay, batch_size, load_from_epoch)
+        load_from_dir = get_directory(lr, model_name, weight_decay, batch_size, load_from_epoch, **model_params)
         model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))
         with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
             train_graphs = pickle.load(f)
@@ -265,9 +290,9 @@ if __name__ == "__main__":
 
 
     # register hook that saves last-layer input into features
-    classifier = model.fc
-    classifier.register_forward_hook(hook)
-
+    if "nc" in analysis_list:
+        classifier = model.fc
+        classifier.register_forward_hook(hook)
 
     if loss_name == 'CrossEntropyLoss':
         criterion = nn.CrossEntropyLoss()
@@ -299,7 +324,7 @@ if __name__ == "__main__":
                                                 gamma=lr_decay)
 
     
-    directory = get_directory(lr, weight_decay, batch_size, epochs)
+    directory = get_directory(lr, model_name, weight_decay, batch_size, epochs, **model_params)
     os.makedirs(directory, exist_ok=True)
 
     import pickle
