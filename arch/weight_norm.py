@@ -62,7 +62,7 @@ class weight_norm_torch(nn.Module):
         self.module_list = nn.ModuleList()
         for l in range(len(widths)):
             prev_width = widths[l-1] if l > 0 else num_pixels
-            self.module_list.append(weight_norm(nn.Linear(prev_width, widths[l], bias=True)))
+            self.module_list.append(weight_norm(nn.Linear(prev_width, widths[l], bias=False)))
         self.output_layer = nn.Linear(widths[-1],10,bias=True)
         #self.__initialize__(widths, init_mode)
 

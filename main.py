@@ -36,7 +36,9 @@ from utilities import get_hessian_eigenvalues_weight_decay, get_hessian_eigenval
 from analysis.loss import compute_loss
 from analysis.eigs import compute_eigenvalues
 from analysis.nc import get_nc_statistics
-from arch.weight_norm import weight_norm_net
+from analysis.weight_norm import get_min_weight_norm, get_grad_loss_ratio
+
+from arch.weight_norm import weight_norm_net, weight_norm_torch
      
 
 def train(model, criterion, device, num_classes, train_loader, optimizer, epoch):
@@ -113,6 +115,11 @@ def analysis(graphs, analysis_list, model, criterion_summed, device, num_classes
     if 'nc' in analysis_list:
         get_nc_statistics(graphs, model, features, classifier, loss_name, criterion_summed, weight_decay, num_classes, analysis_loader, analysis_test_loader, device, debug=False)
 
+    if 'weight_norm' in analysis_list:
+        get_min_weight_norm(graphs, model, C=num_classes)
+        get_grad_loss_ratio(graphs, model, analysis_loader, criterion, criterion_summed, num_classes, device)
+
+
 class features:
     pass
 
@@ -171,16 +178,21 @@ class graphs:
 
         # Decomposition
         self.test_MSE_wd_features = []
-        self.test_LNC1 = []
-        self.test_LNC23 = []
-        self.test_Lperp = []
+        self.test_LNC1 =         []
+        self.test_LNC23 =        []
+        self.test_Lperp =        []
+
+        # weight norm statsitics
+        self.wn_grad_loss_ratio = []
+        self.wn_norm_min        = []
+
 
 def get_lookup_directory(lr, model_name, weight_decay, batch_size, **kwargs):
     results_dir = "results"
-    directory = f"{results_dir}/{model_name}/"
+    directory = f"{results_dir}/{dataset_name}/{opt_name}/{model_name}/"
     for key, value in kwargs.items():
         directory += f"{key}_{value}/"
-    directory += f"{dataset_name}/{opt_name}/lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/"
+    directory += f"lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/"
     return directory
 
 def get_directory(lr, model_name, weight_decay, batch_size, epochs, **kwargs):
@@ -213,7 +225,7 @@ if __name__ == "__main__":
     C                   = 10
 
     # model parameters
-    model_name          = "weight_norm" #"resnet18"
+    model_name          = "weight_norm_torch" #"weight_norm" #"resnet18"
     wn_width            = 512 #1024, 2048
     wn_init_mode        = "O(1/sqrt{m})"
     wn_basis_var        = 5
@@ -223,7 +235,7 @@ if __name__ == "__main__":
     # loss_name = 'CrossEntropyLoss'
     loss_name = 'MSELoss'
     opt_name = 'sgd'#'goldstein'#'norm-sgd'
-    analysis_list = ['loss']#['loss','eigs','nc']
+    analysis_list = ['loss', 'weight_norm'] #['loss','eigs','nc']
 
     # Optimization hyperparameters
     lr_decay            = 1# 0.1
@@ -238,13 +250,13 @@ if __name__ == "__main__":
     sam_adaptive = False
 
     #hyperparameters for gold
-    gold_delta = 0.05
+    gold_delta = 0.01
 
     # Best lr after hyperparameter tuning
     if loss_name == 'CrossEntropyLoss':
         lr = 0.0679
     elif loss_name == 'MSELoss':
-        lr = 0.001 #0.0184
+        lr = 0.01 #0.0184
     momentum            = 0 # 0.9
     weight_decay        = 5e-4 * 10
 
@@ -259,6 +271,9 @@ if __name__ == "__main__":
     elif model_name == "weight_norm":
         model = weight_norm_net(num_pixels, [wn_width, wn_width], wn_init_mode, wn_basis_var, wn_scale)
         model_params = {"width": wn_width, "init": wn_init_mode, "var": wn_basis_var, "scale": wn_scale}
+    elif model_name == "weight_norm_torch":
+        model = weight_norm_torch(num_pixels, [wn_width, wn_width])
+        model_params = {"width": wn_width}
     else:
         raise NotImplementedError
 
