@@ -9,7 +9,7 @@ from torch.nn.utils import parameters_to_vector, weight_norm
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 
-def get_min_weight_norm(graphs, model, C):
+def get_min_weight_norm(graphs, model, C, model_name):
     norm_min = 1e10
     for name, param in model.named_parameters():
         #print(name, param.shape)
@@ -20,7 +20,11 @@ def get_min_weight_norm(graphs, model, C):
             continue
         print(name)
         """
-        if 'weight_v' in name:
+        if model_name == "weight_norm":
+            if 'output_layer' in name:
+                continue
+            norm_min = min(norm_min, torch.min(torch.norm(param, dim=-1)).cpu().detach().numpy())
+        if model_name == 'weight_norm_torch' and 'weight_v' in name:
             norm_min = min(norm_min, torch.min(torch.norm(param, dim=-1)).cpu().detach().numpy())
     graphs.wn_norm_min.append(norm_min)
 

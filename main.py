@@ -23,7 +23,9 @@ from IPython import embed
 from optimizer.sam import SAM, disable_running_stats, enable_running_stats
 from optimizer.normalized_sgd import Normalized_Optimizer
 from optimizer.goldstein import Goldstein
-from data import load_cifar, load_mnist
+
+from data.cifar import load_cifar
+from data.mnist import load_mnist
 
 torch.manual_seed(32)
  
@@ -105,7 +107,7 @@ def train(model, criterion, device, num_classes, train_loader, optimizer, epoch)
 
     pbar.close()
 
-def analysis(graphs, analysis_list, model, criterion_summed, device, num_classes, train_loader, test_loader, analysis_loader, analysis_test_loader):
+def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, train_loader, test_loader, analysis_loader, analysis_test_loader):
     if 'loss' in analysis_list:
         compute_loss(graphs, model, criterion, criterion_summed, device, num_classes, train_loader, test_loader)
     
@@ -116,7 +118,7 @@ def analysis(graphs, analysis_list, model, criterion_summed, device, num_classes
         get_nc_statistics(graphs, model, features, classifier, loss_name, criterion_summed, weight_decay, num_classes, analysis_loader, analysis_test_loader, device, debug=False)
 
     if 'weight_norm' in analysis_list:
-        get_min_weight_norm(graphs, model, C=num_classes)
+        get_min_weight_norm(graphs, model, C=num_classes, model_name=model_name)
         get_grad_loss_ratio(graphs, model, analysis_loader, criterion, criterion_summed, num_classes, device)
 
 
@@ -225,9 +227,9 @@ if __name__ == "__main__":
     C                   = 10
 
     # model parameters
-    model_name          = "weight_norm" #"weight_norm" #"resnet18"
-    wn_width            = 512 #1024, 2048
-    wn_init_mode        = "O(1/sqrt{m})"
+    model_name          = "weight_norm_torch" #"weight_norm" #"resnet18"
+    wn_width            =  2048#512 #, 1024
+    wn_init_mode        = "O(1)" # "O(1/sqrt{m})"
     wn_basis_var        = 5
     wn_scale            = 10
 
@@ -258,7 +260,7 @@ if __name__ == "__main__":
     elif loss_name == 'MSELoss':
         lr = 0.01 #0.0184
     momentum            = 0 # 0.9
-    weight_decay        = 5e-4 * 10
+    weight_decay        = 0 # 5e-4 * 10
 
     if dataset_name == "cifar":
         train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels = load_cifar(loss_name, batch_size)
@@ -352,6 +354,6 @@ if __name__ == "__main__":
         if epoch in epoch_list:
             train_graphs.log_epochs.append(epoch)
             #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
-            analysis(train_graphs, analysis_list, model, criterion_summed, device, C, train_loader, test_loader, analysis_loader, analysis_test_loader)
+            analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, train_loader, test_loader, analysis_loader, analysis_test_loader)
             pickle.dump(train_graphs, open(f"{directory}/train_graphs.pk", "wb"))
             torch.save(model.state_dict(), f"{directory}/model.ckpt")
