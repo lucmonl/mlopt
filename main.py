@@ -26,6 +26,7 @@ from optimizer.goldstein import Goldstein
 
 from data.cifar import load_cifar
 from data.mnist import load_mnist
+from data.spurious import load_spurious_data
 
 torch.manual_seed(32)
  
@@ -41,13 +42,14 @@ from analysis.nc import get_nc_statistics
 from analysis.weight_norm import get_min_weight_norm, get_grad_loss_ratio
 
 from arch.weight_norm import weight_norm_net, weight_norm_torch
+from arch.mlp_sim_bn import mlp_sim_bn
      
 
-def train(model, criterion, device, num_classes, train_loader, optimizer, epoch):
+def train(model, loss_name, criterion, device, num_classes, train_loader, optimizer, epoch):
     model.train()
     
     pbar = tqdm(total=len(train_loader), position=0, leave=True)
-
+    accuracy = 0
     for batch_idx, (data, target) in enumerate(train_loader, start=1):
         if data.shape[0] != batch_size:
                 continue
@@ -56,10 +58,13 @@ def train(model, criterion, device, num_classes, train_loader, optimizer, epoch)
 
         optimizer.zero_grad()
         out = model(data)
-        if str(criterion) == 'CrossEntropyLoss()':
+        if loss_name == 'CrossEntropyLoss':
             loss = criterion(out, target)
-        elif str(criterion) == 'MSELoss()':
-            loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
+        elif loss_name == 'MSELoss':
+            #if transform_to_one_hot:
+            #    loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
+            #else:
+            loss = criterion(out, target)
         
         loss.backward()
         if opt_name == "sam":
@@ -88,7 +93,8 @@ def train(model, criterion, device, num_classes, train_loader, optimizer, epoch)
         else:
             optimizer.step()
 
-        accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
+        if out.dim() > 1:
+            accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
 
         pbar.update(1)
         pbar.set_description(
@@ -109,11 +115,11 @@ def train(model, criterion, device, num_classes, train_loader, optimizer, epoch)
 
 def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, train_loader, test_loader, analysis_loader, analysis_test_loader):
     if 'loss' in analysis_list:
-        compute_loss(graphs, model, criterion, criterion_summed, device, num_classes, train_loader, test_loader)
-    
+        compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader)
+
     if 'eigs' in analysis_list:
         compute_eigenvalues(graphs, model, criterion_summed, weight_decay, analysis_loader, analysis_test_loader, num_classes, device)
-
+    
     if 'nc' in analysis_list:
         get_nc_statistics(graphs, model, features, classifier, loss_name, criterion_summed, weight_decay, num_classes, analysis_loader, analysis_test_loader, device, debug=False)
 
@@ -223,11 +229,10 @@ if __name__ == "__main__":
     debug = False # Only runs 20 batches per epoch for debugging
 
     # dataset parameters
-    dataset_name        = "cifar"
-    C                   = 10
+    dataset_name        = "spurious" #"cifar"
 
     # model parameters
-    model_name          = "weight_norm_torch" #"weight_norm" #"resnet18"
+    model_name          = "2-mlp-sim-bn"#"weight_norm_torch" #"weight_norm" #"resnet18"
     wn_width            =  2048#512 #, 1024
     wn_init_mode        = "O(1)" # "O(1/sqrt{m})"
     wn_basis_var        = 5
@@ -237,12 +242,12 @@ if __name__ == "__main__":
     # loss_name = 'CrossEntropyLoss'
     loss_name = 'MSELoss'
     opt_name = 'sgd'#'goldstein'#'norm-sgd'
-    analysis_list = ['loss', 'weight_norm'] #['loss','eigs','nc']
+    analysis_list = ['loss', 'eigs'] #['loss','eigs','nc',''weight_norm']
 
     # Optimization hyperparameters
     lr_decay            = 1# 0.1
 
-    epochs              = 40000
+    epochs              = 4000
     epochs_lr_decay     = [epochs//3, epochs*2//3]
 
     batch_size          = 512 # 128
@@ -263,9 +268,11 @@ if __name__ == "__main__":
     weight_decay        = 0 # 5e-4 * 10
 
     if dataset_name == "cifar":
-        train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels = load_cifar(loss_name, batch_size)
+        train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot = load_cifar(loss_name, batch_size)
     elif dataset_name == "mnist":
-        train_loader, test_loader, analysis_loader, input_ch = load_mnist(loss_name, batch_size)
+        train_loader, test_loader, analysis_loader, input_ch, C, transform_to_one_hot = load_mnist(loss_name, batch_size)
+    elif dataset_name == "spurious":
+        train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot = load_spurious_data(loss_name, 4096, batch_size)
 
     if model_name == "resnet18":
         model = models.resnet18(pretrained=False, num_classes=C)
@@ -276,6 +283,9 @@ if __name__ == "__main__":
     elif model_name == "weight_norm_torch":
         model = weight_norm_torch(num_pixels, [wn_width, wn_width])
         model_params = {"width": wn_width}
+    elif model_name == "2-mlp-sim-bn":
+        model = mlp_sim_bn(num_pixels, C)
+        model_params = {}
     else:
         raise NotImplementedError
 
@@ -315,8 +325,19 @@ if __name__ == "__main__":
         criterion = nn.CrossEntropyLoss()
         criterion_summed = nn.CrossEntropyLoss(reduction='sum')
     elif loss_name == 'MSELoss':
-        criterion = nn.MSELoss()
-        criterion_summed = nn.MSELoss(reduction='sum')
+        if transform_to_one_hot:
+            def mse_sum_with_one_hot(out, target):
+                return nn.MSELoss(reduction='sum')(out, F.one_hot(target, num_classes=C).float()) * C
+
+            def mse_with_one_hot(out, target):
+                return nn.MSELoss()(out, F.one_hot(target, num_classes=C).float()) * C
+
+            criterion = mse_with_one_hot
+            criterion_summed = mse_sum_with_one_hot
+        else:
+            criterion = nn.MSELoss()
+            criterion_summed = nn.MSELoss(reduction='sum')
+
 
     if opt_name == "sgd":
         optimizer = optim.SGD(model.parameters(),
@@ -348,7 +369,7 @@ if __name__ == "__main__":
 
     cur_epochs = []
     for epoch in range(load_from_epoch+1, epochs + 1):
-        train(model, criterion, device, C, train_loader, optimizer, epoch)
+        train(model, loss_name, criterion, device, C, train_loader, optimizer, epoch)
         #lr_scheduler.step()
 
         if epoch in epoch_list:

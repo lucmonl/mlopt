@@ -44,6 +44,8 @@ def make_labels(y, loss):
 def load_cifar(loss: str, batch_size: int):
     input_ch = 3
     num_pixels = 32 * 32 * 3
+    C = 10
+    transform_to_one_hot = True
     cifar10_train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True)
     cifar10_test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False)
     X_train, X_test = flatten(cifar10_train.data / 255), flatten(cifar10_test.data / 255)
@@ -69,4 +71,4 @@ def load_cifar(loss: str, batch_size: int):
     analysis_test_loader = torch.utils.data.DataLoader(
         analysis_test,
         batch_size=batch_size, shuffle=False)
-    return train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels
+    return train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot

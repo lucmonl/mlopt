@@ -219,7 +219,8 @@ def compute_hvp_weight_decay(network: nn.Module, loss_fn: nn.Module, weight_deca
     for batch_idx, (data, target) in enumerate(data_loader):
         #print(loss_fn(network(data.to(device)), torch.nn.functional.one_hot(target.to(device), num_classes=num_classes).float()))
         #print(network(data.to(device))[0], torch.nn.functional.one_hot(target.to(device), num_classes=num_classes)[0])
-        loss = loss_fn(network(data.to(device)), torch.nn.functional.one_hot(target.to(device), num_classes=num_classes).float()) / n
+        #loss = loss_fn(network(data.to(device)), torch.nn.functional.one_hot(target.to(device), num_classes=num_classes).float()) / n
+        loss = loss_fn(network(data.to(device)), target.to(device)) / n
         #print("loss at analysis:", loss)
         grads = torch.autograd.grad(loss, inputs=network.parameters(), create_graph=True)
         dot = parameters_to_vector(grads).mul(vector).sum()

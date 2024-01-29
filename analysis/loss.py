@@ -3,21 +3,25 @@ import torch
 from tqdm import tqdm
 import torch.nn.functional as F
 
-def compute_loss(graphs, model, criterion, criterion_summed, device, num_classes, loader_abridged, test_loader):
+def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, loader_abridged, test_loader):
     disable_running_stats(model)
     loss_sum = 0
     accuracy_sum = 0
+    accuracy = 0
     for batch_idx, (data, target) in enumerate(loader_abridged, start=1):
         data, target = data.to(device), target.to(device)
         out = model(data)
-        if str(criterion) == 'CrossEntropyLoss()':
+        if str(loss_name) == 'CrossEntropyLoss':
             loss = criterion(out, target)
-        elif str(criterion) == 'MSELoss()':
+        elif str(loss_name) == 'MSELoss':
             #print(out[0], target[0])
             #loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
-            loss = criterion_summed(out, F.one_hot(target, num_classes=num_classes).float()).float()
-
-        accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
+            #if transform_to_one_hot:
+            #    loss = criterion_summed(out, F.one_hot(target, num_classes=num_classes).float()).float()
+            #else:
+            loss = criterion_summed(out, target)
+        if out.dim() > 1:
+            accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
         loss_sum += loss.item()
         accuracy_sum += accuracy
     graphs.loss.append(loss_sum / len(loader_abridged.dataset))
@@ -30,14 +34,17 @@ def compute_loss(graphs, model, criterion, criterion_summed, device, num_classes
     for batch_idx, (data, target) in enumerate(test_loader, start=1):
         data, target = data.to(device), target.to(device)
         out = model(data)
-        if str(criterion) == 'CrossEntropyLoss()':
+        if str(criterion) == 'CrossEntropyLoss':
             loss = criterion(out, target)
-        elif str(criterion) == 'MSELoss()':
+        elif str(criterion) == 'MSELoss':
             #print(out[0], target[0])
             #loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
-            loss = criterion_summed(out, F.one_hot(target, num_classes=num_classes).float()).float()
-
-        accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
+            #if transform_to_one_hot:
+            #    loss = criterion_summed(out, F.one_hot(target, num_classes=num_classes).float()).float()
+            #else:
+            loss = criterion_summed(out, target)
+        if out.dim() > 1:
+            accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
 
         pbar.update(1)
         pbar.set_description(
