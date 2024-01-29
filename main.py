@@ -195,7 +195,7 @@ class graphs:
         self.wn_norm_min        = []
 
 
-def get_lookup_directory(lr, model_name, weight_decay, batch_size, **kwargs):
+def get_lookup_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, **kwargs):
     results_dir = "results"
     directory = f"{results_dir}/{dataset_name}/{opt_name}/{model_name}/"
     for key, value in kwargs.items():
@@ -203,16 +203,16 @@ def get_lookup_directory(lr, model_name, weight_decay, batch_size, **kwargs):
     directory += f"lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/"
     return directory
 
-def get_directory(lr, model_name, weight_decay, batch_size, epochs, **kwargs):
+def get_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, epochs, **kwargs):
     #results_dir = "results"
     #directory = f"{results_dir}/{model_name}/{dataset_name}/{opt_name}/lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/epoch_{epochs}/"
-    directory = get_lookup_directory(lr, model_name, weight_decay, batch_size, **kwargs) + f"epoch_{epochs}/"
+    directory = get_lookup_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, **kwargs) + f"epoch_{epochs}/"
     return directory
 
-def continue_training(lr, model_name, weight_decay, batch_size, epochs, **kwargs):
+def continue_training(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, epochs, **kwargs):
     #results_dir = "results"
     #lookup_dir = f"{results_dir}/{model_name}/{dataset_name}/{opt_name}/lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/"
-    lookup_dir = get_lookup_directory(lr, model_name, weight_decay, batch_size, **kwargs)
+    lookup_dir = get_lookup_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, **kwargs)
     if not os.path.exists(lookup_dir):
         return 0
     epoch_dir = os.listdir(lookup_dir)
@@ -289,7 +289,7 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError
 
-    load_from_epoch = continue_training(lr, model_name, weight_decay, batch_size, epochs, **model_params)
+    load_from_epoch = continue_training(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, epochs, **model_params)
 
     # analysis parameters
     """
@@ -309,7 +309,7 @@ if __name__ == "__main__":
         model.maxpool = nn.MaxPool2d(kernel_size=1, stride=1, padding=0)
     if load_from_epoch != 0:
         print("loading from trained epoch {}".format(load_from_epoch))
-        load_from_dir = get_directory(lr, model_name, weight_decay, batch_size, load_from_epoch, **model_params)
+        load_from_dir = get_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, load_from_epoch, **model_params)
         model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))
         with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
             train_graphs = pickle.load(f)
@@ -362,7 +362,7 @@ if __name__ == "__main__":
                                                 gamma=lr_decay)
 
     
-    directory = get_directory(lr, model_name, weight_decay, batch_size, epochs, **model_params)
+    directory = get_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, epochs, **model_params)
     os.makedirs(directory, exist_ok=True)
 
     import pickle
