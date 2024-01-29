@@ -72,8 +72,8 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
             # second forward-backward step
             disable_running_stats(model)
             out = model(data)
-            loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
-            #loss = criterion(out, target).float() * num_classes
+            #loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
+            loss = criterion(out, target).float()
             loss.backward()
             optimizer.second_step(zero_grad=True)
             enable_running_stats(model)
@@ -84,8 +84,8 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
                 optimizer.first_step(zero_grad=True)
                 disable_running_stats(model)
                 out = model(data)
-                loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
-                #loss = criterion(out, target).float() * num_classes
+                #loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
+                loss = criterion(out, target).float()
                 loss.backward()
                 optimizer.second_step(zero_grad=False)
             optimizer.third_step(zero_grad=True)
@@ -241,7 +241,7 @@ if __name__ == "__main__":
     # Optimization Criterion
     # loss_name = 'CrossEntropyLoss'
     loss_name = 'MSELoss'
-    opt_name = 'sgd'#'goldstein'#'norm-sgd'
+    opt_name =  'sam' #'sgd'#'goldstein'#'norm-sgd'
     analysis_list = ['loss', 'eigs'] #['loss','eigs','nc',''weight_norm']
 
     # Optimization hyperparameters
