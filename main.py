@@ -227,6 +227,7 @@ def continue_training(lr, dataset_name, opt_name, model_name, weight_decay, batc
     
 if __name__ == "__main__":
     debug = False # Only runs 20 batches per epoch for debugging
+    model_params = {}
 
     # dataset parameters
     dataset_name        = "spurious" #"cifar"
@@ -241,7 +242,7 @@ if __name__ == "__main__":
     # Optimization Criterion
     # loss_name = 'CrossEntropyLoss'
     loss_name = 'MSELoss'
-    opt_name =  'sam' #'sgd'#'goldstein'#'norm-sgd'
+    opt_name =  'goldstein' #'goldstein' #'goldstein' #'sam' #'sgd'#'norm-sgd'
     analysis_list = ['loss', 'eigs'] #['loss','eigs','nc',''weight_norm']
 
     # Optimization hyperparameters
@@ -257,7 +258,9 @@ if __name__ == "__main__":
     sam_adaptive = False
 
     #hyperparameters for gold
-    gold_delta = 0.01
+    if opt_name == "goldstein":
+        gold_delta = 0.1
+        model_params = model_params | {"gold_delta": gold_delta}
 
     # Best lr after hyperparameter tuning
     if loss_name == 'CrossEntropyLoss':
@@ -276,16 +279,16 @@ if __name__ == "__main__":
 
     if model_name == "resnet18":
         model = models.resnet18(pretrained=False, num_classes=C)
-        model_params = {}
+        model_params = {} | model_params
     elif model_name == "weight_norm":
         model = weight_norm_net(num_pixels, [wn_width, wn_width], wn_init_mode, wn_basis_var, wn_scale)
-        model_params = {"width": wn_width, "init": wn_init_mode, "var": wn_basis_var, "scale": wn_scale}
+        model_params = {"width": wn_width, "init": wn_init_mode, "var": wn_basis_var, "scale": wn_scale} | model_params
     elif model_name == "weight_norm_torch":
         model = weight_norm_torch(num_pixels, [wn_width, wn_width])
-        model_params = {"width": wn_width}
+        model_params = {"width": wn_width} | model_params
     elif model_name == "2-mlp-sim-bn":
         model = mlp_sim_bn(num_pixels, C)
-        model_params = {}
+        model_params = {} | model_params
     else:
         raise NotImplementedError
 

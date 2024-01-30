@@ -15,7 +15,7 @@ class Goldstein(torch.optim.Optimizer):
     @torch.no_grad()
     def first_step(self, zero_grad=False):
         grad_norm = self._grad_norm()
-        r = grad_norm / 100
+        r = grad_norm / 1000
         for group in self.param_groups:
             for p in group["params"]:
                 if p.grad is None: continue
@@ -33,9 +33,7 @@ class Goldstein(torch.optim.Optimizer):
             scale = group["delta"]
             for p in group["params"]:
                 if p.grad is None: continue
-                p = self.state[p]["old_p"] - scale*torch.rand_like(p.data)*p.grad/grad_norm
-
-        if zero_grad: self.zero_grad()
+                p = self.state[p]["old_p"] - scale*torch.rand(1, device=p.grad.device)*p.grad/grad_norm
 
     @torch.no_grad()
     def second_step(self, zero_grad=False):
@@ -46,8 +44,10 @@ class Goldstein(torch.optim.Optimizer):
                 if p.grad is None: continue
                 coef_a += torch.sum((p.grad - self.state[p]["old_grad"])**2)
                 coef_b += torch.sum((p.grad * (self.state[p]["old_grad"]-p.grad)))
+                #print("a,b:", coef_a, coef_b)
                 #p.data = self.state[p]["old_p"]  # get back to "w" from "w + e(w)"
         lam = -coef_b / coef_a
+        #print("lambda for goldstein:", coef_b, coef_a, lam)
         if lam > 1: lam=1
         elif lam <0: lam=0
         #update grads
