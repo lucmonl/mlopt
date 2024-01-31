@@ -29,8 +29,9 @@ def load_mnist(loss: str, batch_size: int):
         test_dataset,
         batch_size=batch_size, shuffle=False)
 
-    analysis_dataset = torch.utils.data.Subset(train_dataset, range(batch_size))
+    analysis_size = max(batch_size, 128)
+    analysis_dataset = torch.utils.data.Subset(train_dataset, range(analysis_size))
     analysis_loader = torch.utils.data.DataLoader(
         analysis_dataset,
-        batch_size=batch_size, shuffle=False)
+        batch_size=analysis_size, shuffle=False)
     return train_loader, test_loader, analysis_loader, input_ch, C, transform_to_one_hot

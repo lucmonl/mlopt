@@ -57,8 +57,10 @@ def load_cifar(loss: str, batch_size: int):
     standardized_X_train, standardized_X_test = standardize(center_X_train, center_X_test)
     train = TensorDataset(torch.from_numpy(unflatten(standardized_X_train, (32, 32, 3)).transpose((0, 3, 1, 2))).float(), y_train)
     test = TensorDataset(torch.from_numpy(unflatten(standardized_X_test, (32, 32, 3)).transpose((0, 3, 1, 2))).float(), y_test)
-    analysis = torch.utils.data.Subset(train, range(batch_size))
-    analysis_test = torch.utils.data.Subset(test, range(batch_size))
+    
+    analysis_size = max(batch_size, 128)
+    analysis = torch.utils.data.Subset(train, range(analysis_size))
+    analysis_test = torch.utils.data.Subset(test, range(analysis_size))
     train_loader = torch.utils.data.DataLoader(
         train,
         batch_size=batch_size, shuffle=True)
@@ -67,8 +69,8 @@ def load_cifar(loss: str, batch_size: int):
         batch_size=batch_size, shuffle=False)
     analysis_loader = torch.utils.data.DataLoader(
         analysis,
-        batch_size=batch_size, shuffle=False)
+        batch_size=analysis_size, shuffle=False)
     analysis_test_loader = torch.utils.data.DataLoader(
         analysis_test,
-        batch_size=batch_size, shuffle=False)
+        batch_size=analysis_size, shuffle=False)
     return train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot

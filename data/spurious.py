@@ -28,8 +28,9 @@ def load_spurious_data(loss_name, feat_dim, train_size, batch_size):
 
     train = TensorDataset(X_train, y_train)
     test = TensorDataset(X_test, y_test)
-    analysis = torch.utils.data.Subset(train, range(batch_size))
-    analysis_test = torch.utils.data.Subset(test, range(batch_size))
+    anaylsis_size = min(train_size, max(batch_size, 128))
+    analysis = torch.utils.data.Subset(train, range(anaylsis_size))
+    analysis_test = torch.utils.data.Subset(test, range(anaylsis_size))
 
     train_loader = torch.utils.data.DataLoader(
         train,
@@ -39,8 +40,8 @@ def load_spurious_data(loss_name, feat_dim, train_size, batch_size):
         batch_size=batch_size, shuffle=False)
     analysis_loader = torch.utils.data.DataLoader(
         analysis,
-        batch_size=batch_size, shuffle=False)
+        batch_size=anaylsis_size, shuffle=False)
     analysis_test_loader = torch.utils.data.DataLoader(
         analysis_test,
-        batch_size=batch_size, shuffle=False)
+        batch_size=anaylsis_size, shuffle=False)
     return train_loader, test_loader, analysis_loader, analysis_test_loader, feat_dim, C, transform_to_one_hot
