@@ -6,6 +6,7 @@ import pickle
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 import gc
+import argparse
 import numpy as np
 import torch.nn as nn
 import torch.optim as optim
@@ -220,55 +221,90 @@ def continue_training(lr, dataset_name, opt_name, model_name, weight_decay, batc
     trained_epochs.sort(reverse=True)
     load_from_epoch = 0
     for trained_epoch in trained_epochs:
+        if trained_epoch == epochs:
+            yes_or_no = input("The path already exists. Are you sure to overwrite? [y/n]")
+            if yes_or_no == 'n':
+                sys.exit()
         if trained_epoch < epochs:
             load_from_epoch = trained_epoch
             break
     return load_from_epoch
     
 if __name__ == "__main__":
-    debug = False # Only runs 20 batches per epoch for debugging
+    DATASETS = ["spurious", "cifar", "mnist"]
+    MODELS = ["2-mlp-sim-bn", "weight_norm_torch", "weight_norm", "resnet18"]
+    INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
+    LOSSES = ['MSELoss', 'CrossEntropyLoss']
+    OPTIMIZERS = ['goldstein','sam', 'sgd', 'norm-sgd']
+
+    parser = argparse.ArgumentParser(description="Train Configuration.")
+    parser.add_argument("--debug", type=bool, default=False, help="only run first 20 batches per epoch if set to True")
+    parser.add_argument("--dataset",  type=str, choices=DATASETS, help="which dataset to train")
+    parser.add_argument("--model",  type=str, choices=MODELS, help="which model to train")
+    parser.add_argument("--width", type=int, default=512, help="network width for weight norm")
+    parser.add_argument("--init_mode",  type=str, default="O(1)", choices=INIT_MODES, help="Initialization Mode")
+    parser.add_argument("--basis_var", type=float, default=5, help="variance for initialization")
+    parser.add_argument("--wn_scale", type=float, default=10, help="scaling coef for weight_norm model")
+
+    parser.add_argument("--loss",  type=str, choices=LOSSES, help="Training Loss")
+    parser.add_argument("--opt",  type=str, choices=OPTIMIZERS, help="Training Optimizer")
+    parser.add_argument('--analysis', nargs='+', type=str, help="quantities that will be analyzed")
+    parser.add_argument("--lr", type=float, help="the learning rate")
+    parser.add_argument("--lr_decay", type=float, default=1, help="the learning rate decat. default: no decay")
+    parser.add_argument("--momentum", type=float, default=0, help="momentum")
+    parser.add_argument("--weight_decay", type=float, default=0, help ="weight decay")
+    parser.add_argument("--epoch", type=int, help="total training epoches")
+    parser.add_argument("--batch_size", type=int, help="batch size in training, also the number of samples in analysis dataset")
+    
+    parser.add_argument("--sam_rho", type=float, default=0.1, help="rho for SAM")
+    parser.add_argument("--sam_adaptive", type=bool, default=False, help="use adaptive SAM")
+    parser.add_argument("--gold_delta", type=float, default=1, help="delta for goldstein")
+    args = parser.parse_args()
+
+
+    debug = args.debug # Only runs 20 batches per epoch for debugging
     model_params = {}
 
     # dataset parameters
-    dataset_name        = "spurious" #"cifar"
+    dataset_name        = args.dataset #"spurious" #"cifar"
 
     # model parameters
-    model_name          = "2-mlp-sim-bn"#"weight_norm_torch" #"weight_norm" #"resnet18"
-    wn_width            =  2048#512 #, 1024
-    wn_init_mode        = "O(1)" # "O(1/sqrt{m})"
-    wn_basis_var        = 5
-    wn_scale            = 10
+    model_name          = args.model #"2-mlp-sim-bn"#"weight_norm_torch" #"weight_norm" #"resnet18"
+    wn_width            = args.width #2048#512 #, 1024
+    wn_init_mode        = args.init_mode  # "O(1)" # "O(1/sqrt{m})"
+    wn_basis_var        = args.basis_var
+    wn_scale            = args.wn_scale
 
     # Optimization Criterion
     # loss_name = 'CrossEntropyLoss'
-    loss_name = 'MSELoss'
-    opt_name =  'goldstein' #'goldstein' #'goldstein' #'sam' #'sgd'#'norm-sgd'
-    analysis_list = ['loss', 'eigs'] #['loss','eigs','nc',''weight_norm']
+    loss_name           = args.loss
+    opt_name            = args.opt
+    analysis_list       = args.analysis # ['loss', 'eigs'] #['loss','eigs','nc',''weight_norm']
 
     # Optimization hyperparameters
-    lr_decay            = 1# 0.1
+    lr_decay            = args.lr_decay #1# 0.1
 
-    epochs              = 4000
+    epochs              = args.epoch
     epochs_lr_decay     = [epochs//3, epochs*2//3]
 
-    batch_size          = 512 # 128
+    batch_size          = args.batch_size #512 # 128
 
     #hyperparameters for sam
-    sam_rho = 0.1
-    sam_adaptive = False
+    sam_rho = args.sam_rho #0.1
+    sam_adaptive = args.sam_adaptive #False
 
     #hyperparameters for gold
     if opt_name == "goldstein":
-        gold_delta = 0.1
+        gold_delta = args.gold_delta
         model_params = model_params | {"gold_delta": gold_delta}
 
     # Best lr after hyperparameter tuning
     if loss_name == 'CrossEntropyLoss':
-        lr = 0.0679
+        lr = args.lr #0.0679
     elif loss_name == 'MSELoss':
-        lr = 0.01 #0.0184
-    momentum            = 0 # 0.9
-    weight_decay        = 0 # 5e-4 * 10
+        lr = args.lr #0.0184
+    momentum            = args.momentum #0 # 0.9
+    weight_decay        = args.weight_decay #0 # 5e-4 * 10
 
     if dataset_name == "cifar":
         train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot = load_cifar(loss_name, batch_size)

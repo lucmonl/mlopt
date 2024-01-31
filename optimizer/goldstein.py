@@ -15,7 +15,7 @@ class Goldstein(torch.optim.Optimizer):
     @torch.no_grad()
     def first_step(self, zero_grad=False):
         grad_norm = self._grad_norm()
-        r = grad_norm / 1000
+        r = grad_norm
         for group in self.param_groups:
             for p in group["params"]:
                 if p.grad is None: continue
