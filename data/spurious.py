@@ -17,7 +17,7 @@ def load_spurious_data(loss_name, train_size, batch_size):
         return X[:,0] * X[:,1]
 
     torch.manual_seed(1)
-    feat_size = 20
+    feat_size =50
     C = 1 #output dim
     transform_to_one_hot = False
 

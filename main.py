@@ -21,13 +21,7 @@ from scipy.sparse.linalg import svds
 
 from IPython import embed
 
-from optimizer.sam import SAM, disable_running_stats, enable_running_stats
-from optimizer.normalized_sgd import Normalized_Optimizer
-from optimizer.goldstein import Goldstein
-
-from data.cifar import load_cifar
-from data.mnist import load_mnist
-from data.spurious import load_spurious_data
+from optimizer.sam import disable_running_stats, enable_running_stats
 
 torch.manual_seed(32)
  
@@ -36,15 +30,7 @@ torch.manual_seed(32)
 #parent_dir = os.path.dirname(current_dir)
 #sys.path.append(parent_dir)
 #print(parent_dir)
-from utilities import get_hessian_eigenvalues_weight_decay, get_hessian_eigenvalues
-from analysis.loss import compute_loss
-from analysis.eigs import compute_eigenvalues
-from analysis.nc import get_nc_statistics
-from analysis.weight_norm import get_min_weight_norm, get_grad_loss_ratio
-
-from arch.weight_norm import weight_norm_net, weight_norm_torch
-from arch.mlp_sim_bn import mlp_sim_bn
-     
+#from utilities import get_hessian_eigenvalues_weight_decay, get_hessian_eigenvalues     
 
 def train(model, loss_name, criterion, device, num_classes, train_loader, optimizer, epoch):
     model.train()
@@ -116,15 +102,19 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
 
 def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, train_loader, test_loader, analysis_loader, analysis_test_loader):
     if 'loss' in analysis_list:
+        from analysis.loss import compute_loss
         compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader)
 
     if 'eigs' in analysis_list:
+        from analysis.eigs import compute_eigenvalues
         compute_eigenvalues(graphs, model, criterion_summed, weight_decay, analysis_loader, analysis_test_loader, num_classes, device)
     
     if 'nc' in analysis_list:
+        from analysis.nc import get_nc_statistics
         get_nc_statistics(graphs, model, features, classifier, loss_name, criterion_summed, weight_decay, num_classes, analysis_loader, analysis_test_loader, device, debug=False)
 
     if 'weight_norm' in analysis_list:
+        from analysis.weight_norm import get_min_weight_norm, get_grad_loss_ratio
         get_min_weight_norm(graphs, model, C=num_classes, model_name=model_name)
         get_grad_loss_ratio(graphs, model, analysis_loader, criterion, criterion_summed, num_classes, device)
 
@@ -260,7 +250,7 @@ if __name__ == "__main__":
     parser.add_argument("--sp_train_size", type=int, default=4096, help="training size for spurious dataset")
 
     # optimizer hyperparameters
-    parser.add_argument("--sam_rho", type=float, default=0.1, help="rho for SAM")
+    parser.add_argument("--sam_rho", type=float, default=0.0002, help="rho for SAM")
     parser.add_argument("--sam_adaptive", type=bool, default=False, help="use adaptive SAM")
     parser.add_argument("--gold_delta", type=float, default=1, help="delta for goldstein")
     args = parser.parse_args()
@@ -311,11 +301,15 @@ if __name__ == "__main__":
     momentum            = args.momentum #0 # 0.9
     weight_decay        = args.weight_decay #0 # 5e-4 * 10
 
+
     if dataset_name == "cifar":
+        from data.cifar import load_cifar
         train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot = load_cifar(loss_name, batch_size)
     elif dataset_name == "mnist":
+        from data.mnist import load_mnist
         train_loader, test_loader, analysis_loader, input_ch, C, transform_to_one_hot = load_mnist(loss_name, batch_size)
     elif dataset_name == "spurious":
+        from data.spurious import load_spurious_data
         train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot = load_spurious_data(loss_name, sp_train_size, batch_size)
         model_params = model_params | {"train_size": sp_train_size}
 
@@ -323,12 +317,15 @@ if __name__ == "__main__":
         model = models.resnet18(pretrained=False, num_classes=C)
         model_params = {} | model_params
     elif model_name == "weight_norm":
+        from arch.weight_norm import weight_norm_net
         model = weight_norm_net(num_pixels, [wn_width, wn_width], wn_init_mode, wn_basis_var, wn_scale)
         model_params = {"width": wn_width, "init": wn_init_mode, "var": wn_basis_var, "scale": wn_scale} | model_params
     elif model_name == "weight_norm_torch":
+        from arch.weight_norm import weight_norm_torch
         model = weight_norm_torch(num_pixels, [wn_width, wn_width])
         model_params = {"width": wn_width} | model_params
     elif model_name == "2-mlp-sim-bn":
+        from arch.mlp_sim_bn import mlp_sim_bn
         model = mlp_sim_bn(num_pixels, C)
         model_params = {} | model_params
     else:
@@ -391,15 +388,19 @@ if __name__ == "__main__":
                             weight_decay=weight_decay)
     elif opt_name == "sam":
         base_optimizer = torch.optim.SGD
+        from optimizer.sam import SAM
         optimizer = SAM(model.parameters(), base_optimizer, rho=sam_rho, adaptive=sam_adaptive, lr=lr, momentum=momentum, weight_decay=weight_decay)
+        model_params = model_params | {"sam_rho": sam_rho} 
     elif opt_name == "norm-sgd":
         base_optimizer = torch.optim.SGD
+        from optimizer.normalized_sgd import Normalized_Optimizer
         optimizer = Normalized_Optimizer(model.parameters(), base_optimizer,
                             lr=lr,
                             momentum=momentum,
                             weight_decay=weight_decay)
     elif opt_name == "goldstein":
         base_optimizer = torch.optim.SGD
+        from optimizer.goldstein import Goldstein
         optimizer = Goldstein(model.parameters(), base_optimizer, delta=gold_delta, lr=lr, momentum=momentum, weight_decay=weight_decay)
 
     lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
