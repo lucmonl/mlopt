@@ -217,6 +217,7 @@ def compute_hvp_weight_decay(network: nn.Module, loss_fn: nn.Module, weight_deca
     vector = vector.to(device)
     #for (X, y) in iterate_dataset(dataset, physical_batch_size):
     for batch_idx, (data, target) in enumerate(data_loader):
+        #print("hvp:", hvp)
         #print(loss_fn(network(data.to(device)), torch.nn.functional.one_hot(target.to(device), num_classes=num_classes).float()))
         #print(network(data.to(device))[0], torch.nn.functional.one_hot(target.to(device), num_classes=num_classes)[0])
         #loss = loss_fn(network(data.to(device)), torch.nn.functional.one_hot(target.to(device), num_classes=num_classes).float()) / n
@@ -224,9 +225,12 @@ def compute_hvp_weight_decay(network: nn.Module, loss_fn: nn.Module, weight_deca
         #print("loss at analysis:", loss)
         grads = torch.autograd.grad(loss, inputs=network.parameters(), create_graph=True)
         dot = parameters_to_vector(grads).mul(vector).sum()
+        #print("dot:", dot)
         grads = [g.contiguous() for g in torch.autograd.grad(dot, network.parameters(), retain_graph=True)]
+        #print("grads:", parameters_to_vector(grads) )
         hvp +=  parameters_to_vector(grads) 
     hvp += weight_decay * vector
+    
     return hvp
 
 def get_hessian_eigenvalues_weight_decay(network: nn.Module, loss_fn: nn.Module, weight_decay: float, dataset: Dataset,

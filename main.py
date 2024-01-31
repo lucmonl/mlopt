@@ -290,6 +290,9 @@ if __name__ == "__main__":
     sam_rho = args.sam_rho #0.1
     sam_adaptive = args.sam_adaptive #False
 
+    if debug:
+        torch.autograd.set_detect_anomaly(True)
+
     #hyperparameters for gold
     if opt_name == "goldstein":
         gold_delta = args.gold_delta

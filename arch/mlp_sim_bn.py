@@ -17,8 +17,8 @@ class mlp_sim_bn(nn.Module):
         self.gamma = torch.nn.parameter.Parameter(torch.randn(1), requires_grad=True)
 
     def simple_batch_norm(self, batched_x):
-        simple_var = torch.sqrt(torch.mean(batched_x**2, dim=0))
-        return self.gamma * batched_x / (simple_var + 1e-6)
+        simple_var = torch.sqrt(torch.mean(batched_x**2, dim=0) + 1e-6)
+        return self.gamma * batched_x / (simple_var)
 
     def forward(self, batched_x):
         batched_x = self.flatten(batched_x)
