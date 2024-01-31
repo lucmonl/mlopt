@@ -256,6 +256,10 @@ if __name__ == "__main__":
     parser.add_argument("--epoch", type=int, help="total training epoches")
     parser.add_argument("--batch_size", type=int, help="batch size in training, also the number of samples in analysis dataset")
     
+    # data
+    parser.add_argument("--sp_train_size", type=int, default=4096, help="training size for spurious dataset")
+
+    # optimizer hyperparameters
     parser.add_argument("--sam_rho", type=float, default=0.1, help="rho for SAM")
     parser.add_argument("--sam_adaptive", type=bool, default=False, help="use adaptive SAM")
     parser.add_argument("--gold_delta", type=float, default=1, help="delta for goldstein")
@@ -266,7 +270,8 @@ if __name__ == "__main__":
     model_params = {}
 
     # dataset parameters
-    dataset_name        = args.dataset #"spurious" #"cifar"
+    dataset_name        = args.dataset #"spurious" #"cifar"\
+    sp_train_size       = args.sp_train_size
 
     # model parameters
     model_name          = args.model #"2-mlp-sim-bn"#"weight_norm_torch" #"weight_norm" #"resnet18"
@@ -311,7 +316,8 @@ if __name__ == "__main__":
     elif dataset_name == "mnist":
         train_loader, test_loader, analysis_loader, input_ch, C, transform_to_one_hot = load_mnist(loss_name, batch_size)
     elif dataset_name == "spurious":
-        train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot = load_spurious_data(loss_name, 4096, batch_size)
+        train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot = load_spurious_data(loss_name, sp_train_size, batch_size)
+        model_params = model_params | {"train_size": sp_train_size}
 
     if model_name == "resnet18":
         model = models.resnet18(pretrained=False, num_classes=C)
