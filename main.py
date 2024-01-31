@@ -333,7 +333,8 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError
 
-    load_from_epoch = continue_training(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, epochs, **model_params)
+    
+
 
     # analysis parameters
     """
@@ -344,20 +345,12 @@ if __name__ == "__main__":
                         225, 245, 268, 293, 320, 350]
     """
     #epoch_list = np.arange(1, epochs+1, 100).tolist()
-    epoch_list = np.arange(load_from_epoch+1, epochs+1, 200).tolist()
-
     train_graphs = graphs()
 
     if dataset_name == "mnist":
         model.conv1 = nn.Conv2d(input_ch, model.conv1.weight.shape[0], 3, 1, 1, bias=False) # Small dataset filter size used by He et al. (2015)
         model.maxpool = nn.MaxPool2d(kernel_size=1, stride=1, padding=0)
-    if load_from_epoch != 0:
-        print("loading from trained epoch {}".format(load_from_epoch))
-        load_from_dir = get_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, load_from_epoch, **model_params)
-        model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))
-        with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
-            train_graphs = pickle.load(f)
-    model = model.to(device)
+
 
 
     # register hook that saves last-layer input into features
@@ -409,7 +402,16 @@ if __name__ == "__main__":
                                                 milestones=epochs_lr_decay,
                                                 gamma=lr_decay)
 
-    
+    load_from_epoch = continue_training(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, epochs, **model_params)
+    epoch_list = np.arange(load_from_epoch+1, epochs+1, 200).tolist()
+    if load_from_epoch != 0:
+        print("loading from trained epoch {}".format(load_from_epoch))
+        load_from_dir = get_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, load_from_epoch, **model_params)
+        model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))
+        with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
+            train_graphs = pickle.load(f)
+    model = model.to(device)
+
     directory = get_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, epochs, **model_params)
     os.makedirs(directory, exist_ok=True)
 
