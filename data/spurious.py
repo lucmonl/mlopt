@@ -9,7 +9,7 @@ from torch import Tensor
 import torch.nn.functional as F
 from torchvision import datasets, transforms
 
-def load_spurious_data(loss_name, train_size, batch_size):
+def load_spurious_data(loss_name, feat_dim, train_size, batch_size):
 
     "The dataset is motivated by Condition 1 in https://arxiv.org/pdf/2307.11007.pdf"
     def get_label(X):
@@ -17,13 +17,12 @@ def load_spurious_data(loss_name, train_size, batch_size):
         return X[:,0] * X[:,1]
 
     torch.manual_seed(1)
-    feat_size =50
     C = 1 #output dim
     transform_to_one_hot = False
 
-    assert feat_size > 2
+    assert feat_dim > 2
     assert loss_name == "MSELoss"
-    X_train, X_test = torch.randn(train_size, feat_size), torch.randn(train_size, feat_size)
+    X_train, X_test = torch.randn(train_size, feat_dim), torch.randn(train_size, feat_dim)
     X_train, X_test = 2*((X_train > 0).float()-0.5), 2*((X_test > 0).float()-0.5)
     y_train, y_test = get_label(X_train), get_label(X_test)
 
@@ -44,4 +43,4 @@ def load_spurious_data(loss_name, train_size, batch_size):
     analysis_test_loader = torch.utils.data.DataLoader(
         analysis_test,
         batch_size=batch_size, shuffle=False)
-    return train_loader, test_loader, analysis_loader, analysis_test_loader, feat_size, C, transform_to_one_hot
+    return train_loader, test_loader, analysis_loader, analysis_test_loader, feat_dim, C, transform_to_one_hot
