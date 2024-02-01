@@ -116,7 +116,7 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
     if 'weight_norm' in analysis_list:
         from analysis.weight_norm import get_min_weight_norm, get_grad_loss_ratio
         get_min_weight_norm(graphs, model, C=num_classes, model_name=model_name)
-        get_grad_loss_ratio(graphs, model, analysis_loader, criterion, criterion_summed, num_classes, device)
+        get_grad_loss_ratio(graphs, model, loss_name, analysis_loader, criterion, criterion_summed, num_classes, device)
 
 
 class features:
@@ -212,6 +212,7 @@ def continue_training(lr, dataset_name, opt_name, model_name, weight_decay, batc
     load_from_epoch = 0
     for trained_epoch in trained_epochs:
         if trained_epoch == epochs:
+            print(lookup_dir)
             yes_or_no = input("The path already exists. Are you sure to overwrite? [y/n]")
             if yes_or_no == 'n':
                 sys.exit()

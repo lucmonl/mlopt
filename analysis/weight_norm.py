@@ -28,17 +28,19 @@ def get_min_weight_norm(graphs, model, C, model_name):
             norm_min = min(norm_min, torch.min(torch.norm(param, dim=-1)).cpu().detach().numpy())
     graphs.wn_norm_min.append(norm_min)
 
-def get_grad_loss_ratio(graphs, model, loader, criterion, criterion_summed, num_classes, device):
+def get_grad_loss_ratio(graphs, model, loss_name, loader, criterion, criterion_summed, num_classes, device):
     loss_sum = 0
     for batch_idx, (data, target) in enumerate(loader, start=1):
         data, target = data.to(device), target.to(device)
         out = model(data)
-        if str(criterion) == 'CrossEntropyLoss()':
+        if loss_name == 'CrossEntropyLoss':
             loss = criterion(out, target)
-        elif str(criterion) == 'MSELoss()':
+        elif loss_name == 'MSELoss':
             #print(out[0], target[0])
             #loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
-            loss = criterion_summed(out, F.one_hot(target, num_classes=num_classes).float()).float()
+            #loss = criterion_summed(out, F.one_hot(target, num_classes=num_classes).float()).float()
+            loss = criterion_summed(out, target)
+            #print(loss)
         loss_sum += loss
     loss_mean = loss_sum / len(loader.dataset)
     loss_mean.backward()
