@@ -50,3 +50,26 @@ def get_grad_loss_ratio(graphs, model, loss_name, loader, criterion, criterion_s
     graphs.wn_grad_loss_ratio.append((grad_norm/loss_mean).item())
     print(graphs.wn_grad_loss_ratio[-1])
     print(graphs.wn_norm_min[-1])
+
+def get_min_weight_norm_with_g(graphs, model, C, model_name):
+    norm_min = 1e10
+    for name, param in model.named_parameters():
+        #print(name)
+        print(name, param.shape)
+        """
+        if 'weight_g' in name:  #if param.shape[1] == 1:
+            continue
+        if 'output_layer' in name:
+            continue
+        print(name)
+        """
+        if model_name == "weight_norm":
+            if 'output_layer' in name:
+                continue
+            norm_min = min(norm_min, torch.min(torch.norm(param, dim=-1)).cpu().detach().numpy())
+        if model_name == 'weight_norm_torch' and 'weight_g' in name:
+            weight_g = param
+        if model_name == 'weight_norm_torch' and 'weight_v' in name:
+            print((weight_g * param).shape)
+            norm_min = min(norm_min, torch.min(torch.norm(weight_g * param, dim=-1)).cpu().detach().numpy())
+    graphs.wn_norm_min_with_g.append(norm_min)

@@ -114,8 +114,9 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
         get_nc_statistics(graphs, model, features, classifier, loss_name, criterion_summed, weight_decay, num_classes, analysis_loader, analysis_test_loader, device, debug=False)
 
     if 'weight_norm' in analysis_list:
-        from analysis.weight_norm import get_min_weight_norm, get_grad_loss_ratio
+        from analysis.weight_norm import get_min_weight_norm, get_min_weight_norm_with_g, get_grad_loss_ratio
         get_min_weight_norm(graphs, model, C=num_classes, model_name=model_name)
+        get_min_weight_norm_with_g(graphs, model, C=num_classes, model_name=model_name)
         get_grad_loss_ratio(graphs, model, loss_name, analysis_loader, criterion, criterion_summed, num_classes, device)
 
 
@@ -184,6 +185,7 @@ class graphs:
         # weight norm statsitics
         self.wn_grad_loss_ratio = []
         self.wn_norm_min        = []
+        self.wn_norm_min_with_g = []
 
 
 def get_lookup_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, **kwargs):
