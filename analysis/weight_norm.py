@@ -12,7 +12,7 @@ import torch.nn.functional as F
 def get_min_weight_norm(graphs, model, C, model_name):
     norm_min = 1e10
     for name, param in model.named_parameters():
-        #print(name, param.shape)
+        print(name, param.shape)
         """
         if 'weight_g' in name:  #if param.shape[1] == 1:
             continue

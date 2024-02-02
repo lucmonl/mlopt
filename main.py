@@ -225,7 +225,7 @@ def continue_training(lr, dataset_name, opt_name, model_name, weight_decay, batc
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "mnist"]
-    MODELS = ["2-mlp-sim-bn", "weight_norm_torch", "weight_norm", "resnet18"]
+    MODELS = ["2-mlp-sim-bn", "weight_norm_torch", "weight_norm", "resnet18", "WideResNet"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss']
     OPTIMIZERS = ['goldstein','sam', 'sgd', 'norm-sgd']
@@ -324,6 +324,9 @@ if __name__ == "__main__":
     if model_name == "resnet18":
         model = models.resnet18(pretrained=False, num_classes=C)
         model_params = {} | model_params
+    elif model_name == "WideResNet":
+        from arch.wide_resnet import WideResNet
+        model = WideResNet(depth=16, width_factor=8, dropout=0.0, in_channels=input_ch, labels=C)
     elif model_name == "weight_norm":
         from arch.weight_norm import weight_norm_net
         model = weight_norm_net(num_pixels, [wn_width, wn_width], wn_init_mode, wn_basis_var, wn_scale)
