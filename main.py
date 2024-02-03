@@ -265,6 +265,8 @@ if __name__ == "__main__":
     parser.add_argument("--sam_adaptive", type=bool, default=False, help="use adaptive SAM")
     parser.add_argument("--gold_delta", type=float, default=1, help="delta for goldstein")
     parser.add_argument("--norm_sgd_lr", type=float, default=1e-3, help="learning rate for normalized sgd when overfit")
+
+    parser.add_argument("--multiple_run", type=bool, default=False, help="independent run without overwriting or loading")
     args = parser.parse_args()
 
 

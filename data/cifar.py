@@ -39,6 +39,8 @@ def make_labels(y, loss):
         return _one_hot(y, 10, 0)
     else:
         raise NotImplementedError
+    
+    
 
 
 def load_cifar(loss: str, batch_size: int):
@@ -46,8 +48,15 @@ def load_cifar(loss: str, batch_size: int):
     num_pixels = 32 * 32 * 3
     C = 10
     transform_to_one_hot = True
-    cifar10_train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True)
+
+    train_transform = transforms.Compose([transforms.RandomCrop(32, padding=4),
+                                          transforms.RandomHorizontalFlip()])
+
+    cifar10_train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
     cifar10_test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False)
+    """
+    X_train = train_transform(cifar10_train.data)
+    """
     X_train, X_test = flatten(cifar10_train.data / 255), flatten(cifar10_test.data / 255)
     #y_train, y_test = make_labels(torch.tensor(cifar10_train.targets), loss), \
     #    make_labels(torch.tensor(cifar10_test.targets), loss)
