@@ -52,8 +52,11 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
             #    loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
             #else:
             loss = criterion(out, target)
-        
+
         loss.backward()
+        if out.dim() > 1:
+            accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
+        
         if opt_name == "sam":
             optimizer.first_step(zero_grad=True)
             # second forward-backward step
@@ -77,11 +80,14 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
                 optimizer.second_step(zero_grad=False)
             optimizer.third_step(zero_grad=True)
             enable_running_stats(model)
+        elif opt_name == "norm-sgd":
+            if loss_name == 'MSELoss':
+                raise NotImplementedError
+            optimizer.step(accuracy)
         else:
             optimizer.step()
 
-        if out.dim() > 1:
-            accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
+        
 
         pbar.update(1)
         pbar.set_description(
@@ -248,6 +254,7 @@ if __name__ == "__main__":
     parser.add_argument("--weight_decay", type=float, default=0, help ="weight decay")
     parser.add_argument("--epoch", type=int, help="total training epoches")
     parser.add_argument("--batch_size", type=int, help="batch size in training, also the number of samples in analysis dataset")
+    parser.add_argument("--log_interval", type=int, default=200, help="do analysis every $ of epochs")
     
     # data
     parser.add_argument("--sp_train_size", type=int, default=4096, help="training size for spurious dataset")
@@ -257,6 +264,7 @@ if __name__ == "__main__":
     parser.add_argument("--sam_rho", type=float, default=0.2, help="rho for SAM")
     parser.add_argument("--sam_adaptive", type=bool, default=False, help="use adaptive SAM")
     parser.add_argument("--gold_delta", type=float, default=1, help="delta for goldstein")
+    parser.add_argument("--norm_sgd_lr", type=float, default=1e-3, help="learning rate for normalized sgd when overfit")
     args = parser.parse_args()
 
 
@@ -280,6 +288,7 @@ if __name__ == "__main__":
     loss_name           = args.loss
     opt_name            = args.opt
     analysis_list       = args.analysis # ['loss', 'eigs'] #['loss','eigs','nc',''weight_norm']
+    analysis_interval   = args.log_interval
 
     # Optimization hyperparameters
     lr_decay            = args.lr_decay #1# 0.1
@@ -300,6 +309,9 @@ if __name__ == "__main__":
     if opt_name == "goldstein":
         gold_delta = args.gold_delta
         model_params = model_params | {"gold_delta": gold_delta}
+    elif opt_name == "norm-sgd":
+        norm_sgd_lr = args.norm_sgd_lr
+        model_params = model_params | {"norm_lr": norm_sgd_lr}
 
     # Best lr after hyperparameter tuning
     if loss_name == 'CrossEntropyLoss':
@@ -398,7 +410,7 @@ if __name__ == "__main__":
     elif opt_name == "norm-sgd":
         base_optimizer = torch.optim.SGD
         from optimizer.normalized_sgd import Normalized_Optimizer
-        optimizer = Normalized_Optimizer(model.parameters(), base_optimizer,
+        optimizer = Normalized_Optimizer(model.parameters(), base_optimizer, norm_sgd_lr,
                             lr=lr,
                             momentum=momentum,
                             weight_decay=weight_decay)
@@ -412,7 +424,7 @@ if __name__ == "__main__":
                                                 gamma=lr_decay)
 
     load_from_epoch = continue_training(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, epochs, **model_params)
-    epoch_list = np.arange(load_from_epoch+1, epochs+1, 200).tolist()
+    epoch_list = np.arange(load_from_epoch+1, epochs+1, analysis_interval).tolist()
     if load_from_epoch != 0:
         print("loading from trained epoch {}".format(load_from_epoch))
         load_from_dir = get_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, load_from_epoch, **model_params)

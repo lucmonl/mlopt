@@ -2,16 +2,26 @@ import torch
 
 
 class Normalized_Optimizer(torch.optim.Optimizer):
-    def __init__(self, params, base_optimizer, **kwargs):
+    def __init__(self, params, base_optimizer, norm_sgd_lr, **kwargs):
         defaults = dict(**kwargs)
         super(Normalized_Optimizer, self).__init__(params, defaults)
+        self.norm_sgd_lr = norm_sgd_lr
 
         self.base_optimizer = base_optimizer(self.param_groups, **kwargs)
         self.param_groups = self.base_optimizer.param_groups
         self.defaults.update(self.base_optimizer.defaults)
 
+    def set_lr(self, lr):
+        for param_group in self.param_groups:
+            param_group['lr'] = lr
+
     @torch.no_grad()
-    def step(self, zero_grad=False):
+    def step(self, accuracy, zero_grad=False):
+        if accuracy < 0.95:
+            self.base_optimizer.step()
+            if zero_grad: self.zero_grad()
+            return
+        self.set_lr(self.norm_sgd_lr)
         grad_norm = self._grad_norm()
         for group in self.param_groups:
             scale = 1 / (grad_norm + 1e-12)
