@@ -16,8 +16,12 @@ class Normalized_Optimizer(torch.optim.Optimizer):
             param_group['lr'] = lr
 
     @torch.no_grad()
-    def step(self, accuracy, zero_grad=False):
-        if accuracy < 0.95:
+    def step(self, loss=-1, accuracy=-1, zero_grad=False):
+        if loss != -1 and loss > 0.01:
+            self.base_optimizer.step()
+            if zero_grad: self.zero_grad()
+            return
+        if accuracy !=-1 and accuracy < 0.95:
             self.base_optimizer.step()
             if zero_grad: self.zero_grad()
             return

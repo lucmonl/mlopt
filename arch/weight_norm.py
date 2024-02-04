@@ -17,11 +17,9 @@ class weight_norm_net(nn.Module):
         self.basis_std = np.sqrt(basis_var)
         self.flatten = nn.Flatten()
         self.module_list = nn.ModuleList()
-        self.scale_list = []
         for l in range(len(widths)):
             prev_width = widths[l-1] if l > 0 else num_pixels
             self.module_list.append(nn.Linear(prev_width, widths[l], bias=False))
-            self.scale_list.append(torch.nn.Parameter(torch.rand(widths[l])).cuda())
         self.output_layer = nn.Linear(widths[-1],10,bias=False)
         self.__initialize__(widths, init_mode)
     
@@ -40,20 +38,13 @@ class weight_norm_net(nn.Module):
 
     def forward(self, x):
         x = self.flatten(x)
-        for linear, scale_coef in zip(self.module_list, self.scale_list):
-            width = x.shape[-1]
-            #temp_x = torch.FloatTensor(x.detach().numpy())
-            #x = torch.nn.functional.normalize(x, dim=-1)
+        #for linear, scale_coef in zip(self.module_list, self.scale_list):
+        for linear in self.module_list:
             x = linear(x) / torch.norm(linear.weight, dim=-1)
-            #for i in range(x.shape[0]):
-            #    x[i] = x[i] / torch.norm(temp_x[i])
-            x = self.scale * x #/ np.sqrt(width)
-            #x = linear(x)
+            x = self.scale * x
             x = torch.tanh(x)
-        width = x.shape[-1]
-        #print(torch.norm(self.output_layer.weight))
-        x = self.output_layer(x)# / torch.norm(self.output_layer.weight)
-        x = self.scale * x #/ np.sqrt(width)
+        x = self.output_layer(x)
+        x = self.scale * x
         return x
 
 class weight_norm_net_old(nn.Module):

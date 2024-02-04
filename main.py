@@ -82,9 +82,11 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
             enable_running_stats(model)
         elif opt_name == "norm-sgd":
             if loss_name == 'MSELoss':
-                raise NotImplementedError
+                optimizer.step(loss=loss)
             elif loss_name == 'CrossEntropyLoss':
-                optimizer.step(accuracy)
+                optimizer.step(acc=accuracy)
+            else:
+                raise NotImplementedError
         else:
             optimizer.step()
 
@@ -203,17 +205,20 @@ def get_lookup_directory(lr, dataset_name, opt_name, model_name, weight_decay, b
     directory += f"lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/"
     return directory
 
-def get_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, epochs, **kwargs):
+def get_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, epochs, multi_run, **kwargs):
     #results_dir = "results"
     #directory = f"{results_dir}/{model_name}/{dataset_name}/{opt_name}/lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/epoch_{epochs}/"
     directory = get_lookup_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, **kwargs) + f"epoch_{epochs}/"
-    return directory
+    run_dir = os.listdir(directory)
+    prev_runs = [int(x.split("_")[-1]) for x in run_dir if x.startswith("run")]
+    return directory + "run_{}".format(len(prev_runs))
+    #return directory
 
-def continue_training(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, epochs, **kwargs):
+def continue_training(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, epochs, multi_run, **kwargs):
     #results_dir = "results"
     #lookup_dir = f"{results_dir}/{model_name}/{dataset_name}/{opt_name}/lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/"
     lookup_dir = get_lookup_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, **kwargs)
-    if not os.path.exists(lookup_dir):
+    if not os.path.exists(lookup_dir) or multi_run:
         return 0
     epoch_dir = os.listdir(lookup_dir)
     trained_epochs = [int(x.split("_")[-1]) for x in epoch_dir]
@@ -272,6 +277,7 @@ if __name__ == "__main__":
 
 
     debug = args.debug # Only runs 20 batches per epoch for debugging
+    multi_run           = args.multiple_run
     model_params = {}
 
     # dataset parameters
@@ -430,17 +436,17 @@ if __name__ == "__main__":
                                                 milestones=epochs_lr_decay,
                                                 gamma=lr_decay)
 
-    load_from_epoch = continue_training(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, epochs, **model_params)
+    load_from_epoch = continue_training(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, epochs, multi_run, **model_params)
     epoch_list = np.arange(load_from_epoch+1, epochs+1, analysis_interval).tolist()
     if load_from_epoch != 0:
         print("loading from trained epoch {}".format(load_from_epoch))
-        load_from_dir = get_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, load_from_epoch, **model_params)
+        load_from_dir = get_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, load_from_epoch, multi_run, **model_params)
         model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))
         with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
             train_graphs = pickle.load(f)
     model = model.to(device)
 
-    directory = get_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, epochs, **model_params)
+    directory = get_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, epochs, multi_run, **model_params)
     os.makedirs(directory, exist_ok=True)
 
     import pickle
