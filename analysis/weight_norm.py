@@ -30,11 +30,12 @@ def get_min_weight_norm(graphs, model, C, model_name):
 
 def get_grad_loss_ratio(graphs, model, loss_name, loader, criterion, criterion_summed, num_classes, device):
     loss_sum = 0
+    model.zero_grad()
     for batch_idx, (data, target) in enumerate(loader, start=1):
         data, target = data.to(device), target.to(device)
         out = model(data)
         if loss_name == 'CrossEntropyLoss':
-            loss = criterion(out, target)
+            loss = criterion_summed(out, target)
         elif loss_name == 'MSELoss':
             #print(out[0], target[0])
             #loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes

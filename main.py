@@ -83,7 +83,8 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
         elif opt_name == "norm-sgd":
             if loss_name == 'MSELoss':
                 raise NotImplementedError
-            optimizer.step(accuracy)
+            elif loss_name == 'CrossEntropyLoss':
+                optimizer.step(accuracy)
         else:
             optimizer.step()
 
@@ -231,7 +232,7 @@ def continue_training(lr, dataset_name, opt_name, model_name, weight_decay, batc
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "mnist"]
-    MODELS = ["2-mlp-sim-bn", "weight_norm_torch", "weight_norm", "resnet18", "WideResNet"]
+    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "weight_norm_torch", "weight_norm", "resnet18", "WideResNet"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss']
     OPTIMIZERS = ['goldstein','sam', 'sgd', 'norm-sgd']
@@ -352,6 +353,10 @@ if __name__ == "__main__":
     elif model_name == "2-mlp-sim-bn":
         from arch.mlp_sim_bn import mlp_sim_bn
         model = mlp_sim_bn(num_pixels, C)
+        model_params = {} | model_params
+    elif model_name == "2-mlp-sim-ln":
+        from arch.mlp_sim_ln import mlp_sim_ln
+        model = mlp_sim_ln(num_pixels, C)
         model_params = {} | model_params
     else:
         raise NotImplementedError
