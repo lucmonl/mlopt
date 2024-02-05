@@ -23,8 +23,7 @@ from IPython import embed
 
 from optimizer.sam import disable_running_stats, enable_running_stats
 
-torch.manual_seed(32)
- 
+
 # setting path
 #current_dir = os.path.dirname(os.path.abspath(__file__))
 #parent_dir = os.path.dirname(current_dir)
@@ -209,6 +208,8 @@ def get_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_si
     #results_dir = "results"
     #directory = f"{results_dir}/{model_name}/{dataset_name}/{opt_name}/lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/epoch_{epochs}/"
     directory = get_lookup_directory(lr, dataset_name, opt_name, model_name, weight_decay, batch_size, **kwargs) + f"epoch_{epochs}/"
+    if not os.path.exists(directory):
+        return directory + "run_0/"
     run_dir = os.listdir(directory)
     prev_runs = [int(x.split("_")[-1]) for x in run_dir if x.startswith("run")]
     return directory + "run_{}".format(len(prev_runs))
@@ -313,6 +314,9 @@ if __name__ == "__main__":
 
     if debug:
         torch.autograd.set_detect_anomaly(True)
+    if not multi_run:
+        torch.manual_seed(32)
+ 
 
     #hyperparameters for gold
     if opt_name == "goldstein":
