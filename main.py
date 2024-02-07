@@ -204,10 +204,13 @@ def get_lookup_directory(lr, dataset_name, opt_name, model_name, momentum, weigh
     directory += f"lr_{lr}/moment_{momentum}/wd_{weight_decay}/batch_size_{batch_size}/"
     return directory
 
+def get_running_directory(lr, dataset_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, **kwargs):
+    return get_lookup_directory(lr, dataset_name, opt_name, model_name, momentum, weight_decay, batch_size, **kwargs) + f"epoch_{epochs}/"
+
 def get_directory(lr, dataset_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **kwargs):
     #results_dir = "results"
     #directory = f"{results_dir}/{model_name}/{dataset_name}/{opt_name}/lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/epoch_{epochs}/"
-    directory = get_lookup_directory(lr, dataset_name, opt_name, model_name, momentum, weight_decay, batch_size, **kwargs) + f"epoch_{epochs}/"
+    directory = get_running_directory(lr, dataset_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, **kwargs)
     if not os.path.exists(directory):
         return directory + "run_0/"
     run_dir = os.listdir(directory)
@@ -274,10 +277,12 @@ if __name__ == "__main__":
     parser.add_argument("--norm_sgd_lr", type=float, default=1e-3, help="learning rate for normalized sgd when overfit")
 
     parser.add_argument("--multiple_run", type=bool, default=False, help="independent run without overwriting or loading")
+    parser.add_argument("--train", type=bool, default=True, help="train model")
     args = parser.parse_args()
 
 
     debug = args.debug # Only runs 20 batches per epoch for debugging
+    training            = args.train
     multi_run           = args.multiple_run
     model_params = {}
 
@@ -307,6 +312,7 @@ if __name__ == "__main__":
     epochs_lr_decay     = [epochs//3, epochs*2//3]
 
     batch_size          = args.batch_size #512 # 128
+    
 
     #hyperparameters for sam
     sam_rho = args.sam_rho #0.1
@@ -347,7 +353,7 @@ if __name__ == "__main__":
         model_params = model_params | {"feat_dim": sp_feat_dim, "train_size": sp_train_size}
 
     if model_name == "resnet18":
-        model = models.resnet18(pretrained=False, num_classes=C)
+        model = models.resnet18(pretrained=True, num_classes=C)
         model_params = {} | model_params
     elif model_name == "WideResNet":
         from arch.wide_resnet import WideResNet

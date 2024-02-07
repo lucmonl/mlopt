@@ -4,7 +4,8 @@ import sys
 
 def compute_eigenvalues(graphs, model, criterion_summed, weight_decay, loader, loader_test, num_classes, device):
     model.train()
-    disable_running_stats(model)
+    disable_running_stats(model) #set momentum to 0, do not update running mean or var.
+    #running mean requires_grad is set to False. No worry about having computing gradient.
     eigs, _ = get_hessian_eigenvalues_weight_decay(model, criterion_summed, weight_decay, loader, neigs=10, num_classes=num_classes, device=device)
     #eigs, _, _, _ = get_hessian_eigenvalues(model, criterion_summed, lr, analysis_dataset, neigs=10, return_smallest = False)
     graphs.eigs.append(eigs[0].item())
