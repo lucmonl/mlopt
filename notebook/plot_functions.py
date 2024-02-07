@@ -7,32 +7,23 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-def get_lookup_directory(lr, dataset_name, opt_name, model_name, momentum, weight_decay, batch_size, **kwargs):
-    results_dir = "results"
-    directory = f"{results_dir}/{dataset_name}/{opt_name}/{model_name}/"
-    for key, value in kwargs.items():
-        directory += f"{key}_{value}/"
-    directory += f"lr_{lr}/moment_{momentum}/wd_{weight_decay}/batch_size_{batch_size}/"
-    return directory
-
-def get_running_directory(lr, dataset_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, **kwargs):
-    return get_lookup_directory(lr, dataset_name, opt_name, model_name, momentum, weight_decay, batch_size, **kwargs) + f"epoch_{epochs}/"
-
-def get_directory(lr, dataset_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **kwargs):
-    #results_dir = "results"
-    #directory = f"{results_dir}/{model_name}/{dataset_name}/{opt_name}/lr_{lr}/wd_{weight_decay}/batch_size_{batch_size}/epoch_{epochs}/"
-    directory = get_running_directory(lr, dataset_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, **kwargs)
-    if not os.path.exists(directory):
-        return directory + "run_0/"
-    run_dir = os.listdir(directory)
-    prev_runs = [int(x.split("_")[-1]) for x in run_dir if x.startswith("run")]
-    return directory + "run_{}".format(len(prev_runs))
+from path_manage import get_directory
 
 def plot_figures_opts(opts, model_params, opt_params):
     plt.figure(figsize=(15,5))
     for opt_name in opts:
         model_param = model_params[opt_name]
-        directory = get_directory(opt_params['lr'], dataset_name, opt_name, model_name, weight_decay, batch_size, epochs, **model_param)
+        directory = get_directory(opt_params[opt_name]['lr'], 
+                                opt_params[opt_name]['dataset_name'],
+                                opt_params[opt_name]['opt'], 
+                                opt_params[opt_name]['model_name'], 
+                                opt_params[opt_name]['momentum'], 
+                                opt_params[opt_name]['weight_decay'], 
+                                opt_params[opt_name]['batch_size'], 
+                                opt_params[opt_name]['epochs'], 
+                                multi_run = False,
+                                **model_param
+                                )
 
         with open(f'../{directory}train_graphs.pk', 'rb') as f:
             train_graphs = pickle.load(f)
