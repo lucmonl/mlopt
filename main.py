@@ -404,17 +404,17 @@ if __name__ == "__main__":
                                                 milestones=epochs_lr_decay,
                                                 gamma=lr_decay)
 
-    load_from_epoch = continue_training(lr, dataset_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
+    load_from_epoch = continue_training(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
     epoch_list = np.arange(load_from_epoch+1, epochs+1, analysis_interval).tolist()
     if load_from_epoch != 0:
         print("loading from trained epoch {}".format(load_from_epoch))
-        load_from_dir = get_directory(lr, dataset_name, opt_name, model_name, momentum, weight_decay, batch_size, load_from_epoch, multi_run, **model_params)
+        load_from_dir = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, load_from_epoch, multi_run, **model_params)
         model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))
         with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
             train_graphs = pickle.load(f)
     model = model.to(device)
 
-    directory = get_directory(lr, dataset_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
+    directory = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
     os.makedirs(directory, exist_ok=True)
 
     import pickle

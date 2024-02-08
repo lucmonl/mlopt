@@ -9,12 +9,15 @@ import os
 
 from path_manage import get_directory
 
+print(graphs)
+
 def plot_figures_opts(opts, model_params, opt_params):
     plt.figure(figsize=(15,5))
     for opt_name in opts:
         model_param = model_params[opt_name]
         directory = get_directory(opt_params[opt_name]['lr'], 
                                 opt_params[opt_name]['dataset_name'],
+                                opt_params[opt_name]['loss'],
                                 opt_params[opt_name]['opt'], 
                                 opt_params[opt_name]['model_name'], 
                                 opt_params[opt_name]['momentum'], 
