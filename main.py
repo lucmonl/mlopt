@@ -199,7 +199,7 @@ class graphs:
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "mnist"]
-    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "weight_norm_torch", "weight_norm", "resnet18", "WideResNet"]
+    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "weight_norm_torch", "weight_norm", "resnet18", "WideResNet", "WideResNet_WN_woG"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss']
     OPTIMIZERS = ['goldstein','sam', 'sgd', 'norm-sgd']
@@ -208,10 +208,14 @@ if __name__ == "__main__":
     parser.add_argument("--debug", type=bool, default=False, help="only run first 20 batches per epoch if set to True")
     parser.add_argument("--dataset",  type=str, choices=DATASETS, help="which dataset to train")
     parser.add_argument("--model",  type=str, choices=MODELS, help="which model to train")
+
+    #model
     parser.add_argument("--width", type=int, default=512, help="network width for weight norm")
+    parser.add_argument("--width_factor", type=int, default=8, help="width factor for WideResNet")
     parser.add_argument("--init_mode",  type=str, default="O(1)", choices=INIT_MODES, help="Initialization Mode")
     parser.add_argument("--basis_var", type=float, default=5, help="variance for initialization")
     parser.add_argument("--wn_scale", type=float, default=10, help="scaling coef for weight_norm model")
+
 
     parser.add_argument("--loss",  type=str, choices=LOSSES, help="Training Loss")
     parser.add_argument("--opt",  type=str, choices=OPTIMIZERS, help="Training Optimizer")
@@ -255,6 +259,7 @@ if __name__ == "__main__":
     wn_init_mode        = args.init_mode  # "O(1)" # "O(1/sqrt{m})"
     wn_basis_var        = args.basis_var
     wn_scale            = args.wn_scale
+    width_factor        = args.width_factor
 
     # Optimization Criterion
     # loss_name = 'CrossEntropyLoss'
@@ -324,6 +329,10 @@ if __name__ == "__main__":
         from arch.weight_norm import weight_norm_torch
         model = weight_norm_torch(num_pixels, [wn_width, wn_width])
         model_params = {"width": wn_width} | model_params
+    elif model_name == "WideResNet_WN_woG":
+        from arch.weight_norm import WideResNet_WN_woG
+        model = WideResNet_WN_woG(depth=16, width_factor=width_factor, dropout=0.0, in_channels=input_ch, labels=C)
+        model_params = {"width_factor": width_factor} | model_params
     elif model_name == "2-mlp-sim-bn":
         from arch.mlp_sim_bn import mlp_sim_bn
         model = mlp_sim_bn(num_pixels, C)

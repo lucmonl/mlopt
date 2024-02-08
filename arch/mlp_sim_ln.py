@@ -8,7 +8,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 class mlp_sim_ln(nn.Module):
-    "The model is motivated by simplified batch norm layers in https://arxiv.org/pdf/2307.11007.pdf"
+    "The model is motivated by simplified layer norm layers in https://arxiv.org/pdf/2307.11007.pdf"
     """All Flat Minima cannot generalize well."""
     def __init__(self, num_pixels, C):
         super().__init__()

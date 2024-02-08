@@ -27,7 +27,7 @@ def plot_figures_opts(opts, model_params, opt_params):
                                 multi_run = False,
                                 **model_param
                                 )
-
+        print(directory)
         with open(f'../{directory}train_graphs.pk', 'rb') as f:
             train_graphs = pickle.load(f)
 
