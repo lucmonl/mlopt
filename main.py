@@ -83,7 +83,7 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
             if loss_name == 'MSELoss':
                 optimizer.step(loss=loss)
             elif loss_name == 'CrossEntropyLoss':
-                optimizer.step(acc=accuracy)
+                optimizer.step(accuracy=accuracy)
             else:
                 raise NotImplementedError
         else:
