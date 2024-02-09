@@ -52,7 +52,7 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
             #    loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
             #else:
             loss = criterion(out, target)
-
+        print(loss)
         loss.backward()
         if out.dim() > 1:
             accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
@@ -199,10 +199,10 @@ class graphs:
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "mnist"]
-    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "weight_norm_torch", "weight_norm", "resnet18", "WideResNet", "WideResNet_WN_woG"]
+    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "weight_norm_torch", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss']
-    OPTIMIZERS = ['goldstein','sam', 'sgd', 'norm-sgd']
+    OPTIMIZERS = ['gd', 'goldstein','sam', 'sgd', 'norm-sgd']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")
     parser.add_argument("--debug", type=bool, default=False, help="only run first 20 batches per epoch if set to True")
@@ -306,7 +306,10 @@ if __name__ == "__main__":
 
     if dataset_name == "cifar":
         from data.cifar import load_cifar
-        train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot = load_cifar(loss_name, batch_size)
+        if opt_name == 'gd':
+            train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot = load_cifar(loss_name, batch_size, sp_train_size)
+        else:
+            train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot = load_cifar(loss_name, batch_size)
     elif dataset_name == "mnist":
         from data.mnist import load_mnist
         train_loader, test_loader, analysis_loader, input_ch, C, transform_to_one_hot = load_mnist(loss_name, batch_size)
@@ -324,6 +327,10 @@ if __name__ == "__main__":
     elif model_name == "weight_norm":
         from arch.weight_norm import weight_norm_net
         model = weight_norm_net(num_pixels, [wn_width, wn_width], wn_init_mode, wn_basis_var, wn_scale)
+        model_params = {"width": wn_width, "init": wn_init_mode, "var": wn_basis_var, "scale": wn_scale} | model_params
+    elif model_name == "weight_norm_width_scale":
+        from arch.weight_norm import weight_norm_net_old
+        model = weight_norm_net_old(num_pixels, [wn_width, wn_width], wn_init_mode, wn_basis_var, wn_scale)
         model_params = {"width": wn_width, "init": wn_init_mode, "var": wn_basis_var, "scale": wn_scale} | model_params
     elif model_name == "weight_norm_torch":
         from arch.weight_norm import weight_norm_torch
@@ -387,7 +394,7 @@ if __name__ == "__main__":
             criterion_summed = nn.MSELoss(reduction='sum')
 
 
-    if opt_name == "sgd":
+    if opt_name == "sgd" or opt_name == "gd":
         optimizer = optim.SGD(model.parameters(),
                             lr=lr,
                             momentum=momentum,

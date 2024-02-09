@@ -12,7 +12,7 @@ def get_min_weight_norm(graphs, model, C, model_name):
             continue
         print(name)
         """
-        if model_name == "weight_norm":
+        if model_name in ["weight_norm", 'weight_norm_width_scale']:
             if 'output_layer' in name:
                 continue
             norm_min = min(norm_min, torch.min(torch.norm(param, dim=-1)).cpu().detach().numpy())
