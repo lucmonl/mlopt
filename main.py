@@ -53,6 +53,7 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
             #else:
             loss = criterion(out, target)
         print(loss)
+        sys.exit()
         loss.backward()
         if out.dim() > 1:
             accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
@@ -382,7 +383,7 @@ if __name__ == "__main__":
     elif loss_name == 'MSELoss':
         if transform_to_one_hot:
             def mse_sum_with_one_hot(out, target):
-                return nn.MSELoss(reduction='sum')(out, F.one_hot(target, num_classes=C).float()) * C
+                return nn.MSELoss(reduction='sum')(out, F.one_hot(target, num_classes=C).float())
 
             def mse_with_one_hot(out, target):
                 return nn.MSELoss()(out, F.one_hot(target, num_classes=C).float()) * C
