@@ -52,8 +52,6 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
             #    loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
             #else:
             loss = criterion(out, target)
-        print(loss)
-        sys.exit()
         loss.backward()
         if out.dim() > 1:
             accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
@@ -110,7 +108,7 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
 
     pbar.close()
 
-def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, train_loader, test_loader, analysis_loader, analysis_test_loader):
+def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, train_loader, test_loader, analysis_loader, analysis_test_loader, adv_eta=None):
     if 'loss' in analysis_list:
         from analysis.loss import compute_loss
         compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader)
@@ -129,6 +127,9 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
         get_min_weight_norm_with_g(graphs, model, C=num_classes, model_name=model_name)
         get_grad_loss_ratio(graphs, model, loss_name, analysis_loader, criterion, criterion_summed, num_classes, device)
 
+    if 'adv_eigs' in analysis_list:
+        from analysis.adv_eigs import compute_adv_eigenvalues
+        compute_adv_eigenvalues(graphs, model, criterion_summed, adv_eta, weight_decay, analysis_loader, num_classes, device)
 
 class features:
     pass
@@ -143,6 +144,7 @@ class graphs:
         self.loss         = []
         self.eigs         = []
         self.eigs_test    = []
+        self.adv_eigs     = []
 
         self.test_loss    = []
         self.test_accuracy = []
@@ -239,6 +241,9 @@ if __name__ == "__main__":
     parser.add_argument("--gold_delta", type=float, default=1, help="delta for goldstein")
     parser.add_argument("--norm_sgd_lr", type=float, default=1e-3, help="learning rate for normalized sgd when overfit")
 
+    # analysis hyperparameters
+    parser.add_argument("--adv_eta", type=float, default=0.01, help="eta for adversarial perturbation")
+
     parser.add_argument("--multiple_run", type=bool, default=False, help="independent run without overwriting or loading")
     parser.add_argument("--train", type=bool, default=True, help="train model")
     args = parser.parse_args()
@@ -272,10 +277,14 @@ if __name__ == "__main__":
     # Optimization hyperparameters
     lr_decay            = args.lr_decay #1# 0.1
 
+    # analysis hyperparameters
+    adv_eta             = args.adv_eta
+
     epochs              = args.epoch
     epochs_lr_decay     = [epochs//3, epochs*2//3]
 
     batch_size          = args.batch_size #512 # 128
+    
     
 
     #hyperparameters for sam
@@ -444,6 +453,6 @@ if __name__ == "__main__":
         if epoch in epoch_list:
             train_graphs.log_epochs.append(epoch)
             #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
-            analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, train_loader, test_loader, analysis_loader, analysis_test_loader)
+            analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, train_loader, test_loader, analysis_loader, analysis_test_loader, adv_eta)
             pickle.dump(train_graphs, open(f"{directory}/train_graphs.pk", "wb"))
             torch.save(model.state_dict(), f"{directory}/model.ckpt")
