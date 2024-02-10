@@ -436,7 +436,7 @@ if __name__ == "__main__":
         print("loading from trained epoch {}".format(load_from_epoch))
         load_from_dir = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, load_from_epoch, multi_run, **model_params)
         model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))
-        optimizer.load_state_dict(torch.load(os.path.join(load_from_dir, "optimizer.ckpt"))
+        optimizer.load_state_dict(torch.load(os.path.join(load_from_dir, "optimizer.ckpt")))
         with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
             train_graphs = pickle.load(f)
     model = model.to(device)
