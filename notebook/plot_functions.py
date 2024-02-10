@@ -71,7 +71,7 @@ def plot_figures_opts(opts, model_params, opt_params):
         plt.title('Testing Sharpness')
 
         plt.subplot(2,6,6)
-        plt.plot(cur_epochs, train_graphs.adv_eigs)
+        plt.semilogy(cur_epochs, train_graphs.adv_eigs)
         #.legend(['Loss + Weight Decay'])
         plt.xlabel('Epoch')
         plt.ylabel('Value')

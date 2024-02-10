@@ -4,7 +4,12 @@ import torch
 import sys
 from torch.utils.data.dataset import TensorDataset
 
+
 def compute_adv_eigenvalues(graphs, model, criterion_summed, adv_eta, weight_decay, loader, num_classes, device):
+    if adv_eta > 0.1:
+        print("step size for adversarial attack is too large. Consider to use a small one.")
+        assert False
+
     model.train()
     disable_running_stats(model) #set momentum to 0, do not update running mean or var.
     #running mean requires_grad is set to False. No worry about having computing gradient.
@@ -18,8 +23,9 @@ def compute_adv_eigenvalues(graphs, model, criterion_summed, adv_eta, weight_dec
         loss = criterion_summed(out, target)
 
         (loss / data.shape[0]).backward()
-
-        adv_X.append(data + adv_eta * data.grad)
+        data_adv = data.data + adv_eta * data.grad.sign()
+        data_adv = torch.clamp(data_adv, min=data.min(), max=data.max())
+        adv_X.append(data_adv)
         adv_y.append(target)
 
     adv_dataset = TensorDataset(torch.cat(adv_X, dim=0), torch.cat(adv_y, dim=0))
