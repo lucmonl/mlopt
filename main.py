@@ -144,7 +144,7 @@ class graphs:
         self.loss         = []
         self.eigs         = []
         self.eigs_test    = []
-        self.adv_eigs     = []
+        self.adv_eigs     = {} # the keys are adv_eta
 
         self.test_loss    = []
         self.test_accuracy = []

@@ -27,7 +27,10 @@ def compute_adv_eigenvalues(graphs, model, criterion_summed, adv_eta, weight_dec
 
     eigs, _ = get_hessian_eigenvalues_weight_decay(model, criterion_summed, weight_decay, adv_loader, neigs=10, num_classes=num_classes, device=device)
     #eigs, _, _, _ = get_hessian_eigenvalues(model, criterion_summed, lr, analysis_dataset, neigs=10, return_smallest = False)
-    graphs.adv_eigs.append(eigs[0].item())
+    if adv_eta in graphs.adv_eigs:
+        graphs.adv_eigs[adv_eta].append(eigs[0].item())
+    else:
+        graphs.adv_eigs[adv_eta] = [eigs[0].item()]
     
     print("train adversarial eigs:", graphs.adv_eigs)
     enable_running_stats(model)

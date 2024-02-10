@@ -7,3 +7,4 @@ TODO:
 General:
 1. implement gd
 2. debug does not save directory
+3. contraction of arguments to reslve dependecy problems
