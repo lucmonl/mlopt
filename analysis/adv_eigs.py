@@ -27,6 +27,7 @@ def compute_adv_eigenvalues(graphs, model, criterion_summed, adv_eta, weight_dec
         data_adv = torch.clamp(data_adv, min=data.min(), max=data.max())
         adv_X.append(data_adv)
         adv_y.append(target)
+    
 
     adv_dataset = TensorDataset(torch.cat(adv_X, dim=0), torch.cat(adv_y, dim=0))
     adv_loader = torch.utils.data.DataLoader(adv_dataset, batch_size=loader.batch_size, shuffle=False)

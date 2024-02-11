@@ -45,14 +45,9 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
 
         optimizer.zero_grad()
         out = model(data)
-        if loss_name == 'CrossEntropyLoss':
-            loss = criterion(out, target)
-        elif loss_name == 'MSELoss':
-            #if transform_to_one_hot:
-            #    loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
-            #else:
-            loss = criterion(out, target)
+        loss = criterion(out, target)
         loss.backward()
+
         if out.dim() > 1:
             accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
         
@@ -236,6 +231,7 @@ if __name__ == "__main__":
     parser.add_argument("--sp_feat_dim", type=int, default=20, help="dimension for spurious data")
 
     # optimizer hyperparameters
+    parser.add_argument("--sam_base_opt", type=str, default="sgd", help="base optimizer for SAM")
     parser.add_argument("--sam_rho", type=float, default=0.2, help="rho for SAM")
     parser.add_argument("--sam_adaptive", type=bool, default=False, help="use adaptive SAM")
     parser.add_argument("--gold_delta", type=float, default=1, help="delta for goldstein")
@@ -288,8 +284,9 @@ if __name__ == "__main__":
     
 
     #hyperparameters for sam
-    sam_rho = args.sam_rho #0.1
-    sam_adaptive = args.sam_adaptive #False
+    sam_base_opt        = args.sam_base_opt
+    sam_rho             = args.sam_rho #0.1
+    sam_adaptive        = args.sam_adaptive #False
 
     if debug:
         torch.autograd.set_detect_anomaly(True)
@@ -410,10 +407,16 @@ if __name__ == "__main__":
                             momentum=momentum,
                             weight_decay=weight_decay)
     elif opt_name == "sam":
-        base_optimizer = torch.optim.SGD
         from optimizer.sam import SAM
-        optimizer = SAM(model.parameters(), base_optimizer, rho=sam_rho, adaptive=sam_adaptive, lr=lr, momentum=momentum, weight_decay=weight_decay)
-        model_params = model_params | {"sam_rho": sam_rho} 
+        if sam_base_opt == "sgd":
+            base_optimizer = torch.optim.SGD
+            optimizer = SAM(model.parameters(), base_optimizer, rho=sam_rho, adaptive=sam_adaptive, lr=lr, momentum=momentum, weight_decay=weight_decay)
+        elif sam_base_opt == "adam":
+            base_optimizer = torch.optim.Adam
+            optimizer = SAM(model.parameters(), base_optimizer, rho=sam_rho, adaptive=sam_adaptive, lr=lr, betas=(momentum, 0.99), weight_decay=weight_decay)
+        else:
+            raise NotImplementedError
+        model_params = model_params | {"sam_base_opt": sam_base_opt, "sam_rho": sam_rho} 
     elif opt_name == "norm-sgd":
         base_optimizer = torch.optim.SGD
         from optimizer.normalized_sgd import Normalized_Optimizer

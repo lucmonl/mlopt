@@ -64,18 +64,19 @@ def plot_figures_opts(opts, model_params, opt_params):
         plt.title('Testing Accuracy')
 
         plt.subplot(2,6,5)
-        plt.plot(cur_epochs, train_graphs.eigs_test)
+        plt.semilogy(cur_epochs, train_graphs.eigs_test)
         #.legend(['Loss + Weight Decay'])
         plt.xlabel('Epoch')
         plt.ylabel('Value')
         plt.title('Testing Sharpness')
-
+        
         plt.subplot(2,6,6)
-        plt.semilogy(cur_epochs, train_graphs.adv_eigs)
+        plt.semilogy(cur_epochs, train_graphs.adv_eigs[opt_params[opt_name]["adv_eta"]])
         #.legend(['Loss + Weight Decay'])
         plt.xlabel('Epoch')
         plt.ylabel('Value')
         plt.title('Adversarial Sharpness')
+        
 
     plt.legend(opts)
     plt.tight_layout()
