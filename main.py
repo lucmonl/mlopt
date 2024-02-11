@@ -200,7 +200,8 @@ if __name__ == "__main__":
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "weight_norm_torch", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss']
-    OPTIMIZERS = ['gd', 'goldstein','sam', 'sgd', 'norm-sgd']
+    OPTIMIZERS = ['gd', 'goldstein','sam', 'sgd', 'norm-sgd','adam']
+    BASE_OPTIMIZERS = ['sgd','adam']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")
     parser.add_argument("--debug", type=bool, default=False, help="only run first 20 batches per epoch if set to True")
@@ -231,7 +232,7 @@ if __name__ == "__main__":
     parser.add_argument("--sp_feat_dim", type=int, default=20, help="dimension for spurious data")
 
     # optimizer hyperparameters
-    parser.add_argument("--sam_base_opt", type=str, default="sgd", help="base optimizer for SAM")
+    parser.add_argument("--base_opt", type=str, default="sgd", choices=BASE_OPTIMIZERS, help="base optimizer for sam/norm-sgd optimizer")
     parser.add_argument("--sam_rho", type=float, default=0.2, help="rho for SAM")
     parser.add_argument("--sam_adaptive", type=bool, default=False, help="use adaptive SAM")
     parser.add_argument("--gold_delta", type=float, default=1, help="delta for goldstein")
@@ -284,7 +285,7 @@ if __name__ == "__main__":
     
 
     #hyperparameters for sam
-    sam_base_opt        = args.sam_base_opt
+    base_opt            = args.base_opt
     sam_rho             = args.sam_rho #0.1
     sam_adaptive        = args.sam_adaptive #False
 
@@ -408,22 +409,29 @@ if __name__ == "__main__":
                             weight_decay=weight_decay)
     elif opt_name == "sam":
         from optimizer.sam import SAM
-        if sam_base_opt == "sgd":
+        if base_opt == "sgd":
             base_optimizer = torch.optim.SGD
             optimizer = SAM(model.parameters(), base_optimizer, rho=sam_rho, adaptive=sam_adaptive, lr=lr, momentum=momentum, weight_decay=weight_decay)
-        elif sam_base_opt == "adam":
+        elif base_opt == "adam":
             base_optimizer = torch.optim.Adam
             optimizer = SAM(model.parameters(), base_optimizer, rho=sam_rho, adaptive=sam_adaptive, lr=lr, betas=(momentum, 0.99), weight_decay=weight_decay)
         else:
             raise NotImplementedError
-        model_params = model_params | {"sam_base_opt": sam_base_opt, "sam_rho": sam_rho} 
+        model_params = model_params | {"base_opt": base_opt, "sam_rho": sam_rho} 
     elif opt_name == "norm-sgd":
-        base_optimizer = torch.optim.SGD
         from optimizer.normalized_sgd import Normalized_Optimizer
-        optimizer = Normalized_Optimizer(model.parameters(), base_optimizer, norm_sgd_lr,
-                            lr=lr,
-                            momentum=momentum,
-                            weight_decay=weight_decay)
+        if base_opt == "sgd":
+            base_optimizer = torch.optim.SGD
+            optimizer = Normalized_Optimizer(model.parameters(), base_optimizer, norm_sgd_lr,
+                                lr=lr,
+                                momentum=momentum,
+                                weight_decay=weight_decay)
+        elif base_opt == "adam":
+            base_optimizer = torch.optim.Adam
+            optimizer = Normalized_Optimizer(model.parameters(), base_optimizer, norm_sgd_lr,
+                                lr=lr,
+                                betas=(momentum, 0.99),
+                                weight_decay=weight_decay)
     elif opt_name == "goldstein":
         base_optimizer = torch.optim.SGD
         from optimizer.goldstein import Goldstein
