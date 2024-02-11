@@ -293,15 +293,6 @@ if __name__ == "__main__":
         torch.autograd.set_detect_anomaly(True)
     if not multi_run:
         torch.manual_seed(32)
- 
-
-    #hyperparameters for gold
-    if opt_name == "goldstein":
-        gold_delta = args.gold_delta
-        model_params = model_params | {"gold_delta": gold_delta}
-    elif opt_name == "norm-sgd":
-        norm_sgd_lr = args.norm_sgd_lr
-        model_params = model_params | {"norm_lr": norm_sgd_lr}
 
     # Best lr after hyperparameter tuning
     if loss_name == 'CrossEntropyLoss':
@@ -420,6 +411,7 @@ if __name__ == "__main__":
         model_params = model_params | {"base_opt": base_opt, "sam_rho": sam_rho} 
     elif opt_name == "norm-sgd":
         from optimizer.normalized_sgd import Normalized_Optimizer
+        norm_sgd_lr = args.norm_sgd_lr
         if base_opt == "sgd":
             base_optimizer = torch.optim.SGD
             optimizer = Normalized_Optimizer(model.parameters(), base_optimizer, norm_sgd_lr,
@@ -432,10 +424,13 @@ if __name__ == "__main__":
                                 lr=lr,
                                 betas=(momentum, 0.99),
                                 weight_decay=weight_decay)
+        model_params = model_params | {"base_opt": base_opt, "norm_lr": norm_sgd_lr}
     elif opt_name == "goldstein":
         base_optimizer = torch.optim.SGD
+        gold_delta = args.gold_delta
         from optimizer.goldstein import Goldstein
         optimizer = Goldstein(model.parameters(), base_optimizer, delta=gold_delta, lr=lr, momentum=momentum, weight_decay=weight_decay)
+        model_params = model_params | {"gold_delta": gold_delta}
 
     lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
                                                 milestones=epochs_lr_decay,
