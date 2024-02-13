@@ -1,11 +1,5 @@
-import numpy as np
-import matplotlib.pyplot as plt
 import torch
-#from sklearn.preprocessing import normalize
-import scipy
-import json
 from torch import nn
-from torch.utils.data import DataLoader
 
 class mlp_sim_ln(nn.Module):
     "The model is motivated by simplified layer norm layers in https://arxiv.org/pdf/2307.11007.pdf"

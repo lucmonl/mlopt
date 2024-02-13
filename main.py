@@ -196,8 +196,8 @@ class graphs:
 
     
 if __name__ == "__main__":
-    DATASETS = ["spurious", "cifar", "mnist"]
-    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "weight_norm_torch", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG"]
+    DATASETS = ["spurious", "cifar", "mnist", "spurious-2d"]
+    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "weight_norm_torch", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sgd', 'norm-sgd','adam']
@@ -209,7 +209,7 @@ if __name__ == "__main__":
     parser.add_argument("--model",  type=str, choices=MODELS, help="which model to train")
 
     #model
-    parser.add_argument("--width", type=int, default=512, help="network width for weight norm")
+    parser.add_argument("--width", type=int, default=512, help="network width for weight norm or number of filters in convnets")
     parser.add_argument("--width_factor", type=int, default=8, help="width factor for WideResNet")
     parser.add_argument("--init_mode",  type=str, default="O(1)", choices=INIT_MODES, help="Initialization Mode")
     parser.add_argument("--basis_var", type=float, default=5, help="variance for initialization")
@@ -230,6 +230,7 @@ if __name__ == "__main__":
     # data
     parser.add_argument("--sp_train_size", type=int, default=4096, help="training size for spurious dataset")
     parser.add_argument("--sp_feat_dim", type=int, default=20, help="dimension for spurious data")
+    parser.add_argument("--sp_patch_dim", type=int, default=20, help="patch dimension for 2d spurious data")
 
     # optimizer hyperparameters
     parser.add_argument("--base_opt", type=str, default="sgd", choices=BASE_OPTIMIZERS, help="base optimizer for sam/norm-sgd optimizer")
@@ -255,10 +256,11 @@ if __name__ == "__main__":
     dataset_name        = args.dataset #"spurious" #"cifar"\
     sp_train_size       = args.sp_train_size
     sp_feat_dim         = args.sp_feat_dim
+    sp_patch_dim        = args.sp_patch_dim
 
     # model parameters
     model_name          = args.model #"2-mlp-sim-bn"#"weight_norm_torch" #"weight_norm" #"resnet18"
-    wn_width            = args.width #2048#512 #, 1024
+    width               = args.width #2048#512 #, 1024
     wn_init_mode        = args.init_mode  # "O(1)" # "O(1/sqrt{m})"
     wn_basis_var        = args.basis_var
     wn_scale            = args.wn_scale
@@ -316,6 +318,10 @@ if __name__ == "__main__":
         from data.spurious import load_spurious_data
         train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot = load_spurious_data(loss_name, sp_feat_dim, sp_train_size, batch_size)
         model_params = model_params | {"feat_dim": sp_feat_dim, "train_size": sp_train_size}
+    elif dataset_name == "spurious-2d":
+        from data.spurious import load_signal_noise_data_2d
+        train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot = load_signal_noise_data_2d(loss_name, sp_patch_dim, sp_feat_dim, sp_train_size, batch_size)
+        model_params = model_params | {"patch_dim": sp_patch_dim, "feat_dim": sp_feat_dim, "train_size": sp_train_size}
 
     if model_name == "resnet18":
         model = models.resnet18(pretrained=True, num_classes=C)
@@ -325,16 +331,16 @@ if __name__ == "__main__":
         model = WideResNet(depth=16, width_factor=8, dropout=0.0, in_channels=input_ch, labels=C)
     elif model_name == "weight_norm":
         from arch.weight_norm import weight_norm_net
-        model = weight_norm_net(num_pixels, [wn_width, wn_width], wn_init_mode, wn_basis_var, wn_scale)
-        model_params = {"width": wn_width, "init": wn_init_mode, "var": wn_basis_var, "scale": wn_scale} | model_params
+        model = weight_norm_net(num_pixels, [width, width], wn_init_mode, wn_basis_var, wn_scale)
+        model_params = {"width": width, "init": wn_init_mode, "var": wn_basis_var, "scale": wn_scale} | model_params
     elif model_name == "weight_norm_width_scale":
         from arch.weight_norm import weight_norm_net_old
-        model = weight_norm_net_old(num_pixels, [wn_width, wn_width], wn_init_mode, wn_basis_var, wn_scale)
-        model_params = {"width": wn_width, "init": wn_init_mode, "var": wn_basis_var, "scale": wn_scale} | model_params
+        model = weight_norm_net_old(num_pixels, [width, width], wn_init_mode, wn_basis_var, wn_scale)
+        model_params = {"width": width, "init": wn_init_mode, "var": wn_basis_var, "scale": wn_scale} | model_params
     elif model_name == "weight_norm_torch":
         from arch.weight_norm import weight_norm_torch
-        model = weight_norm_torch(num_pixels, [wn_width, wn_width])
-        model_params = {"width": wn_width} | model_params
+        model = weight_norm_torch(num_pixels, [width, width])
+        model_params = {"width": width} | model_params
     elif model_name == "WideResNet_WN_woG":
         from arch.weight_norm import WideResNet_WN_woG
         model = WideResNet_WN_woG(depth=16, width_factor=width_factor, dropout=0.0, in_channels=input_ch, labels=C)
@@ -347,6 +353,10 @@ if __name__ == "__main__":
         from arch.mlp_sim_ln import mlp_sim_ln
         model = mlp_sim_ln(num_pixels, C)
         model_params = {} | model_params
+    elif model_name == "conv_fixed_last":
+        from arch.conv import conv_fixed_last_layer
+        model = conv_fixed_last_layer(num_pixels, width)
+        model_params = {"nfilters": width} | model_params
     else:
         raise NotImplementedError
 
@@ -376,6 +386,7 @@ if __name__ == "__main__":
         classifier.register_forward_hook(hook)
 
     if loss_name == 'CrossEntropyLoss':
+        assert not transform_to_one_hot
         criterion = nn.CrossEntropyLoss()
         criterion_summed = nn.CrossEntropyLoss(reduction='sum')
     elif loss_name == 'MSELoss':
