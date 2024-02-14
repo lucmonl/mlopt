@@ -79,7 +79,7 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
         elif opt_name == "norm-sgd":
             if loss_name == 'MSELoss':
                 optimizer.step(loss=loss)
-            elif loss_name == 'CrossEntropyLoss':
+            elif loss_name in ['CrossEntropyLoss', 'BCELoss']:
                 optimizer.step(accuracy=accuracy)
             else:
                 raise NotImplementedError
@@ -462,10 +462,11 @@ if __name__ == "__main__":
     lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
                                                 milestones=epochs_lr_decay,
                                                 gamma=lr_decay)
-
-    load_from_epoch = continue_training(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
+    load_from_epoch = 0
+    if not run_from_scratch:
+        load_from_epoch = continue_training(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
     epoch_list = np.arange(load_from_epoch+1, epochs+1, analysis_interval).tolist()
-    if load_from_epoch != 0 and not run_from_scratch:
+    if load_from_epoch != 0:
         print("loading from trained epoch {}".format(load_from_epoch))
         load_from_dir = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, load_from_epoch, multi_run, **model_params)
         model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))
