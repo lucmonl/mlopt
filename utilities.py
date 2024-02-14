@@ -230,19 +230,22 @@ def compute_hvp_weight_decay(network: nn.Module, loss_fn: nn.Module, weight_deca
         #print("grads:", parameters_to_vector(grads) )
         hvp +=  parameters_to_vector(grads) 
     hvp += weight_decay * vector
-    
+    #print(hvp)
     return hvp
 
-def get_hessian_eigenvalues_weight_decay(network: nn.Module, loss_fn: nn.Module, weight_decay: float, dataset: Dataset,
+def get_hessian_eigenvalues_weight_decay(network: nn.Module, loss_fn: nn.Module, weight_decay: float, loader: torch.utils.data.DataLoader,
                             neigs=5, num_classes=10, device=torch.device('cpu')):
     #vector_test = torch.ones(200)
     #print(compute_hvp(network, loss_fn, dataset, vector_test, physical_batch_size=physical_batch_size))
     #sys.exit()
     """ Compute the leading Hessian eigenvalues. """
-    hvp_delta = lambda delta: compute_hvp_weight_decay(network, loss_fn, weight_decay, dataset,
+    hvp_delta = lambda delta: compute_hvp_weight_decay(network, loss_fn, weight_decay, loader,
                                           delta, num_classes, device).detach().cpu()
     nparams = len(parameters_to_vector((network.parameters())))
+    #print("lanczos starts")
     l_evals, l_evecs = lanczos(hvp_delta, nparams, neigs=neigs)
+    #print("lanczos ends")
+    #print(l_evals)
     return l_evals, l_evecs
 
 def get_hessian_eigenvalues(network: nn.Module, loss_fn: nn.Module, lr: float, dataset: Dataset,

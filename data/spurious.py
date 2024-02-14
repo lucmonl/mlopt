@@ -47,13 +47,14 @@ def load_spurious_data(loss_name, feat_dim, train_size, batch_size):
 
 def load_signal_noise_data_2d(loss_name, patch_dim, feat_dim, train_size, batch_size):
     """The dataset is motivated by https://arxiv.org/pdf/2310.07269.pdf Definition 2.1"""
-    assert loss_name == "CrossEntropyLoss"
+    #assert loss_name == "CrossEntropyLoss"
 
     torch.manual_seed(1)
     C = 2 #output dim
     transform_to_one_hot = False
 
-    signal = torch.randn(feat_dim) * 10
+    signal = torch.zeros(feat_dim)
+    signal[0] = 5
     flip_prob = 0.1
     assert int(flip_prob * train_size) > 1
 
@@ -72,7 +73,8 @@ def load_signal_noise_data_2d(loss_name, patch_dim, feat_dim, train_size, batch_
     flip_index_test = torch.randperm(train_size)[:int(flip_prob * train_size)]
     y_train_true[flip_index_train]  = (1 - y_train_true[flip_index_train])
     y_test_true[flip_index_test]    = (1 - y_test_true[flip_index_test])
-    y_train_true, y_test_true = y_train_true.to(torch.int64), y_test_true.to(torch.int64)
+    #y_train_true, y_test_true = y_train_true.to(torch.int64), y_test_true.to(torch.int64)
+    y_train_true, y_test_true = 2*(y_train_true-0.5), 2*(y_test_true-0.5)
     train = TensorDataset(X_train, y_train_true)
     test = TensorDataset(X_test, y_test_true)
     anaylsis_size = min(train_size, max(batch_size, 128))

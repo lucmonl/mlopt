@@ -48,7 +48,9 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
         loss = criterion(out, target)
         loss.backward()
 
-        if out.dim() > 1:
+        if loss_name == 'BCELoss':
+            accuracy = torch.mean((out*target > 0).float())
+        elif out.dim() > 1:
             accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
         
         if opt_name == "sam":
@@ -199,7 +201,7 @@ if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "mnist", "spurious-2d"]
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "weight_norm_torch", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
-    LOSSES = ['MSELoss', 'CrossEntropyLoss']
+    LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sgd', 'norm-sgd','adam']
     BASE_OPTIMIZERS = ['sgd','adam']
 
@@ -297,10 +299,13 @@ if __name__ == "__main__":
         torch.manual_seed(32)
 
     # Best lr after hyperparameter tuning
+    """
     if loss_name == 'CrossEntropyLoss':
         lr = args.lr #0.0679
     elif loss_name == 'MSELoss':
         lr = args.lr #0.0184
+    """
+    lr                  = args.lr
     momentum            = args.momentum #0 # 0.9
     weight_decay        = args.weight_decay #0 # 5e-4 * 10
 
@@ -402,7 +407,16 @@ if __name__ == "__main__":
         else:
             criterion = nn.MSELoss()
             criterion_summed = nn.MSELoss(reduction='sum')
-
+    elif loss_name == "BCELoss":
+        assert not transform_to_one_hot
+        def BCE(out, target):
+            return torch.mean(torch.log(1+torch.exp(-out * target)))
+        
+        def BCE_sum(out, target):
+            return torch.sum(torch.log(1+torch.exp(-out * target)))
+        
+        criterion = BCE
+        criterion_summed = BCE_sum
 
     if opt_name == "sgd" or opt_name == "gd":
         optimizer = optim.SGD(model.parameters(),

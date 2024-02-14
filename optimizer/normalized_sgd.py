@@ -21,7 +21,7 @@ class Normalized_Optimizer(torch.optim.Optimizer):
             self.base_optimizer.step()
             if zero_grad: self.zero_grad()
             return
-        if accuracy !=-1 and accuracy < 0.95:
+        if accuracy !=-1 and accuracy < 0.85:
             self.base_optimizer.step()
             if zero_grad: self.zero_grad()
             return

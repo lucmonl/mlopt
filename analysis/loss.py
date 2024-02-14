@@ -12,16 +12,10 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
     for batch_idx, (data, target) in enumerate(loader_abridged, start=1):
         data, target = data.to(device), target.to(device)
         out = model(data)
-        if str(loss_name) == 'CrossEntropyLoss':
-            loss = criterion_summed(out, target)
-        elif str(loss_name) == 'MSELoss':
-            #print(out[0], target[0])
-            #loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
-            #if transform_to_one_hot:
-            #    loss = criterion_summed(out, F.one_hot(target, num_classes=num_classes).float()).float()
-            #else:
-            loss = criterion_summed(out, target)
-        if out.dim() > 1:
+        loss = criterion_summed(out, target)
+        if loss_name == 'BCELoss':
+            accuracy = torch.sum(out*target > 0)
+        elif out.dim() > 1:
             accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
         loss_sum += loss.item()
         accuracy_sum += accuracy
@@ -35,18 +29,12 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
     for batch_idx, (data, target) in enumerate(test_loader, start=1):
         data, target = data.to(device), target.to(device)
         out = model(data)
-        if str(loss_name) == 'CrossEntropyLoss':
-            loss = criterion_summed(out, target)
-        elif str(loss_name) == 'MSELoss':
-            #print(out[0], target[0])
-            #loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
-            #if transform_to_one_hot:
-            #    loss = criterion_summed(out, F.one_hot(target, num_classes=num_classes).float()).float()
-            #else:
-            loss = criterion_summed(out, target)
-        if out.dim() > 1:
+        loss = criterion_summed(out, target)
+        if loss_name == 'BCELoss':
+            accuracy = torch.sum(out*target > 0).item()
+        elif out.dim() > 1:
             accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
-            wrong_index = torch.where((torch.argmax(out,dim=1)==target).float() == 0)[0]
+            #wrong_index = torch.where((torch.argmax(out,dim=1)==target).float() == 0)[0]
 
         pbar.update(1)
         pbar.set_description(

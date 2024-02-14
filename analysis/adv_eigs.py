@@ -41,3 +41,5 @@ def compute_adv_eigenvalues(graphs, model, criterion_summed, adv_eta, weight_dec
     
     print("train adversarial eigs:", graphs.adv_eigs)
     enable_running_stats(model)
+    print(eigs)
+    #sys.exit(0)
