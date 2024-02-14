@@ -245,6 +245,7 @@ if __name__ == "__main__":
     parser.add_argument("--adv_eta", type=float, default=0.01, help="eta for adversarial perturbation")
 
     parser.add_argument("--multiple_run", type=bool, default=False, help="independent run without overwriting or loading")
+    parser.add_argument("--run_from_scratch", type=bool, default=False, help="do not load from previous results")
     parser.add_argument("--train", type=bool, default=True, help="train model")
     args = parser.parse_args()
 
@@ -252,6 +253,7 @@ if __name__ == "__main__":
     debug = args.debug # Only runs 20 batches per epoch for debugging
     training            = args.train
     multi_run           = args.multiple_run
+    run_from_scratch    = args.run_from_scratch
     model_params = {}
 
     # dataset parameters
@@ -463,7 +465,7 @@ if __name__ == "__main__":
 
     load_from_epoch = continue_training(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
     epoch_list = np.arange(load_from_epoch+1, epochs+1, analysis_interval).tolist()
-    if load_from_epoch != 0:
+    if load_from_epoch != 0 and not run_from_scratch:
         print("loading from trained epoch {}".format(load_from_epoch))
         load_from_dir = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, load_from_epoch, multi_run, **model_params)
         model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))

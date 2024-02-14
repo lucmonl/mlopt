@@ -55,7 +55,7 @@ def load_signal_noise_data_2d(loss_name, patch_dim, feat_dim, train_size, batch_
 
     signal = torch.zeros(feat_dim)
     signal[0] = 5
-    flip_prob = 0.1
+    flip_prob = 0.05
     assert int(flip_prob * train_size) > 1
 
     X_train, X_test = torch.randn(train_size, patch_dim, feat_dim), torch.randn(train_size, patch_dim, feat_dim)
