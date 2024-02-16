@@ -24,6 +24,8 @@ from IPython import embed
 from path_manage import get_directory, continue_training
 from optimizer.sam import disable_running_stats, enable_running_stats
 
+from optimizer.load_optimizer import load_optimizer
+
 
 # setting path
 #current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -255,6 +257,7 @@ if __name__ == "__main__":
     multi_run           = args.multiple_run
     run_from_scratch    = args.run_from_scratch
     model_params = {}
+    opt_params = {}
 
     # dataset parameters
     dataset_name        = args.dataset #"spurious" #"cifar"\
@@ -291,9 +294,11 @@ if __name__ == "__main__":
     
 
     #hyperparameters for sam
-    base_opt            = args.base_opt
-    sam_rho             = args.sam_rho #0.1
-    sam_adaptive        = args.sam_adaptive #False
+    opt_params["base_opt"]            = args.base_opt
+    opt_params["sam_rho"]             = args.sam_rho #0.1
+    opt_params["sam_adaptive"]        = args.sam_adaptive #False
+    opt_params["norm_sgd_lr"]         = args.norm_sgd_lr
+    opt_params["gold_delta"]          = args.gold_delta
 
     if debug:
         torch.autograd.set_detect_anomaly(True)
@@ -420,48 +425,8 @@ if __name__ == "__main__":
         criterion = BCE
         criterion_summed = BCE_sum
 
-    if opt_name == "sgd" or opt_name == "gd":
-        optimizer = optim.SGD(model.parameters(),
-                            lr=lr,
-                            momentum=momentum,
-                            weight_decay=weight_decay)
-    elif opt_name == "sam":
-        from optimizer.sam import SAM
-        if base_opt == "sgd":
-            base_optimizer = torch.optim.SGD
-            optimizer = SAM(model.parameters(), base_optimizer, rho=sam_rho, adaptive=sam_adaptive, lr=lr, momentum=momentum, weight_decay=weight_decay)
-        elif base_opt == "adam":
-            base_optimizer = torch.optim.Adam
-            optimizer = SAM(model.parameters(), base_optimizer, rho=sam_rho, adaptive=sam_adaptive, lr=lr, betas=(momentum, 0.99), weight_decay=weight_decay)
-        else:
-            raise NotImplementedError
-        model_params = model_params | {"base_opt": base_opt, "sam_rho": sam_rho} 
-    elif opt_name == "norm-sgd":
-        from optimizer.normalized_sgd import Normalized_Optimizer
-        norm_sgd_lr = args.norm_sgd_lr
-        if base_opt == "sgd":
-            base_optimizer = torch.optim.SGD
-            optimizer = Normalized_Optimizer(model.parameters(), base_optimizer, norm_sgd_lr,
-                                lr=lr,
-                                momentum=momentum,
-                                weight_decay=weight_decay)
-        elif base_opt == "adam":
-            base_optimizer = torch.optim.Adam
-            optimizer = Normalized_Optimizer(model.parameters(), base_optimizer, norm_sgd_lr,
-                                lr=lr,
-                                betas=(momentum, 0.99),
-                                weight_decay=weight_decay)
-        model_params = model_params | {"base_opt": base_opt, "norm_lr": norm_sgd_lr}
-    elif opt_name == "goldstein":
-        base_optimizer = torch.optim.SGD
-        gold_delta = args.gold_delta
-        from optimizer.goldstein import Goldstein
-        optimizer = Goldstein(model.parameters(), base_optimizer, delta=gold_delta, lr=lr, momentum=momentum, weight_decay=weight_decay)
-        model_params = model_params | {"gold_delta": gold_delta}
+    optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, opt_params)
 
-    lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
-                                                milestones=epochs_lr_decay,
-                                                gamma=lr_decay)
     load_from_epoch = 0
     if not run_from_scratch:
         load_from_epoch = continue_training(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
