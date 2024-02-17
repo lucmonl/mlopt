@@ -338,6 +338,9 @@ if __name__ == "__main__":
     if model_name == "resnet18":
         model = models.resnet18(pretrained=True, num_classes=C)
         model_params = {} | model_params
+        if dataset_name == "mnist":
+            model.conv1 = nn.Conv2d(input_ch, model.conv1.weight.shape[0], 3, 1, 1, bias=False) # Small dataset filter size used by He et al. (2015)
+            model.maxpool = nn.MaxPool2d(kernel_size=1, stride=1, padding=0)
     elif model_name == "WideResNet":
         from arch.wide_resnet import WideResNet
         model = WideResNet(depth=16, width_factor=8, dropout=0.0, in_channels=input_ch, labels=C)
@@ -372,8 +375,6 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError
 
-    
-
 
     # analysis parameters
     """
@@ -385,11 +386,6 @@ if __name__ == "__main__":
     """
     #epoch_list = np.arange(1, epochs+1, 100).tolist()
     train_graphs = graphs()
-
-    if dataset_name == "mnist":
-        model.conv1 = nn.Conv2d(input_ch, model.conv1.weight.shape[0], 3, 1, 1, bias=False) # Small dataset filter size used by He et al. (2015)
-        model.maxpool = nn.MaxPool2d(kernel_size=1, stride=1, padding=0)
-
 
 
     # register hook that saves last-layer input into features
