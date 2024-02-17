@@ -57,6 +57,8 @@ require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/text
 DATASETS_FOLDER = "/projects/dali/data/"
 MODEL_FOLDER    = "/projects/dali/data/pretrained_weights"
 
+OPTIMIZERS = ['gd', 'goldstein','sam', 'sgd', 'norm-sgd']
+
 task_to_keys = {
     "cola": ("sentence", None),
     "mnli": ("premise", "hypothesis"),
@@ -560,7 +562,8 @@ def main():
 
     # set up optimizer
     model_params = {}
-    optimizer, lr_scheduler, model_params= load_optimizer_from_args(opt_name = training_args.optim, 
+    if training_args.optim in OPTIMIZERS:
+        optimizer, lr_scheduler, model_params= load_optimizer_from_args(opt_name = training_args.optim, 
                                                                     model = model, 
                                                                     lr = training_args.learning_rate, 
                                                                     momentum = training_args.momentum, 
@@ -569,6 +572,8 @@ def main():
                                                                     epochs_lr_decay = [training_args.num_train_epochs//3, training_args.num_train_epochs*2//3], 
                                                                     model_params = model_params,
                                                                     training_args = training_args)
+    else:
+        optimizer, lr_scheduler = None, None
     # Initialize our Trainer
     trainer = Trainer(
         model=model,
