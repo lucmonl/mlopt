@@ -28,6 +28,8 @@ import evaluate
 import numpy as np
 from datasets import load_dataset
 
+from optimizer.load_optimizer import load_optimizer_from_args
+
 import transformers
 from transformers import (
     AutoConfig,
@@ -68,6 +70,46 @@ task_to_keys = {
 }
 
 logger = logging.getLogger(__name__)
+
+BASE_OPTIMIZERS = ['sgd','adam']
+@dataclass
+class Elevated_TrainingArguments(TrainingArguments):
+    momentum: Optional[float] = field(
+        default=0,
+        metadata={"help": "momentum"},
+    )
+    sam_rho: Optional[float] = field(
+        default=None,
+        metadata={"help": "rho for sam"},
+    )
+    sam_adaptive: Optional[bool] = field(
+        default=None,
+        metadata={"help": "use adaptive SAM"}
+    )
+    base_opt: Optional[str] = field(
+        default=None,
+        metadata={"help": "base optimizer for sam/norm-sgd optimizer"}
+    )
+    gold_delta: Optional[float] = field(
+        default=None,
+        metadata={"help": "delta for goldstein"}
+    )
+    norm_sgd_lr: Optional[float] = field(
+        default=None,
+        metadata={"help": "learning rate for normalized sgd when overfit"}
+    )
+
+
+    def __init__(self, momentum, sam_rho, sam_adaptive, base_opt, norm_sgd_lr, gold_delta, **kwargs):
+        super().__init__(**kwargs)
+        self.momentum = momentum
+        self.sam_rho = sam_rho
+        self.sam_adaptive = sam_adaptive
+        self.base_opt = base_opt
+        self.norm_sgd_lr = norm_sgd_lr
+        self.gold_delta = gold_delta
+
+
 
 @dataclass
 class DataTrainingArguments:
@@ -213,7 +255,7 @@ def main():
     # See all possible arguments in src/transformers/training_args.py
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, Elevated_TrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
         # let's parse it to get our arguments.
@@ -517,29 +559,28 @@ def main():
         data_collator = None
 
     # set up optimizer
-    """
+    model_params = {}
     optimizer, lr_scheduler, model_params= load_optimizer_from_args(opt_name = training_args.optim, 
                                                                     model = model, 
                                                                     lr = training_args.learning_rate, 
-                                                                    momentum = training_args.adam_beta1, 
+                                                                    momentum = training_args.momentum, 
                                                                     weight_decay = training_args.weight_decay,
-                                                                    lr_decay, epochs_lr_decay, training_args)
-    """
-    import torch.optim as optim
+                                                                    lr_decay = 1, 
+                                                                    epochs_lr_decay = [training_args.num_train_epochs//3, training_args.num_train_epochs*2//3], 
+                                                                    model_params = model_params,
+                                                                    training_args = training_args)
     # Initialize our Trainer
     trainer = Trainer(
         model=model,
         args=training_args,
-        optimizers=(optim.SGD, None), # will override training_args.optim
+        #optimizers=(optim.SGD, None), # will override training_args.optim
+        optimizers=(optimizer, lr_scheduler),
         train_dataset=train_dataset if training_args.do_train else None,
         eval_dataset=eval_dataset if training_args.do_eval else None,
         compute_metrics=compute_metrics,
         tokenizer=tokenizer,
         data_collator=data_collator,
     )
-    print(trainer.optimizer)
-    print(training_args)
-    sys.exit()
 
     # Training
     if training_args.do_train:

@@ -421,7 +421,7 @@ if __name__ == "__main__":
         criterion = BCE
         criterion_summed = BCE_sum
 
-    optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, opt_params)
+    optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, model_params, opt_params)
 
     load_from_epoch = 0
     if not run_from_scratch:
