@@ -40,6 +40,8 @@ from transformers import (
     HfArgumentParser,
     PretrainedConfig,
     Trainer,
+    TrainerState,
+    TrainerControl,
     TrainingArguments,
     default_data_collator,
     set_seed,
@@ -47,6 +49,7 @@ from transformers import (
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
+from transformers.trainer_callback import TrainerCallback
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -74,6 +77,67 @@ task_to_keys = {
 logger = logging.getLogger(__name__)
 
 BASE_OPTIMIZERS = ['sgd','adam']
+
+def analysis(graphs, analysis_list, model, model_name, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader, analysis_loader, analysis_test_loader, weight_decay=0, adv_eta=None):
+    if 'loss' in analysis_list:
+        from analysis.loss import compute_loss
+        compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader)
+
+    if 'eigs' in analysis_list:
+        from analysis.eigs import compute_eigenvalues
+        compute_eigenvalues(graphs, model, criterion_summed, weight_decay, analysis_loader, analysis_test_loader, num_classes, device)
+    """
+    if 'nc' in analysis_list:
+        from analysis.nc import get_nc_statistics
+        get_nc_statistics(graphs, model, features, classifier, loss_name, criterion_summed, weight_decay, num_classes, analysis_loader, analysis_test_loader, device, debug=False)
+    """
+    if 'weight_norm' in analysis_list:
+        from analysis.weight_norm import get_min_weight_norm, get_min_weight_norm_with_g, get_grad_loss_ratio
+        get_min_weight_norm(graphs, model, C=num_classes, model_name=model_name)
+        get_min_weight_norm_with_g(graphs, model, C=num_classes, model_name=model_name)
+        get_grad_loss_ratio(graphs, model, loss_name, analysis_loader, criterion, criterion_summed, num_classes, device)
+
+    if 'adv_eigs' in analysis_list:
+        from analysis.adv_eigs import compute_adv_eigenvalues
+        compute_adv_eigenvalues(graphs, model, criterion_summed, adv_eta, weight_decay, analysis_loader, num_classes, device)
+
+graphs = {"test": 123}
+analysis_list = []
+
+def criterion(preds, labels):
+    return metric.compute(predictions=preds, references=labels)
+
+def criterion_summed(preds, labels):
+    return metric.compute(predictions=preds, references=labels) * preds.shape[0]
+
+class AnalysisCallback(TrainerCallback):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.graphs = graphs
+        self.analysis_list = analysis_list
+    
+    def on_epoch_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+        """
+        Event called at the end of an epoch.
+        """
+        #analysis(graphs, )
+        analysis(graphs,
+                 analysis_list, 
+                 kwargs["model"], 
+                 model_name=None, 
+                 loss_name=None, 
+                 criterion= criterion,
+                 criterion_summed = criterion_summed, 
+                 device = args.device,
+                 num_classes=None, 
+                 train_loader=kwargs["train_dataloader"], 
+                 test_loader=kwargs["eval_dataloader"], 
+                 analysis_loader=None, 
+                 analysis_test_loader=None, 
+                 weight_decay=None,
+                 adv_eta=None)
+        print(self.graphs)
+
 @dataclass
 class Elevated_TrainingArguments(TrainingArguments):
     momentum: Optional[float] = field(
@@ -110,7 +174,6 @@ class Elevated_TrainingArguments(TrainingArguments):
         self.base_opt = base_opt
         self.norm_sgd_lr = norm_sgd_lr
         self.gold_delta = gold_delta
-
 
 
 @dataclass
@@ -574,6 +637,8 @@ def main():
                                                                     training_args = training_args)
     else:
         optimizer, lr_scheduler = None, None
+        ## TODO what will model params be here?
+        
     # Initialize our Trainer
     trainer = Trainer(
         model=model,
@@ -585,6 +650,7 @@ def main():
         compute_metrics=compute_metrics,
         tokenizer=tokenizer,
         data_collator=data_collator,
+        callbacks=[AnalysisCallback]
     )
 
     # Training
