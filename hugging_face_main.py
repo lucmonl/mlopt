@@ -28,6 +28,7 @@ import evaluate
 import numpy as np
 from datasets import load_dataset
 
+from graphs import graphs
 from optimizer.load_optimizer import load_optimizer_from_args
 
 import transformers
@@ -80,9 +81,10 @@ BASE_OPTIMIZERS = ['sgd','adam']
 
 def analysis(graphs, analysis_list, model, model_name, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader, analysis_loader, analysis_test_loader, weight_decay=0, adv_eta=None):
     if 'loss' in analysis_list:
-        from analysis.loss import compute_loss
-        compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader)
-
+        from analysis.loss import compute_loss_hf
+        #compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader)
+        compute_loss_hf(graphs, model, criterion_summed, train_loader, test_loader)
+    #print(sys.exit())
     if 'eigs' in analysis_list:
         from analysis.eigs import compute_eigenvalues
         compute_eigenvalues(graphs, model, criterion_summed, weight_decay, analysis_loader, analysis_test_loader, num_classes, device)
@@ -101,42 +103,8 @@ def analysis(graphs, analysis_list, model, model_name, loss_name, criterion, cri
         from analysis.adv_eigs import compute_adv_eigenvalues
         compute_adv_eigenvalues(graphs, model, criterion_summed, adv_eta, weight_decay, analysis_loader, num_classes, device)
 
-graphs = {"test": 123}
-analysis_list = []
-
-def criterion(preds, labels):
-    return metric.compute(predictions=preds, references=labels)
-
-def criterion_summed(preds, labels):
-    return metric.compute(predictions=preds, references=labels) * preds.shape[0]
-
-class AnalysisCallback(TrainerCallback):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.graphs = graphs
-        self.analysis_list = analysis_list
-    
-    def on_epoch_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
-        """
-        Event called at the end of an epoch.
-        """
-        #analysis(graphs, )
-        analysis(graphs,
-                 analysis_list, 
-                 kwargs["model"], 
-                 model_name=None, 
-                 loss_name=None, 
-                 criterion= criterion,
-                 criterion_summed = criterion_summed, 
-                 device = args.device,
-                 num_classes=None, 
-                 train_loader=kwargs["train_dataloader"], 
-                 test_loader=kwargs["eval_dataloader"], 
-                 analysis_loader=None, 
-                 analysis_test_loader=None, 
-                 weight_decay=None,
-                 adv_eta=None)
-        print(self.graphs)
+train_graphs = graphs()
+analysis_list = ['loss']
 
 @dataclass
 class Elevated_TrainingArguments(TrainingArguments):
@@ -613,6 +581,15 @@ def main():
         if len(result) > 1:
             result["combined_score"] = np.mean(list(result.values())).item()
         return result
+    
+    def criterion(preds, labels):
+        return metric.compute(predictions=preds, references=labels)
+
+    def criterion_summed(preds, labels):
+        criterion = metric.compute(predictions=preds, references=labels)
+        for key in criterion:
+            criterion[key] *= preds.shape[0]
+        return criterion
 
     # Data collator will default to DataCollatorWithPadding when the tokenizer is passed to Trainer, so we change it if
     # we already did the padding.
@@ -638,21 +615,50 @@ def main():
     else:
         optimizer, lr_scheduler = None, None
         ## TODO what will model params be here?
+
+    # Define Callback for analysis
+    class AnalysisCallback(TrainerCallback):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            #self.graphs = graphs
+            self.analysis_list = analysis_list
         
+        def on_epoch_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+            """
+            Event called at the end of an epoch.
+            """
+            analysis(train_graphs,
+                    analysis_list, 
+                    kwargs["model"], 
+                    model_name=None, 
+                    loss_name=None, 
+                    criterion= criterion,
+                    criterion_summed = criterion_summed, 
+                    device = args.device,
+                    num_classes=None, 
+                    train_loader=kwargs["train_dataloader"], 
+                    test_loader=kwargs["eval_dataloader"], 
+                    analysis_loader=None, 
+                    analysis_test_loader=None, 
+                    weight_decay=None,
+                    adv_eta=None)
+            print(train_graphs)
+
+
     # Initialize our Trainer
+    print("train data len:", len(eval_dataset))
     trainer = Trainer(
         model=model,
         args=training_args,
         #optimizers=(optim.SGD, None), # will override training_args.optim
         optimizers=(optimizer, lr_scheduler),
         train_dataset=train_dataset if training_args.do_train else None,
-        eval_dataset=eval_dataset if training_args.do_eval else None,
+        eval_dataset=eval_dataset, #if training_args.do_eval else None,
         compute_metrics=compute_metrics,
         tokenizer=tokenizer,
         data_collator=data_collator,
-        callbacks=[AnalysisCallback]
+        callbacks=[AnalysisCallback()],
     )
-
     # Training
     if training_args.do_train:
         checkpoint = None
