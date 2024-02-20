@@ -663,7 +663,7 @@ def main():
                                       load_from_epoch, 
                                       training_args.multiple_run, **model_params)
         model.load_state_dict(torch.load(os.path.join(load_from_dir, "pytorch_model.bin")))
-        #optimizer.load_state_dict(torch.load(os.path.join(load_from_dir, "optimizer.ckpt")))
+        optimizer.load_state_dict(torch.load(os.path.join(load_from_dir, "optimizer.ckpt")))
         with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
             train_graphs = pickle.load(f)
     #model = model.to(device)
@@ -708,7 +708,7 @@ def main():
                         analysis_test_loader=None, 
                         weight_decay=None,
                         adv_eta=None)
-            print(train_graphs)
+            #print(train_graphs.accuracy)
 
 
     # Initialize our Trainer
@@ -744,6 +744,13 @@ def main():
         trainer.log_metrics("train", metrics)
         trainer.save_metrics("train", metrics)
         trainer.save_state()
+        pickle.dump(train_graphs, open(f"{training_args.output_dir}/train_graphs.pk", "wb"))
+        
+        optimizer = trainer.optimizer if optimizer is None else optimizer
+        torch.save(optimizer.state_dict(), f"{training_args.output_dir}/optimizer.ckpt")
+
+        lr_scheduler = trainer.lr_scheduler if lr_scheduler is None else lr_scheduler
+        torch.save(lr_scheduler.state_dict(), f"{training_args.output_dir}/lr_scheduler.ckpt")
 
     # Evaluation
     if training_args.do_eval:
