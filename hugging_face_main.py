@@ -663,7 +663,7 @@ def main():
                                       load_from_epoch, 
                                       training_args.multiple_run, **model_params)
         model.load_state_dict(torch.load(os.path.join(load_from_dir, "pytorch_model.bin")))
-        optimizer.load_state_dict(torch.load(os.path.join(load_from_dir, "optimizer.ckpt")))
+        training_args.resume_from_checkpoint = load_from_dir
         with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
             train_graphs = pickle.load(f)
     #model = model.to(device)
@@ -725,6 +725,7 @@ def main():
         data_collator=data_collator,
         callbacks=[AnalysisCallback()],
     )
+    
     # Training
     if training_args.do_train:
         checkpoint = None
@@ -747,10 +748,10 @@ def main():
         pickle.dump(train_graphs, open(f"{training_args.output_dir}/train_graphs.pk", "wb"))
         
         optimizer = trainer.optimizer if optimizer is None else optimizer
-        torch.save(optimizer.state_dict(), f"{training_args.output_dir}/optimizer.ckpt")
+        torch.save(optimizer.state_dict(), f"{training_args.output_dir}/optimizer.pt")
 
         lr_scheduler = trainer.lr_scheduler if lr_scheduler is None else lr_scheduler
-        torch.save(lr_scheduler.state_dict(), f"{training_args.output_dir}/lr_scheduler.ckpt")
+        torch.save(lr_scheduler.state_dict(), f"{training_args.output_dir}/scheduler.pt")
 
     # Evaluation
     if training_args.do_eval:
