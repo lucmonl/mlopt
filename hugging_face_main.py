@@ -23,6 +23,9 @@ import sys
 from dataclasses import dataclass, field
 from typing import Optional
 
+import torch
+import pickle
+
 import datasets
 import evaluate
 import numpy as np
@@ -52,6 +55,8 @@ from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 from transformers.trainer_callback import TrainerCallback
 
+from path_manage import get_directory, continue_training
+
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.31.0")
@@ -78,6 +83,7 @@ task_to_keys = {
 logger = logging.getLogger(__name__)
 
 BASE_OPTIMIZERS = ['sgd','adam']
+analysis_list = ['loss']
 
 def analysis(graphs, analysis_list, model, model_name, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader, analysis_loader, analysis_test_loader, weight_decay=0, adv_eta=None):
     if 'loss' in analysis_list:
@@ -103,11 +109,21 @@ def analysis(graphs, analysis_list, model, model_name, loss_name, criterion, cri
         from analysis.adv_eigs import compute_adv_eigenvalues
         compute_adv_eigenvalues(graphs, model, criterion_summed, adv_eta, weight_decay, analysis_loader, num_classes, device)
 
-train_graphs = graphs()
-analysis_list = ['loss']
-
 @dataclass
 class Elevated_TrainingArguments(TrainingArguments):
+    multiple_run:  Optional[bool] = field(
+        default=False,
+        metadata={"help": "independent run without overwriting or loading"}
+    )
+    run_from_scratch: Optional[bool] = field(
+        default=False,
+        metadata={"help": "do not load from previous results"}
+    )
+    analysis_interval: Optional[int] = field(
+        default=1,
+        metadata={"help": "do analysis every $ of epochs"}
+    )
+
     momentum: Optional[float] = field(
         default=0,
         metadata={"help": "momentum"},
@@ -134,8 +150,11 @@ class Elevated_TrainingArguments(TrainingArguments):
     )
 
 
-    def __init__(self, momentum, sam_rho, sam_adaptive, base_opt, norm_sgd_lr, gold_delta, **kwargs):
+    def __init__(self, multiple_run, run_from_scratch, analysis_interval, momentum, sam_rho, sam_adaptive, base_opt, norm_sgd_lr, gold_delta, **kwargs):
         super().__init__(**kwargs)
+        self.multiple_run = multiple_run
+        self.run_from_scratch = run_from_scratch
+        self.analysis_interval = analysis_interval
         self.momentum = momentum
         self.sam_rho = sam_rho
         self.sam_adaptive = sam_adaptive
@@ -295,7 +314,7 @@ def main():
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-
+    model_params = {}
     # Sending telemetry. Tracking the example usage helps us better allocate resources to maintain them. The
     # information sent is the one passed as arguments along with your Python/PyTorch versions.
     send_example_telemetry("run_glue", model_args, data_args)
@@ -327,6 +346,7 @@ def main():
     logger.info(f"Training/evaluation parameters {training_args}")
 
     # Detecting last checkpoint.
+    """
     last_checkpoint = None
     if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
         last_checkpoint = get_last_checkpoint(training_args.output_dir)
@@ -340,7 +360,7 @@ def main():
                 f"Checkpoint detected, resuming training at {last_checkpoint}. To avoid this behavior, change "
                 "the `--output_dir` or add `--overwrite_output_dir` to train from scratch."
             )
-
+    """
     # Set seed before initializing model.
     set_seed(training_args.seed)
 
@@ -601,7 +621,6 @@ def main():
         data_collator = None
 
     # set up optimizer
-    model_params = {}
     if training_args.optim in OPTIMIZERS:
         optimizer, lr_scheduler, model_params= load_optimizer_from_args(opt_name = training_args.optim, 
                                                                     model = model, 
@@ -616,6 +635,52 @@ def main():
         optimizer, lr_scheduler = None, None
         ## TODO what will model params be here?
 
+    last_checkpoint = None
+    load_from_epoch = 0
+    train_graphs = graphs()
+    if training_args.run_from_scratch is not None:
+        load_from_epoch = continue_training(training_args.learning_rate, 
+                                            data_args.task_name, 
+                                            "CrossEntropyLoss", 
+                                            training_args.optim, 
+                                            model_args.model_name_or_path, 
+                                            training_args.momentum, 
+                                            training_args.weight_decay, 
+                                            training_args.per_device_train_batch_size, 
+                                            int(training_args.num_train_epochs), 
+                                            training_args.multiple_run, **model_params)
+    epoch_list = np.arange(load_from_epoch+1, int(training_args.num_train_epochs)+1, training_args.analysis_interval).tolist()
+    if load_from_epoch != 0:
+        print("loading from trained epoch {}".format(load_from_epoch))
+        load_from_dir = get_directory(training_args.learning_rate, 
+                                      data_args.task_name, 
+                                      "CrossEntropyLoss", 
+                                      training_args.optim, 
+                                      model_args.model_name_or_path, 
+                                      training_args.momentum, 
+                                      training_args.weight_decay, 
+                                      training_args.per_device_train_batch_size, 
+                                      load_from_epoch, 
+                                      training_args.multiple_run, **model_params)
+        model.load_state_dict(torch.load(os.path.join(load_from_dir, "pytorch_model.bin")))
+        #optimizer.load_state_dict(torch.load(os.path.join(load_from_dir, "optimizer.ckpt")))
+        with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
+            train_graphs = pickle.load(f)
+    #model = model.to(device)
+
+    directory = get_directory(training_args.learning_rate, 
+                                      data_args.task_name, 
+                                      "CrossEntropyLoss", 
+                                      training_args.optim, 
+                                      model_args.model_name_or_path, 
+                                      training_args.momentum, 
+                                      training_args.weight_decay, 
+                                      training_args.per_device_train_batch_size, 
+                                      int(training_args.num_train_epochs), 
+                                      training_args.multiple_run, **model_params)
+    os.makedirs(directory, exist_ok=True)
+    training_args.output_dir = directory
+
     # Define Callback for analysis
     class AnalysisCallback(TrainerCallback):
         def __init__(self, **kwargs):
@@ -627,21 +692,22 @@ def main():
             """
             Event called at the end of an epoch.
             """
-            analysis(train_graphs,
-                    analysis_list, 
-                    kwargs["model"], 
-                    model_name=None, 
-                    loss_name=None, 
-                    criterion= criterion,
-                    criterion_summed = criterion_summed, 
-                    device = args.device,
-                    num_classes=None, 
-                    train_loader=kwargs["train_dataloader"], 
-                    test_loader=kwargs["eval_dataloader"], 
-                    analysis_loader=None, 
-                    analysis_test_loader=None, 
-                    weight_decay=None,
-                    adv_eta=None)
+            if int(state.epoch) in epoch_list:
+                analysis(train_graphs,
+                        analysis_list, 
+                        kwargs["model"], 
+                        model_name=None, 
+                        loss_name=None, 
+                        criterion= criterion,
+                        criterion_summed = criterion_summed, 
+                        device = args.device,
+                        num_classes=None, 
+                        train_loader=kwargs["train_dataloader"], 
+                        test_loader=kwargs["eval_dataloader"], 
+                        analysis_loader=None, 
+                        analysis_test_loader=None, 
+                        weight_decay=None,
+                        adv_eta=None)
             print(train_graphs)
 
 
