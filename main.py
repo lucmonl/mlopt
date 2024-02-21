@@ -187,14 +187,18 @@ if __name__ == "__main__":
 
     parser.add_argument("--multiple_run", type=bool, default=False, help="independent run without overwriting or loading")
     parser.add_argument("--run_from_scratch", type=bool, default=False, help="do not load from previous results")
-    parser.add_argument("--train", type=bool, default=True, help="train model")
+    parser.add_argument("--store_model_checkpoint", type=bool, default=False, help="store the checkpoint models every analysis step")
+    parser.add_argument("--do_train", type=bool, default=True, help="train model")
+    parser.add_argument("--do_eval", type=bool, default=False, help="evaluate model")
     args = parser.parse_args()
 
 
     debug = args.debug # Only runs 20 batches per epoch for debugging
-    training            = args.train
+    do_train            = args.do_train
+    do_eval             = args.do_eval
     multi_run           = args.multiple_run
     run_from_scratch    = args.run_from_scratch
+    store_model_checkpoint = args.store_model_checkpoint
     model_params = {}
     opt_params = {}
 
@@ -275,7 +279,7 @@ if __name__ == "__main__":
         model_params = model_params | {"patch_dim": sp_patch_dim, "feat_dim": sp_feat_dim, "train_size": sp_train_size}
 
     if model_name == "resnet18":
-        model = models.resnet18(pretrained=True, num_classes=C)
+        model = models.resnet18(pretrained=False, num_classes=C)
         model_params = {} | model_params
         if dataset_name == "mnist":
             model.conv1 = nn.Conv2d(input_ch, model.conv1.weight.shape[0], 3, 1, 1, bias=False) # Small dataset filter size used by He et al. (2015)
@@ -360,35 +364,43 @@ if __name__ == "__main__":
         criterion = BCE
         criterion_summed = BCE_sum
 
-    optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, model_params, opt_params)
+    if do_train:
+        optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, model_params, **opt_params)
 
-    load_from_epoch = 0
-    if not run_from_scratch:
-        load_from_epoch = continue_training(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
-    epoch_list = np.arange(load_from_epoch+1, epochs+1, analysis_interval).tolist()
-    if load_from_epoch != 0:
-        print("loading from trained epoch {}".format(load_from_epoch))
-        load_from_dir = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, load_from_epoch, multi_run, **model_params)
-        model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))
-        optimizer.load_state_dict(torch.load(os.path.join(load_from_dir, "optimizer.ckpt")))
-        with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
-            train_graphs = pickle.load(f)
-    model = model.to(device)
+        load_from_epoch = 0
+        if not run_from_scratch:
+            load_from_epoch = continue_training(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
+        epoch_list = np.arange(load_from_epoch+1, epochs+1, analysis_interval).tolist()
+        if load_from_epoch != 0:
+            print("loading from trained epoch {}".format(load_from_epoch))
+            load_from_dir = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, load_from_epoch, multi_run, **model_params)
+            model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))
+            optimizer.load_state_dict(torch.load(os.path.join(load_from_dir, "optimizer.ckpt")))
+            with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
+                train_graphs = pickle.load(f)
+        model = model.to(device)
 
-    directory = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
-    os.makedirs(directory, exist_ok=True)
+        directory = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
+        os.makedirs(directory, exist_ok=True)
 
-    import pickle
+        import pickle
 
-    cur_epochs = []
-    for epoch in range(load_from_epoch+1, epochs + 1):
-        train(model, loss_name, criterion, device, C, train_loader, optimizer, epoch)
-        #lr_scheduler.step()
+        cur_epochs = []
+        for epoch in range(load_from_epoch+1, epochs + 1):
+            train(model, loss_name, criterion, device, C, train_loader, optimizer, epoch)
+            #lr_scheduler.step()
 
-        if epoch in epoch_list:
-            train_graphs.log_epochs.append(epoch)
-            #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
-            analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, train_loader, test_loader, analysis_loader, analysis_test_loader, adv_eta)
-            pickle.dump(train_graphs, open(f"{directory}/train_graphs.pk", "wb"))
-            torch.save(model.state_dict(), f"{directory}/model.ckpt")
-            torch.save(optimizer.state_dict(), f"{directory}/optimizer.ckpt")
+            if epoch in epoch_list:
+                train_graphs.log_epochs.append(epoch)
+                #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
+                analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, train_loader, test_loader, analysis_loader, analysis_test_loader, adv_eta)
+                pickle.dump(train_graphs, open(f"{directory}/train_graphs.pk", "wb"))
+                torch.save(model.state_dict(), f"{directory}/model.ckpt")
+                torch.save(optimizer.state_dict(), f"{directory}/optimizer.ckpt")
+                if store_model_checkpoint:
+                    os.makedirs(f"{directory}/checkpoint_{epoch}")
+                    torch.save(model.state_dict(), f"{directory}//checkpoint_{epoch}/model.ckpt")
+                    
+
+    if do_eval:
+        pass

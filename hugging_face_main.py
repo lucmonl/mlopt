@@ -82,7 +82,7 @@ task_to_keys = {
 
 logger = logging.getLogger(__name__)
 
-BASE_OPTIMIZERS = ['sgd','adam']
+BASE_OPTIMIZERS = ['sgd','adam','sam']
 analysis_list = ['loss']
 
 def analysis(graphs, analysis_list, model, model_name, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader, analysis_loader, analysis_test_loader, weight_decay=0, adv_eta=None):
