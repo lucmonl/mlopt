@@ -22,7 +22,7 @@ from scipy.sparse.linalg import svds
 from IPython import embed
 
 from graphs import graphs
-from path_manage import get_directory, continue_training
+from path_manage import get_running_directory, get_directory, continue_training
 from optimizer.sam import disable_running_stats, enable_running_stats
 
 from optimizer.load_optimizer import load_optimizer
@@ -42,7 +42,7 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
     accuracy = 0
     for batch_idx, (data, target) in enumerate(train_loader, start=1):
         if data.shape[0] != batch_size:
-                continue
+            continue
         
         data, target = data.to(device), target.to(device)
 
@@ -188,13 +188,14 @@ if __name__ == "__main__":
     parser.add_argument("--multiple_run", type=bool, default=False, help="independent run without overwriting or loading")
     parser.add_argument("--run_from_scratch", type=bool, default=False, help="do not load from previous results")
     parser.add_argument("--store_model_checkpoint", type=bool, default=False, help="store the checkpoint models every analysis step")
-    parser.add_argument("--do_train", type=bool, default=True, help="train model")
-    parser.add_argument("--do_eval", type=bool, default=False, help="evaluate model")
+    parser.add_argument("--no_train", action='store_true', help="train model")
+    parser.add_argument("--do_eval", action='store_true', help="evaluate model")
+    parser.add_argument("--model_average", nargs='+', type=int, default=[0,1], help="index of runs to be averaged")
     args = parser.parse_args()
 
 
     debug = args.debug # Only runs 20 batches per epoch for debugging
-    do_train            = args.do_train
+    no_train            = args.no_train
     do_eval             = args.do_eval
     multi_run           = args.multiple_run
     run_from_scratch    = args.run_from_scratch
@@ -233,6 +234,8 @@ if __name__ == "__main__":
     epochs_lr_decay     = [epochs//3, epochs*2//3]
 
     batch_size          = args.batch_size #512 # 128
+
+    model_average       = args.model_average
     
     
 
@@ -328,9 +331,6 @@ if __name__ == "__main__":
                         225, 245, 268, 293, 320, 350]
     """
     #epoch_list = np.arange(1, epochs+1, 100).tolist()
-    train_graphs = graphs()
-
-
     # register hook that saves last-layer input into features
     if "nc" in analysis_list:
         classifier = model.fc
@@ -364,7 +364,8 @@ if __name__ == "__main__":
         criterion = BCE
         criterion_summed = BCE_sum
 
-    if do_train:
+    if not no_train:
+        train_graphs = graphs()
         optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, model_params, **opt_params)
 
         load_from_epoch = 0
@@ -399,8 +400,29 @@ if __name__ == "__main__":
                 torch.save(optimizer.state_dict(), f"{directory}/optimizer.ckpt")
                 if store_model_checkpoint:
                     os.makedirs(f"{directory}/checkpoint_{epoch}")
-                    torch.save(model.state_dict(), f"{directory}//checkpoint_{epoch}/model.ckpt")
+                    torch.save(model.state_dict(), f"{directory}/checkpoint_{epoch}/model.ckpt")
                     
 
     if do_eval:
-        pass
+        eval_graphs = graphs()
+        running_directory = get_running_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, **model_params)
+        epoch_list = np.arange(1, epochs+1, analysis_interval).tolist()
+        for epoch in epoch_list:
+            eval_graphs.log_epochs.append(epoch)
+
+            sdA = torch.load(os.path.join(running_directory, f"run_{model_average[0]}", f"checkpoint_{epoch}", "model.ckpt"))
+            sdB = torch.load(os.path.join(running_directory, f"run_{model_average[1]}", f"checkpoint_{epoch}", "model.ckpt"))
+
+            for key in sdA:
+                sdB[key] = (sdA[key] + sdB[key]) / 2
+
+            model.load_state_dict(sdB)
+            model = model.to(device)
+
+            analysis(eval_graphs, analysis_list, model, model_name, criterion_summed, device, C, train_loader, test_loader, analysis_loader, analysis_test_loader, adv_eta)
+
+        os.makedirs(f"{running_directory}/avg_{model_average[0]}{model_average[1]}", exist_ok=True)
+        pickle.dump(eval_graphs, open(f"{running_directory}/avg_{model_average[0]}{model_average[1]}/eval_graphs.pk", "wb"))
+
+
+        
