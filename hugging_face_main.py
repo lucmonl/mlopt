@@ -137,7 +137,7 @@ class Elevated_TrainingArguments(TrainingArguments):
         metadata={"help": "rho for sam"},
     )
     sam_adaptive: Optional[bool] = field(
-        default=None,
+        default=False,
         metadata={"help": "use adaptive SAM"}
     )
     base_opt: Optional[str] = field(
@@ -626,6 +626,8 @@ def main():
 
     # set up optimizer
     if training_args.optim in OPTIMIZERS:
+        #if training_args.optim == "sam":
+        #    opt_params = {"base_opt": training_args.base_opt, "sam_rho": training_args.sam_rho, "sam_adaptive": training_args.sam_adaptive}
         optimizer, lr_scheduler, model_params= load_optimizer_from_args(opt_name = training_args.optim, 
                                                                     model = model, 
                                                                     lr = training_args.learning_rate, 
@@ -634,7 +636,7 @@ def main():
                                                                     lr_decay = 1, 
                                                                     epochs_lr_decay = [training_args.num_train_epochs//3, training_args.num_train_epochs*2//3], 
                                                                     model_params = model_params,
-                                                                    training_args = training_args)
+                                                                    kwargs=training_args)
     else:
         optimizer, lr_scheduler = None, None
         ## TODO what will model params be here?
