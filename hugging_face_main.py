@@ -82,18 +82,32 @@ task_to_keys = {
 
 logger = logging.getLogger(__name__)
 
-BASE_OPTIMIZERS = ['sgd','adam','sam']
-analysis_list = ['loss']
+BASE_OPTIMIZERS = ['adam','sam']
+analysis_list = ['loss', 'eigs']
 
-def analysis(graphs, analysis_list, model, model_name, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader, analysis_loader, analysis_test_loader, weight_decay=0, adv_eta=None):
+def analysis(graphs, analysis_list, model, model_name, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader, analysis_loader, analysis_test_loader, weight_decay=0, batch_size=None, adv_eta=None):
     if 'loss' in analysis_list:
         from analysis.loss import compute_loss_hf
         #compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader)
         compute_loss_hf(graphs, model, criterion_summed, train_loader, test_loader)
     #print(sys.exit())
     if 'eigs' in analysis_list:
-        from analysis.eigs import compute_eigenvalues
-        compute_eigenvalues(graphs, model, criterion_summed, weight_decay, analysis_loader, analysis_test_loader, num_classes, device)
+        """
+        analysis_size = max(batch_size, 128)
+        analysis = torch.utils.data.Subset(train_loader.dataset, range(analysis_size))
+        #print(analysis[0])
+        #sys.exit(0)
+        analysis_test = torch.utils.data.Subset(test_loader.dataset, range(analysis_size))
+        analysis_loader = torch.utils.data.DataLoader(
+            analysis,
+            batch_size=analysis_size, shuffle=False)
+        analysis_test_loader = torch.utils.data.DataLoader(
+            analysis_test,
+            batch_size=analysis_size, shuffle=False)
+        """
+        print(analysis_loader)
+        from analysis.eigs import compute_eigenvalues_hf
+        compute_eigenvalues_hf(graphs, model, criterion_summed, weight_decay, analysis_loader, analysis_test_loader, num_classes, device)
     """
     if 'nc' in analysis_list:
         from analysis.nc import get_nc_statistics
@@ -704,9 +718,10 @@ def main():
                         num_classes=None, 
                         train_loader=kwargs["train_dataloader"], 
                         test_loader=kwargs["eval_dataloader"], 
-                        analysis_loader=None, 
+                        analysis_loader=kwargs["analysis_dataloader"], 
                         analysis_test_loader=None, 
                         weight_decay=None,
+                        batch_size=training_args.per_device_train_batch_size,
                         adv_eta=None)
             #print(train_graphs.accuracy)
 
@@ -719,7 +734,7 @@ def main():
         #optimizers=(optim.SGD, None), # will override training_args.optim
         optimizers=(optimizer, lr_scheduler),
         train_dataset=train_dataset if training_args.do_train else None,
-        eval_dataset=eval_dataset, #if training_args.do_eval else None,
+        eval_dataset=eval_dataset if training_args.do_eval else None,
         compute_metrics=compute_metrics,
         tokenizer=tokenizer,
         data_collator=data_collator,

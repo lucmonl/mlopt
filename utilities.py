@@ -248,6 +248,34 @@ def get_hessian_eigenvalues_weight_decay(network: nn.Module, loss_fn: nn.Module,
     #print(l_evals)
     return l_evals, l_evecs
 
+def compute_hvp_weight_decay_hf(network: nn.Module, loss_fn: nn.Module, weight_decay: float,
+                data_loader: torch.utils.data.DataLoader, vector: Tensor, num_classes: int, device: torch.device):
+    """Compute a Hessian-vector product."""
+    p = len(parameters_to_vector(network.parameters()))
+    n = len(data_loader.dataset)
+    hvp = torch.zeros(p, dtype=torch.float, device=device)
+    vector = vector.to(device)
+    for batch_idx, inputs in enumerate(data_loader, start=1):
+        outputs = network(**inputs)
+        print(outputs.keys())
+        sys.exit()
+        loss = outputs['loss']
+        grads = torch.autograd.grad(loss, inputs=network.parameters(), create_graph=True)
+        dot = parameters_to_vector(grads).mul(vector).sum()
+        grads = [g.contiguous() for g in torch.autograd.grad(dot, network.parameters(), retain_graph=True)]
+        hvp +=  parameters_to_vector(grads) 
+    hvp += weight_decay * vector
+    return hvp
+
+def get_hessian_eigenvalues_weight_decay_hf(network: nn.Module, loss_fn: nn.Module, weight_decay: float, loader: torch.utils.data.DataLoader,
+                            neigs=5, num_classes=10, device=torch.device('cpu')):
+    """ Compute the leading Hessian eigenvalues. """
+    hvp_delta = lambda delta: compute_hvp_weight_decay_hf(network, loss_fn, weight_decay, loader,
+                                          delta, num_classes, device).detach().cpu()
+    nparams = len(parameters_to_vector((network.parameters())))
+    l_evals, l_evecs = lanczos(hvp_delta, nparams, neigs=neigs)
+    return l_evals, l_evecs
+
 def get_hessian_eigenvalues(network: nn.Module, loss_fn: nn.Module, lr: float, dataset: Dataset,
                             neigs=6, physical_batch_size=1000, return_smallest = True):
     #vector_test = torch.ones(200)
