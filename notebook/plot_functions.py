@@ -31,9 +31,13 @@ def plot_figures_opts(opts, model_params, opt_params):
         with open(f'../{directory}train_graphs.pk', 'rb') as f:
             train_graphs = pickle.load(f)
 
-
-        cur_epochs = train_graphs.log_epochs
+        if len(train_graphs.log_epochs) != 0:
+            cur_epochs = train_graphs.log_epochs
+        else:
+            cur_epochs = np.arange(len(train_graphs.loss))
         plt.subplot(2,6,1)
+        print(cur_epochs)
+        print(train_graphs.loss)
         plt.semilogy(cur_epochs, train_graphs.loss)
         #plt.legend(['Loss + Weight Decay'])
         plt.xlabel('Epoch')
@@ -70,13 +74,13 @@ def plot_figures_opts(opts, model_params, opt_params):
         plt.ylabel('Value')
         plt.title('Testing Sharpness')
         
-        plt.subplot(2,6,6)
-        plt.semilogy(cur_epochs, train_graphs.adv_eigs[opt_params[opt_name]["adv_eta"]])
-        #.legend(['Loss + Weight Decay'])
-        plt.xlabel('Epoch')
-        plt.ylabel('Value')
-        plt.title('Adversarial Sharpness')
-        
+        if "adv_eta" in opt_params[opt_name]:
+            plt.subplot(2,6,6)
+            plt.semilogy(cur_epochs, train_graphs.adv_eigs[opt_params[opt_name]["adv_eta"]])
+            #.legend(['Loss + Weight Decay'])
+            plt.xlabel('Epoch')
+            plt.ylabel('Value')
+            plt.title('Adversarial Sharpness')
 
     plt.legend(opts)
     plt.tight_layout()

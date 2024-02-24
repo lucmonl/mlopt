@@ -698,6 +698,7 @@ def main():
             """
             Event called at the end of an epoch.
             """
+            train_graphs.log_epochs.append(int(state.epoch))
             if int(state.epoch) in epoch_list:
                 analysis(train_graphs,
                         analysis_list, 
@@ -715,6 +716,7 @@ def main():
                         weight_decay=training_args.weight_decay,
                         batch_size=training_args.per_device_train_batch_size,
                         adv_eta=None)
+            pickle.dump(train_graphs, open(f"{training_args.output_dir}/train_graphs.pk", "wb"))
             #print(train_graphs.accuracy)
 
 
@@ -752,7 +754,6 @@ def main():
         trainer.log_metrics("train", metrics)
         trainer.save_metrics("train", metrics)
         trainer.save_state()
-        pickle.dump(train_graphs, open(f"{training_args.output_dir}/train_graphs.pk", "wb"))
         
         optimizer = trainer.optimizer if optimizer is None else optimizer
         torch.save(optimizer.state_dict(), f"{training_args.output_dir}/optimizer.pt")
