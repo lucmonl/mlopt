@@ -257,8 +257,6 @@ def compute_hvp_weight_decay_hf(network: nn.Module, loss_fn: nn.Module, weight_d
     vector = vector.to(device)
     for batch_idx, inputs in enumerate(data_loader, start=1):
         outputs = network(**inputs)
-        print(outputs.keys())
-        sys.exit()
         loss = outputs['loss']
         grads = torch.autograd.grad(loss, inputs=network.parameters(), create_graph=True)
         dot = parameters_to_vector(grads).mul(vector).sum()
