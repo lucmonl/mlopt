@@ -92,7 +92,6 @@ def analysis(graphs, analysis_list, model, model_name, loss_name, criterion, cri
         compute_loss_hf(graphs, model, criterion_summed, train_loader, test_loader)
     #print(sys.exit())
     if 'eigs' in analysis_list:
-        print(analysis_loader)
         from analysis.eigs import compute_eigenvalues_hf
         compute_eigenvalues_hf(graphs, model, criterion_summed, weight_decay, analysis_loader, analysis_eval_loader, num_classes, device)
     """
@@ -123,6 +122,10 @@ class Elevated_TrainingArguments(TrainingArguments):
     analysis_interval: Optional[int] = field(
         default=1,
         metadata={"help": "do analysis every $ of epochs"}
+    )
+    output_dir: Optional[str] = field(
+        default="",
+        metadata={"help": "The output directory where the model predictions and checkpoints will be written."},
     )
 
     momentum: Optional[float] = field(
@@ -721,7 +724,7 @@ def main():
         #optimizers=(optim.SGD, None), # will override training_args.optim
         optimizers=(optimizer, lr_scheduler),
         train_dataset=train_dataset if training_args.do_train else None,
-        eval_dataset=eval_dataset if training_args.do_eval else None,
+        eval_dataset=eval_dataset, #if training_args.do_eval else None,
         compute_metrics=compute_metrics,
         tokenizer=tokenizer,
         data_collator=data_collator,
@@ -754,7 +757,7 @@ def main():
 
         lr_scheduler = trainer.lr_scheduler if lr_scheduler is None else lr_scheduler
         torch.save(lr_scheduler.state_dict(), f"{training_args.output_dir}/scheduler.pt")
-
+    """
     # Evaluation
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
@@ -826,7 +829,7 @@ def main():
         trainer.push_to_hub(**kwargs)
     else:
         trainer.create_model_card(**kwargs)
-
+    """
 
 def _mp_fn(index):
     # For xla_spawn (TPUs)
