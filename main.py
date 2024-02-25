@@ -337,7 +337,7 @@ if __name__ == "__main__":
         classifier.register_forward_hook(hook)
 
     if loss_name == 'CrossEntropyLoss':
-        assert not transform_to_one_hot
+        assert transform_to_one_hot # assert target is index vector
         criterion = nn.CrossEntropyLoss()
         criterion_summed = nn.CrossEntropyLoss(reduction='sum')
     elif loss_name == 'MSELoss':

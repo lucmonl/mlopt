@@ -698,8 +698,8 @@ def main():
             """
             Event called at the end of an epoch.
             """
-            train_graphs.log_epochs.append(int(state.epoch))
             if int(state.epoch) in epoch_list:
+                train_graphs.log_epochs.append(int(state.epoch))
                 analysis(train_graphs,
                         analysis_list, 
                         kwargs["model"], 

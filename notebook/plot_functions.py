@@ -31,10 +31,10 @@ def plot_figures_opts(opts, model_params, opt_params):
         with open(f'../{directory}train_graphs.pk', 'rb') as f:
             train_graphs = pickle.load(f)
 
-        if len(train_graphs.log_epochs) != 0:
-            cur_epochs = train_graphs.log_epochs
-        else:
-            cur_epochs = np.arange(len(train_graphs.loss))
+        #if len(train_graphs.log_epochs) != 0:
+        #    cur_epochs = train_graphs.log_epochs
+        #else:
+        cur_epochs = np.arange(len(train_graphs.loss))
         plt.subplot(2,6,1)
         print(cur_epochs)
         print(train_graphs.loss)
