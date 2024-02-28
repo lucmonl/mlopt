@@ -9,7 +9,7 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
                             weight_decay=weight_decay)
     elif opt_name == "adam":
         from torch.optim import Adam
-        optimizer = Adam(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
+        optimizer = Adam(model.parameters(), lr=lr, betas=(momentum, 0.99), weight_decay=weight_decay)
     elif opt_name == "sam":
         from optimizer.sam import SAM
         if kwargs["base_opt"] == "sgd":
@@ -21,6 +21,8 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         else:
             raise NotImplementedError
         model_params = model_params | {"base_opt": kwargs["base_opt"], "sam_rho": kwargs["sam_rho"]} 
+        if kwargs["sam_adaptive"]:
+            model_params = model_params | {"sam": "adaptive"}
     elif opt_name == "norm-sgd":
         from optimizer.normalized_sgd import Normalized_Optimizer
         #norm_sgd_lr = args.norm_sgd_lr
