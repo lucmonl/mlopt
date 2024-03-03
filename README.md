@@ -7,6 +7,8 @@ python main.py --dataset spurious --model 2-mlp-sim-ln --loss MSELoss --opt sam 
 
 python main.py --dataset cifar --model WideResNet --loss CrossEntropyLoss --opt sam --lr 0.01 --epoch 200 --analysis loss eigs adv_eigs --log_interval 10 --batch_size 512 --sam_rho 0.05 --momentum 0.9 --adv_eta 0.01
 
+python main.py --dataset cifar --model WideResNet --loss CrossEntropyLoss --opt sam --lr 0.01 --epoch 200 --analysis loss eigs adv_eigs --log_interval 10 --batch_size 128 --sam_rho 0.1 --momentum 0.9 --weight_decay 0.0005 --adv_eta 0.01 --base_opt sgd
+
 python hugging_face_main.py --model_name_or_path google-bert/bert-base-cased --task_name mrpc --do_train --do_eval --max_seq_length 128 --per_device_train_batch_size 128 --learning_rate 2e-5 --optim sgd --num_train_epochs 200 --analysis_interval 10 --save_strategy no --overwrite_output_dir
 
 python hugging_face_main.py --model_name_or_path google-bert/bert-base-cased --task_name mrpc --do_train --do_eval --max_seq_length 128 --per_device_train_batch_size 128 --learning_rate 2e-5 --optim sam --sam_rho 0.2 --base_opt sgd --num_train_epochs 200 --analysis_interval 10 --save_strategy no --overwrite_output_dir

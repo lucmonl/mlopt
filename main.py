@@ -289,7 +289,8 @@ if __name__ == "__main__":
             model.maxpool = nn.MaxPool2d(kernel_size=1, stride=1, padding=0)
     elif model_name == "WideResNet":
         from arch.wide_resnet import WideResNet
-        model = WideResNet(depth=16, width_factor=8, dropout=0.0, in_channels=input_ch, labels=C)
+        model = WideResNet(depth=16, width_factor=width_factor, dropout=0.0, in_channels=input_ch, labels=C)
+        width = {"width": width_factor}
     elif model_name == "weight_norm":
         from arch.weight_norm import weight_norm_net
         model = weight_norm_net(num_pixels, [width, width], wn_init_mode, wn_basis_var, wn_scale)
