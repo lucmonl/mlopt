@@ -21,6 +21,7 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
         accuracy_sum += accuracy
     graphs.loss.append(loss_sum / len(loader_abridged.dataset))
     graphs.accuracy.append(accuracy_sum / len(loader_abridged.dataset))
+    
 
     model.eval()
     pbar = tqdm(total=len(test_loader), position=0, leave=True)
@@ -48,6 +49,11 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
                 accuracy / data.shape[0]))
         loss_sum += loss.item()
         accuracy_sum += accuracy
+
+    print(loss_sum / len(test_loader.dataset))
+    print(out[:10])
+    print(target[:10])
+    
     pbar.close()
     graphs.test_loss.append(loss_sum / len(test_loader.dataset))
     graphs.test_accuracy.append(accuracy_sum / len(test_loader.dataset))

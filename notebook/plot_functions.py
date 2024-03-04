@@ -34,10 +34,11 @@ def plot_figures_opts(opts, model_params, opt_params):
         #if len(train_graphs.log_epochs) != 0:
         #    cur_epochs = train_graphs.log_epochs
         #else:
-        cur_epochs = np.arange(len(train_graphs.loss))
+        #cur_epochs = np.arange(len(train_graphs.loss))
+        cur_epochs = train_graphs.log_epochs
         plt.subplot(2,6,1)
-        print(cur_epochs)
-        print(train_graphs.loss)
+        #print(cur_epochs)
+        #print(train_graphs.loss)
         plt.semilogy(cur_epochs, train_graphs.loss)
         #plt.legend(['Loss + Weight Decay'])
         plt.xlabel('Epoch')
@@ -46,7 +47,7 @@ def plot_figures_opts(opts, model_params, opt_params):
 
 
         plt.subplot(2,6,2)
-        print(train_graphs.eigs)
+        #print(train_graphs.eigs)
         plt.semilogy(cur_epochs, train_graphs.eigs)
         #plt.legend(['Loss + Weight Decay'])
         plt.xlabel('Epoch')

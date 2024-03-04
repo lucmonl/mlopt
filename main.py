@@ -40,7 +40,9 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
     
     pbar = tqdm(total=len(train_loader), position=0, leave=True)
     accuracy = 0
+    loss = torch.FloatTensor([0])
     for batch_idx, (data, target) in enumerate(train_loader, start=1):
+        
         if data.shape[0] != batch_size:
             continue
         
@@ -90,11 +92,12 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
             optimizer.step()
 
         
-
+        
         pbar.update(1)
+        
         pbar.set_description(
-            'Train\t\tEpoch: {} [{}/{} ({:.0f}%)] \t'
-            'Batch Loss: {:.6f} \t'
+            'Train    Epoch: {} [{}/{} ({:.0f}%)]   '
+            'Batch Loss: {:.6f}  '
             'Batch Accuracy: {:.6f}'.format(
                 epoch,
                 batch_idx,
@@ -102,6 +105,7 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
                 100. * batch_idx / len(train_loader),
                 loss.item(),
                 accuracy))
+        
         
         if debug and batch_idx > 20:
             break
@@ -290,7 +294,7 @@ if __name__ == "__main__":
     elif model_name == "WideResNet":
         from arch.wide_resnet import WideResNet
         model = WideResNet(depth=16, width_factor=width_factor, dropout=0.0, in_channels=input_ch, labels=C)
-        width = {"width": width_factor}
+        model_params = {"width": width_factor}
     elif model_name == "weight_norm":
         from arch.weight_norm import weight_norm_net
         model = weight_norm_net(num_pixels, [width, width], wn_init_mode, wn_basis_var, wn_scale)
@@ -391,17 +395,18 @@ if __name__ == "__main__":
         for epoch in range(load_from_epoch+1, epochs + 1):
             train(model, loss_name, criterion, device, C, train_loader, optimizer, epoch)
             #lr_scheduler.step()
-
+            
             if epoch in epoch_list:
                 train_graphs.log_epochs.append(epoch)
                 #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
                 analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, train_loader, test_loader, analysis_loader, analysis_test_loader, adv_eta)
+                
                 pickle.dump(train_graphs, open(f"{directory}/train_graphs.pk", "wb"))
                 torch.save(model.state_dict(), f"{directory}/model.ckpt")
                 torch.save(optimizer.state_dict(), f"{directory}/optimizer.ckpt")
                 if store_model_checkpoint:
                     os.makedirs(f"{directory}/checkpoint_{epoch}")
-                    torch.save(model.state_dict(), f"{directory}/checkpoint_{epoch}/model.ckpt")
+                    torch.save(model.state_dict(), f"{directory}/checkpoint_{epoch}/model.ckpt") 
                     
 
     if do_eval:
@@ -421,7 +426,7 @@ if __name__ == "__main__":
             model = model.to(device)
 
             analysis(eval_graphs, analysis_list, model, model_name, criterion_summed, device, C, train_loader, test_loader, analysis_loader, analysis_test_loader, adv_eta)
-
+            
         os.makedirs(f"{running_directory}/avg_{model_average[0]}{model_average[1]}", exist_ok=True)
         pickle.dump(eval_graphs, open(f"{running_directory}/avg_{model_average[0]}{model_average[1]}/eval_graphs.pk", "wb"))
 
