@@ -104,7 +104,7 @@ def load_multi_view_data(loss_name, patch_dim, feat_dim, train_size, batch_size)
     C = 1 #output dim
     transform_to_one_hot = False
 
-    signal = torch.random.randn(feat_dim)
+    signal = torch.randn(feat_dim)
 
     X_train, X_test = torch.randn(train_size, patch_dim, feat_dim), torch.randn(train_size, patch_dim, feat_dim)
     y_train_true, y_test_true = torch.bernoulli(0.5*torch.ones(train_size)), torch.bernoulli(0.5*torch.ones(train_size)) #equal prob for 0 and 1
@@ -121,8 +121,8 @@ def load_multi_view_data(loss_name, patch_dim, feat_dim, train_size, batch_size)
     # insert strong signal
     strong_ratio = int(0.7 * train_size)
     strong_multiplier = 2* np.sqrt(feat_dim) * weak_multiplier
-    X_train[range(train_size)[:strong_ratio], signal_index_train[:strong_ratio], :] = torch.outer(strong_multiplier * y_train_true, signal) 
-    X_test[range(train_size)[:strong_ratio], signal_index_test[:strong_ratio], :]   = torch.outer(strong_multiplier * y_test_true, signal)
+    X_train[range(train_size)[:strong_ratio], signal_index_train[:strong_ratio], :] = torch.outer(strong_multiplier * y_train_true[:strong_ratio], signal) 
+    X_test[range(train_size)[:strong_ratio], signal_index_test[:strong_ratio], :]   = torch.outer(strong_multiplier * y_test_true[:strong_ratio], signal)
 
     #y_train_true, y_test_true = y_train_true.to(torch.int64), y_test_true.to(torch.int64)
     

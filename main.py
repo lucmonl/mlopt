@@ -143,7 +143,7 @@ def hook(self, input, output):
 
     
 if __name__ == "__main__":
-    DATASETS = ["spurious", "cifar", "mnist", "spurious-2d"]
+    DATASETS = ["spurious", "cifar", "mnist", "spurious-2d", "multi-view"]
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "weight_norm_torch", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
@@ -284,6 +284,10 @@ if __name__ == "__main__":
         from data.spurious import load_signal_noise_data_2d
         train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot = load_signal_noise_data_2d(loss_name, sp_patch_dim, sp_feat_dim, sp_train_size, batch_size)
         model_params = model_params | {"patch_dim": sp_patch_dim, "feat_dim": sp_feat_dim, "train_size": sp_train_size}
+    elif dataset_name == "multi-view":
+        from data.spurious import load_multi_view_data
+        train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot, data_params = load_multi_view_data(loss_name, sp_patch_dim, sp_feat_dim, sp_train_size, batch_size)
+        model_params = model_params | {"patch_dim": sp_patch_dim, "feat_dim": sp_feat_dim, "train_size": sp_train_size}
 
     if model_name == "resnet18":
         model = models.resnet18(pretrained=False, num_classes=C)
@@ -321,6 +325,7 @@ if __name__ == "__main__":
         model_params = {} | model_params
     elif model_name == "conv_fixed_last":
         from arch.conv import conv_fixed_last_layer
+        assert C == 1
         model = conv_fixed_last_layer(num_pixels, width)
         model_params = {"nfilters": width} | model_params
     else:

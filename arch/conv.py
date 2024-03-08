@@ -19,8 +19,8 @@ class conv_fixed_last_layer(nn.Module):
     def reset_parameters(self):
         self.w_plus.data.uniform_(-self.std_v, self.std_v)
         self.w_minus.data.uniform_(-self.std_v, self.std_v)
-        self.v_plus.data.uniform_(0,1)
-        self.v_minus.data.uniform_(0,1)
+        #self.v_plus.data.uniform_(0,1)
+        #self.v_minus.data.uniform_(0,1)
 
     def forward(self, batched_x):
         batched_x_plus = torch.nn.ReLU()(batched_x @ self.w_plus) ## (B*P*d) * (d*width)
