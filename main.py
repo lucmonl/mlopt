@@ -144,7 +144,7 @@ def hook(self, input, output):
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "mnist", "spurious-2d", "multi-view"]
-    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "weight_norm_torch", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG"]
+    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sgd', 'norm-sgd','adam']
@@ -327,6 +327,11 @@ if __name__ == "__main__":
         from arch.conv import conv_fixed_last_layer
         assert C == 1
         model = conv_fixed_last_layer(num_pixels, width)
+        model_params = {"nfilters": width} | model_params
+    elif model_name == "conv_with_last":
+        from arch.conv import conv_with_last_layer
+        assert C == 1
+        model = conv_with_last_layer(num_pixels, width)
         model_params = {"nfilters": width} | model_params
     else:
         raise NotImplementedError
