@@ -59,3 +59,6 @@ class graphs:
         self.wn_grad_loss_ratio = []
         self.wn_norm_min        = []
         self.wn_norm_min_with_g = []
+
+        # weight alignment
+        self.align              = []

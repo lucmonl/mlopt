@@ -120,7 +120,7 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
 
     pbar.close()
 
-def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, adv_eta=None):
+def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, analysis_params):
     if 'loss' in analysis_list:
         from analysis.loss import compute_loss
         compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader, compute_acc)
@@ -141,7 +141,12 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
 
     if 'adv_eigs' in analysis_list:
         from analysis.adv_eigs import compute_adv_eigenvalues
-        compute_adv_eigenvalues(graphs, model, criterion_summed, adv_eta, weight_decay, analysis_loader, num_classes, device)
+        compute_adv_eigenvalues(graphs, model, criterion_summed, analysis_params["adv_eta"], weight_decay, analysis_loader, num_classes, device)
+
+    if 'align' in analysis_list:
+        from analysis.alignment import compute_weight_signal_alignment
+        compute_weight_signal_alignment(graphs, model, analysis_params["signal"])
+
 
 class features:
     pass
@@ -214,6 +219,7 @@ if __name__ == "__main__":
     store_model_checkpoint = args.store_model_checkpoint
     model_params = {}
     opt_params = {}
+    analysis_params = {}
 
     # dataset parameters
     dataset_name        = args.dataset #"spurious" #"cifar"\
@@ -239,9 +245,6 @@ if __name__ == "__main__":
     # Optimization hyperparameters
     lr_decay            = args.lr_decay #1# 0.1
 
-    # analysis hyperparameters
-    adv_eta             = args.adv_eta
-
     epochs              = args.epoch
     epochs_lr_decay     = [epochs//3, epochs*2//3]
 
@@ -257,6 +260,9 @@ if __name__ == "__main__":
     opt_params["sam_adaptive"]        = args.sam_adaptive #False
     opt_params["norm_sgd_lr"]         = args.norm_sgd_lr
     opt_params["gold_delta"]          = args.gold_delta
+
+    # analysis hyperparameters
+    analysis_params["adv_eta"]        = args.adv_eta
 
     if debug:
         torch.autograd.set_detect_anomaly(True)
@@ -296,6 +302,7 @@ if __name__ == "__main__":
         from data.spurious import load_multi_view_data
         train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot, data_params = load_multi_view_data(loss_name, sp_patch_dim, sp_feat_dim, sp_train_size, batch_size)
         model_params = model_params | {"patch_dim": sp_patch_dim, "feat_dim": sp_feat_dim, "train_size": sp_train_size}
+        analysis_params = analysis_params | {"signal": data_params["signal"]}
     compute_acc = data_params["compute_acc"]
 
     if model_name == "resnet18":
@@ -418,7 +425,7 @@ if __name__ == "__main__":
             if epoch in epoch_list:
                 train_graphs.log_epochs.append(epoch)
                 #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
-                analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc,train_loader, test_loader, analysis_loader, analysis_test_loader, adv_eta)
+                analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc,train_loader, test_loader, analysis_loader, analysis_test_loader, analysis_params)
                 
                 pickle.dump(train_graphs, open(f"{directory}/train_graphs.pk", "wb"))
                 torch.save(model.state_dict(), f"{directory}/model.ckpt")
@@ -444,7 +451,7 @@ if __name__ == "__main__":
             model.load_state_dict(sdB)
             model = model.to(device)
 
-            analysis(eval_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, adv_eta)
+            analysis(eval_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, analysis_params)
             
         os.makedirs(f"{running_directory}/avg_{model_average[0]}{model_average[1]}", exist_ok=True)
         pickle.dump(eval_graphs, open(f"{running_directory}/avg_{model_average[0]}{model_average[1]}/eval_graphs.pk", "wb"))
