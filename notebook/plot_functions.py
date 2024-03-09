@@ -105,3 +105,9 @@ def get_attr(opt_name, model_params, opt_params, attr):
     with open(f'../{directory}train_graphs.pk', 'rb') as f:
         train_graphs = pickle.load(f)
     return getattr(train_graphs, attr)
+
+def plot_max_2d(array, k=1, start=0, end=-1):
+
+    assert k >= 1 and k <= len(array[0])
+    for j in range(1,k+1):
+        plt.plot([np.partition(array[start+i].flatten(), -j)[-j] for i in range(len(array[start:end]))])
