@@ -53,10 +53,18 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
         loss = criterion(out, target)
         loss.backward()
 
+        """
         if loss_name == 'BCELoss':
             accuracy = torch.mean((out*target > 0).float())
         elif out.dim() > 1:
             accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
+        """
+        if compute_acc:
+            if out.dim() > 1:
+                accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
+            else:
+                accuracy = torch.mean((out*target > 0).float()).item()
+
         
         if opt_name == "sam":
             optimizer.first_step(zero_grad=True)
@@ -112,10 +120,10 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
 
     pbar.close()
 
-def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, train_loader, test_loader, analysis_loader, analysis_test_loader, adv_eta=None):
+def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, adv_eta=None):
     if 'loss' in analysis_list:
         from analysis.loss import compute_loss
-        compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader)
+        compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader, compute_acc)
 
     if 'eigs' in analysis_list:
         from analysis.eigs import compute_eigenvalues
@@ -288,6 +296,7 @@ if __name__ == "__main__":
         from data.spurious import load_multi_view_data
         train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot, data_params = load_multi_view_data(loss_name, sp_patch_dim, sp_feat_dim, sp_train_size, batch_size)
         model_params = model_params | {"patch_dim": sp_patch_dim, "feat_dim": sp_feat_dim, "train_size": sp_train_size}
+    compute_acc = data_params["compute_acc"]
 
     if model_name == "resnet18":
         model = models.resnet18(pretrained=False, num_classes=C)
@@ -409,7 +418,7 @@ if __name__ == "__main__":
             if epoch in epoch_list:
                 train_graphs.log_epochs.append(epoch)
                 #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
-                analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, train_loader, test_loader, analysis_loader, analysis_test_loader, adv_eta)
+                analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc,train_loader, test_loader, analysis_loader, analysis_test_loader, adv_eta)
                 
                 pickle.dump(train_graphs, open(f"{directory}/train_graphs.pk", "wb"))
                 torch.save(model.state_dict(), f"{directory}/model.ckpt")
@@ -435,7 +444,7 @@ if __name__ == "__main__":
             model.load_state_dict(sdB)
             model = model.to(device)
 
-            analysis(eval_graphs, analysis_list, model, model_name, criterion_summed, device, C, train_loader, test_loader, analysis_loader, analysis_test_loader, adv_eta)
+            analysis(eval_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, adv_eta)
             
         os.makedirs(f"{running_directory}/avg_{model_average[0]}{model_average[1]}", exist_ok=True)
         pickle.dump(eval_graphs, open(f"{running_directory}/avg_{model_average[0]}{model_average[1]}/eval_graphs.pk", "wb"))

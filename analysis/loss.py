@@ -4,7 +4,7 @@ from tqdm import tqdm
 import torch.nn.functional as F
 import sys
 
-def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, loader_abridged, test_loader):
+def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, loader_abridged, test_loader, compute_acc=False):
     disable_running_stats(model)
     loss_sum = 0
     accuracy_sum = 0
@@ -13,10 +13,17 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
         data, target = data.to(device), target.to(device)
         out = model(data)
         loss = criterion_summed(out, target)
+        """
         if loss_name == 'BCELoss':
             accuracy = torch.sum(out*target > 0)
         elif out.dim() > 1:
             accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
+        """
+        if compute_acc:
+            if out.dim() > 1:
+                accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
+            else:
+                accuracy = torch.sum((out*target > 0).float()).item()
         loss_sum += loss.item()
         accuracy_sum += accuracy
     graphs.loss.append(loss_sum / len(loader_abridged.dataset))
@@ -31,16 +38,22 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
         data, target = data.to(device), target.to(device)
         out = model(data)
         loss = criterion_summed(out, target)
+        """
         if loss_name == 'BCELoss':
             accuracy = torch.sum(out*target > 0).item()
         elif out.dim() > 1:
             accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
             #wrong_index = torch.where((torch.argmax(out,dim=1)==target).float() == 0)[0]
-
+        """
+        if compute_acc:
+            if out.dim() > 1:
+                accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
+            else:
+                accuracy = torch.sum((out*target > 0).float()).item()
         pbar.update(1)
         pbar.set_description(
-            'Test\t\t [{}/{} ({:.0f}%)] \t'
-            'Batch Loss: {:.6f} \t'
+            'Test  [{}/{} ({:.0f}%)] '
+            'Batch Loss: {:.6f} '
             'Batch Accuracy: {:.6f}'.format(
                 batch_idx,
                 len(test_loader),
@@ -50,9 +63,9 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
         loss_sum += loss.item()
         accuracy_sum += accuracy
 
-    print(loss_sum / len(test_loader.dataset))
-    print(out[:10])
-    print(target[:10])
+    #print(loss_sum / len(test_loader.dataset))
+    #print(out[:10])
+    #print(target[:10])
     
     pbar.close()
     graphs.test_loss.append(loss_sum / len(test_loader.dataset))
