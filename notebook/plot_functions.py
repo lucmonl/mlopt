@@ -110,4 +110,4 @@ def plot_max_2d(array, k=1, start=0, end=-1):
 
     assert k >= 1 and k <= len(array[0])
     for j in range(1,k+1):
-        plt.plot([np.partition(array[start+i].flatten(), -j)[-j] for i in range(len(array[start:end]))])
+        plt.plot([np.partition(np.array(array[start+i]).flatten(), -j)[-j] for i in range(len(array[start:end]))])

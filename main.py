@@ -145,7 +145,7 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
 
     if 'align' in analysis_list:
         from analysis.alignment import compute_weight_signal_alignment
-        compute_weight_signal_alignment(graphs, model, analysis_params["signal"])
+        compute_weight_signal_alignment(graphs, model, analysis_params["signal"], analysis_params["signal_patch_index"], train_loader)
 
 
 class features:
@@ -302,7 +302,7 @@ if __name__ == "__main__":
         from data.spurious import load_multi_view_data
         train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot, data_params = load_multi_view_data(loss_name, sp_patch_dim, sp_feat_dim, sp_train_size, batch_size)
         model_params = model_params | {"patch_dim": sp_patch_dim, "feat_dim": sp_feat_dim, "train_size": sp_train_size}
-        analysis_params = analysis_params | {"signal": data_params["signal"]}
+        analysis_params = analysis_params | data_params
     compute_acc = data_params["compute_acc"]
 
     if model_name == "resnet18":

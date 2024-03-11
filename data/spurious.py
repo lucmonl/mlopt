@@ -132,9 +132,11 @@ def load_multi_view_data(loss_name, patch_dim, feat_dim, train_size, batch_size)
     analysis = torch.utils.data.Subset(train, range(anaylsis_size))
     analysis_test = torch.utils.data.Subset(test, range(anaylsis_size))
 
+    shuffle = False
+    assert not shuffle ## will use the exact order of signal index in analysis/align
     train_loader = torch.utils.data.DataLoader(
         train,
-        batch_size=batch_size, shuffle=True)
+        batch_size=batch_size, shuffle=shuffle)
     test_loader = torch.utils.data.DataLoader(
         test,
         batch_size=batch_size, shuffle=False)
@@ -145,5 +147,5 @@ def load_multi_view_data(loss_name, patch_dim, feat_dim, train_size, batch_size)
         analysis_test,
         batch_size=anaylsis_size, shuffle=False)
     
-    data_params = {"signal": signal, "compute_acc": True}
+    data_params = {"signal": signal, "compute_acc": True, "signal_patch_index": signal_index_train}
     return train_loader, test_loader, analysis_loader, analysis_test_loader, feat_dim, C, transform_to_one_hot, data_params
