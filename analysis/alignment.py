@@ -2,10 +2,15 @@ import torch
 import sys
 import numpy as np
 
-def compute_weight_signal_alignment(graphs, model, signal, signal_index, train_loader):
-    align_plus = (signal @ model.w_plus.detach().cpu()).numpy() # d @ (d * m) = m
-    align_minus = (signal @ model.w_minus.detach().cpu()).numpy()
-    graphs.align_signal.append(np.concatenate([align_plus, align_minus])) # 2*m
+def compute_weight_signal_alignment(graphs, model, signals, signal_index, train_loader):
+    for idx, signal in enumerate(signals, start=1):
+        align_plus = (signal @ model.w_plus.detach().cpu()).numpy() # d @ (d * m) = m
+        align_minus = (signal @ model.w_minus.detach().cpu()).numpy()
+
+        stored_align_signal = getattr(graphs, "align_signal_{}".format(idx)) 
+        stored_align_signal.append(np.concatenate([align_plus, align_minus]))
+        setattr(graphs, "align_signal_{}".format(idx), stored_align_signal)
+        #graphs.align_signal.append(np.concatenate([align_plus, align_minus])) # 2*m
     
     batch_size = train_loader.batch_size
     align_noise_list = []

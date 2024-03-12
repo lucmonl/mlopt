@@ -118,7 +118,7 @@ def plot_max_2d(array, k=1, start=0, end=-1, xaxis=None):
         else:
             plt.plot(xaxis, [np.partition(np.array(array[start+i]).flatten(), -j)[-j] for i in range(len(array[start:end]))])
 
-def plot_figures_align(opts, model_params, opt_params):
+def plot_figures_align(opts, model_params, opt_params, signal_nums=1):
     plt.figure(figsize=(15,5))
     for opt_name in opts:
         model_param = model_params[opt_name]
@@ -143,19 +143,21 @@ def plot_figures_align(opts, model_params, opt_params):
         #else:
         #cur_epochs = np.arange(len(train_graphs.loss))
         cur_epochs = train_graphs.log_epochs
-        plt.subplot(2,6,1)
-        #print(cur_epochs)
-        #print(train_graphs.loss)
-        #plt.semilogy(cur_epochs, train_graphs.loss)
-        align = getattr(train_graphs, "align_signal")
-        plot_max_2d(align, 4)
-        #plt.legend(['Loss + Weight Decay'])
-        plt.xlabel('Epoch')
-        plt.ylabel('Value')
-        plt.title('Align Signal')
+
+        for i in range(1, signal_nums+1):
+            plt.subplot(2,6,i)
+            #print(cur_epochs)
+            #print(train_graphs.loss)
+            #plt.semilogy(cur_epochs, train_graphs.loss)
+            align = getattr(train_graphs, "align_signal_{}".format(i))
+            plot_max_2d(align, 4)
+            #plt.legend(['Loss + Weight Decay'])
+            plt.xlabel('Epoch')
+            plt.ylabel('Value')
+            plt.title('Align Signal {}'.format(i))
 
 
-        plt.subplot(2,6,2)
+        plt.subplot(2,6,i+1)
         #print(train_graphs.eigs)
         align = getattr(train_graphs, "align_noise")
         plot_max_2d(align, 4)
@@ -164,7 +166,7 @@ def plot_figures_align(opts, model_params, opt_params):
         plt.ylabel('Value')
         plt.title('Align Noise')
 
-        plt.subplot(2,6,3)
+        plt.subplot(2,6,i+2)
         out_layer = getattr(train_graphs, "out_layer") # get_attr('sgd-0.05', model_params, opt_params, "out_layer")
         plot_max_2d(out_layer, 2)
         #.legend(['Loss + Weight Decay'])

@@ -61,6 +61,7 @@ class graphs:
         self.wn_norm_min_with_g = []
 
         # weight alignment
-        self.align_signal       = []
+        self.align_signal_1     = []
+        self.align_signal_2     = []
         self.align_noise        = []
         self.out_layer          = []
