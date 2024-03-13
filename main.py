@@ -123,7 +123,7 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
 def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, analysis_params):
     if 'loss' in analysis_list:
         from analysis.loss import compute_loss
-        compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader, compute_acc)
+        compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader, compute_acc, compute_model_output='output' in analysis_list)
 
     if 'eigs' in analysis_list:
         from analysis.eigs import compute_eigenvalues

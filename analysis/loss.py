@@ -3,12 +3,15 @@ import torch
 from tqdm import tqdm
 import torch.nn.functional as F
 import sys
+import numpy as np
 
-def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, loader_abridged, test_loader, compute_acc=False):
+def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, loader_abridged, test_loader, compute_acc=False, compute_model_output=False):
     disable_running_stats(model)
     loss_sum = 0
     accuracy_sum = 0
     accuracy = 0
+
+    model_output = []
     for batch_idx, (data, target) in enumerate(loader_abridged, start=1):
         data, target = data.to(device), target.to(device)
         out = model(data)
@@ -24,11 +27,16 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
                 accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
             else:
                 accuracy = torch.sum((out*target > 0).float()).item()
+
+        if compute_model_output:
+            model_output.append(((out-target)*target).detach().cpu().numpy())
         loss_sum += loss.item()
         accuracy_sum += accuracy
     graphs.loss.append(loss_sum / len(loader_abridged.dataset))
     graphs.accuracy.append(accuracy_sum / len(loader_abridged.dataset))
     
+    if compute_model_output:
+        graphs.model_output.append(np.concatenate(model_output))
 
     model.eval()
     pbar = tqdm(total=len(test_loader), position=0, leave=True)

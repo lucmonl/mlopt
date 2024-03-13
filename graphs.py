@@ -65,3 +65,4 @@ class graphs:
         self.align_signal_2     = []
         self.align_noise        = []
         self.out_layer          = []
+        self.model_output       = []
