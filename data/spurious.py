@@ -107,6 +107,8 @@ def load_multi_view_data(loss_name, patch_dim, feat_dim, train_size, batch_size)
     signal = torch.randn(feat_dim)
 
     X_train, X_test = torch.randn(train_size, patch_dim, feat_dim), torch.randn(train_size, patch_dim, feat_dim)
+    X_train = X_train - torch.einsum('ij,k->ijk', (X_train @ signal), signal /  (np.linalg.norm(signal)**2)) 
+    X_test = X_test - torch.einsum('ij,k->ijk', (X_test @ signal), signal /  (np.linalg.norm(signal)**2)) 
     y_train_true, y_test_true = torch.bernoulli(0.5*torch.ones(train_size)), torch.bernoulli(0.5*torch.ones(train_size)) #equal prob for 0 and 1
     y_train_true, y_test_true = 2*(y_train_true-0.5), 2*(y_test_true-0.5) # adjust to +- 1
     
@@ -116,10 +118,71 @@ def load_multi_view_data(loss_name, patch_dim, feat_dim, train_size, batch_size)
     # insert weak signal
     weak_multiplier = feat_dim ** (-0.251)
     X_train[range(train_size), signal_index_train, :] = torch.outer(weak_multiplier * y_train_true, signal)
-    X_train = X_train - torch.einsum('ij,k->ijk', (X_train @ signal), signal /  (np.linalg.norm(signal)**2)) 
-
     X_test[range(train_size), signal_index_test, :]   = torch.outer(weak_multiplier * y_test_true, signal)
-    X_test = X_test - torch.einsum('ij,k->ijk', (X_test @ signal), signal /  (np.linalg.norm(signal)**2)) 
+    
+
+    # insert strong signal
+    strong_ratio = int(0.7 * train_size)
+    strong_multiplier = 2* np.sqrt(feat_dim) * weak_multiplier
+    X_train[range(train_size)[:strong_ratio], signal_index_train[:strong_ratio], :] = torch.outer(strong_multiplier * y_train_true[:strong_ratio], signal) 
+    X_test[range(train_size)[:strong_ratio], signal_index_test[:strong_ratio], :]   = torch.outer(strong_multiplier * y_test_true[:strong_ratio], signal)
+
+    #y_train_true, y_test_true = y_train_true.to(torch.int64), y_test_true.to(torch.int64)
+    
+    train = TensorDataset(X_train, y_train_true)
+    test = TensorDataset(X_test, y_test_true)
+    anaylsis_size = min(train_size, max(batch_size, 128))
+    analysis = torch.utils.data.Subset(train, range(anaylsis_size))
+    analysis_test = torch.utils.data.Subset(test, range(anaylsis_size))
+
+    shuffle = False
+    assert not shuffle ## will use the exact order of signal index in analysis/align
+    train_loader = torch.utils.data.DataLoader(
+        train,
+        batch_size=batch_size, shuffle=shuffle)
+    test_loader = torch.utils.data.DataLoader(
+        test,
+        batch_size=batch_size, shuffle=False)
+    analysis_loader = torch.utils.data.DataLoader(
+        analysis,
+        batch_size=anaylsis_size, shuffle=False)
+    analysis_test_loader = torch.utils.data.DataLoader(
+        analysis_test,
+        batch_size=anaylsis_size, shuffle=False)
+    
+    data_params = {"signal": [signal], "compute_acc": True, "signal_patch_index": signal_index_train}
+    return train_loader, test_loader, analysis_loader, analysis_test_loader, feat_dim, C, transform_to_one_hot, data_params
+
+
+def load_multi_view_orthogonal_data(loss_name, patch_dim, feat_dim, train_size, batch_size):
+    """The dataset is motivated by https://arxiv.org/pdf/2207.05931.pdf """
+    #assert loss_name == "CrossEntropyLoss"
+
+    torch.manual_seed(1)
+    C = 1 #output dim
+    transform_to_one_hot = False
+
+    signal = torch.randn(feat_dim)
+
+    X_train, X_test = torch.randn(train_size, feat_dim, patch_dim), torch.randn(train_size, feat_dim, patch_dim)
+    X_train, _ = torch.linalg.qr(X_train)
+    X_train = torch.permute(X_train, [0,2,1])
+    X_test, _ = torch.linalg.qr(X_test)
+    X_test = torch.permute(X_test, [0,2,1])
+
+    X_train = torch.einsum('ijk,ij->ijk', X_train, torch.randn(train_size, patch_dim))
+    X_test = torch.einsum('ijk,ij->ijk', X_test, torch.randn(train_size, patch_dim))
+
+    y_train_true, y_test_true = torch.bernoulli(0.5*torch.ones(train_size)), torch.bernoulli(0.5*torch.ones(train_size)) #equal prob for 0 and 1
+    y_train_true, y_test_true = 2*(y_train_true-0.5), 2*(y_test_true-0.5) # adjust to +- 1
+    
+    signal_index_train   = torch.randint(low=0, high=patch_dim, size=(train_size,))
+    signal_index_test    = torch.randint(low=0, high=patch_dim, size=(train_size,))
+
+    # insert weak signal
+    weak_multiplier = feat_dim ** (-0.251)
+    X_train[range(train_size), signal_index_train, :] = torch.outer(weak_multiplier * y_train_true, signal)
+    X_test[range(train_size), signal_index_test, :]   = torch.outer(weak_multiplier * y_test_true, signal)
 
     # insert strong signal
     strong_ratio = int(0.7 * train_size)
