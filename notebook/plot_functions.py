@@ -106,7 +106,7 @@ def get_attr(opt_name, model_params, opt_params, attr):
         train_graphs = pickle.load(f)
     return getattr(train_graphs, attr)
 
-def plot_max_2d(array, k=1, start=0, end=-1, xaxis=None):
+def plot_max_2d(array, k=1, start=0, end=None, xaxis=None):
 
     assert k >= 1 
     if k > len(array[0]):
@@ -150,7 +150,7 @@ def plot_figures_align(opts, model_params, opt_params, signal_nums=1):
             #print(train_graphs.loss)
             #plt.semilogy(cur_epochs, train_graphs.loss)
             align = getattr(train_graphs, "align_signal_{}".format(i))
-            plot_max_2d(align, 4)
+            plot_max_2d(align, 4, xaxis=cur_epochs)
             #plt.legend(['Loss + Weight Decay'])
             plt.xlabel('Epoch')
             plt.ylabel('Value')
@@ -160,7 +160,7 @@ def plot_figures_align(opts, model_params, opt_params, signal_nums=1):
         plt.subplot(2,6,i+1)
         #print(train_graphs.eigs)
         align = getattr(train_graphs, "align_noise")
-        plot_max_2d(align, 4)
+        plot_max_2d(align, 4, xaxis=cur_epochs)
         #plt.legend(['Loss + Weight Decay'])
         plt.xlabel('Epoch')
         plt.ylabel('Value')
@@ -168,11 +168,20 @@ def plot_figures_align(opts, model_params, opt_params, signal_nums=1):
 
         plt.subplot(2,6,i+2)
         out_layer = getattr(train_graphs, "out_layer") # get_attr('sgd-0.05', model_params, opt_params, "out_layer")
-        plot_max_2d(out_layer, 2)
+        plot_max_2d(out_layer, 2, xaxis=cur_epochs)
         #.legend(['Loss + Weight Decay'])
         plt.xlabel('Epoch')
         plt.ylabel('Value')
         plt.title('Output Layer')
     
+        plt.subplot(2,6,i+3)
+        model_output = getattr(train_graphs, "model_output") # get_attr('sgd-0.05', model_params, opt_params, "out_layer")
+        plt.plot(cur_epochs, [np.sum(model_output[i] > 0) for i in range(len(model_output))])
+        #.legend(['Loss + Weight Decay'])
+        plt.xlabel('Epoch')
+        plt.ylabel('Value')
+        plt.title("(out-target)*target > 0")
+
+    plt.legend(opts)
     plt.tight_layout()
     plt.show()
