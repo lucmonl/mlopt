@@ -181,7 +181,7 @@ if __name__ == "__main__":
     parser.add_argument('--analysis', nargs='+', type=str, help="quantities that will be analyzed")
     parser.add_argument("--lr", type=float, help="the learning rate")
     parser.add_argument("--lr_decay", type=float, default=1, help="the learning rate decat. default: no decay")
-    parser.add_argument("--momentum", type=float, default=0, help="momentum")
+    parser.add_argument("--momentum", type=float, default=0.0, help="momentum")
     parser.add_argument("--weight_decay", type=float, default=0, help ="weight decay")
     parser.add_argument("--epoch", type=int, help="total training epoches")
     parser.add_argument("--batch_size", type=int, help="batch size in training, also the number of samples in analysis dataset")
@@ -296,8 +296,9 @@ if __name__ == "__main__":
         model_params = model_params | {"feat_dim": sp_feat_dim, "train_size": sp_train_size}
     elif dataset_name == "spurious-2d":
         from data.spurious import load_signal_noise_data_2d
-        train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot = load_signal_noise_data_2d(loss_name, sp_patch_dim, sp_feat_dim, sp_train_size, batch_size)
+        train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot, data_params = load_signal_noise_data_2d(loss_name, sp_patch_dim, sp_feat_dim, sp_train_size, batch_size)
         model_params = model_params | {"patch_dim": sp_patch_dim, "feat_dim": sp_feat_dim, "train_size": sp_train_size}
+        analysis_params = analysis_params | data_params
     elif dataset_name == "multi-view":
         from data.spurious import load_multi_view_data
         train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot, data_params = load_multi_view_data(loss_name, sp_patch_dim, sp_feat_dim, sp_train_size, batch_size)

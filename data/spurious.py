@@ -50,15 +50,18 @@ def load_signal_noise_data_2d(loss_name, patch_dim, feat_dim, train_size, batch_
     #assert loss_name == "CrossEntropyLoss"
 
     torch.manual_seed(1)
-    C = 2 #output dim
+    C = 1 #output dim
     transform_to_one_hot = False
 
-    signal = torch.zeros(feat_dim)
-    signal[0] = 5
-    flip_prob = 0.05
+    #signal = torch.zeros(feat_dim)
+    signal = torch.randn(feat_dim)
+    flip_prob = 0.1
     assert int(flip_prob * train_size) > 1
 
     X_train, X_test = torch.randn(train_size, patch_dim, feat_dim), torch.randn(train_size, patch_dim, feat_dim)
+    X_train = X_train - torch.einsum('ij,k->ijk', (X_train @ signal), signal /  (np.linalg.norm(signal)**2)) 
+    X_test = X_test - torch.einsum('ij,k->ijk', (X_test @ signal), signal /  (np.linalg.norm(signal)**2)) 
+
     y_train_true, y_test_true = torch.bernoulli(0.5*torch.ones(train_size)), torch.bernoulli(0.5*torch.ones(train_size)) #equal prob for 0 and 1
     
     signal_index_train   = torch.randint(low=0, high=patch_dim, size=(train_size,))
@@ -93,7 +96,8 @@ def load_signal_noise_data_2d(loss_name, patch_dim, feat_dim, train_size, batch_
     analysis_test_loader = torch.utils.data.DataLoader(
         analysis_test,
         batch_size=anaylsis_size, shuffle=False)
-    return train_loader, test_loader, analysis_loader, analysis_test_loader, feat_dim, C, transform_to_one_hot
+    data_params = {"signal": [signal], "compute_acc": True, "signal_patch_index": signal_index_train}
+    return train_loader, test_loader, analysis_loader, analysis_test_loader, feat_dim, C, transform_to_one_hot, data_params
 
 
 def load_multi_view_data(loss_name, patch_dim, feat_dim, train_size, batch_size):
@@ -170,8 +174,8 @@ def load_multi_view_orthogonal_data(loss_name, patch_dim, feat_dim, train_size, 
     X_test, _ = torch.linalg.qr(X_test)
     X_test = torch.permute(X_test, [0,2,1])
 
-    X_train = torch.einsum('ijk,ij->ijk', X_train, torch.randn(train_size, patch_dim))
-    X_test = torch.einsum('ijk,ij->ijk', X_test, torch.randn(train_size, patch_dim))
+    X_train = torch.einsum('ijk,ij->ijk', X_train, torch.rand(train_size, patch_dim))
+    X_test = torch.einsum('ijk,ij->ijk', X_test, torch.rand(train_size, patch_dim))
 
     y_train_true, y_test_true = torch.bernoulli(0.5*torch.ones(train_size)), torch.bernoulli(0.5*torch.ones(train_size)) #equal prob for 0 and 1
     y_train_true, y_test_true = 2*(y_train_true-0.5), 2*(y_test_true-0.5) # adjust to +- 1

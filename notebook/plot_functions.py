@@ -182,6 +182,8 @@ def plot_figures_align(opts, model_params, opt_params, signal_nums=1):
         plt.ylabel('Value')
         plt.title("(out-target)*target > 0")
 
+        
+
     plt.legend(opts)
     plt.tight_layout()
     plt.show()
