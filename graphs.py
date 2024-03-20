@@ -66,3 +66,4 @@ class graphs:
         self.align_noise        = []
         self.out_layer          = []
         self.model_output       = []
+        self.activation_pattern = []

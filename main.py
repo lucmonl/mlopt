@@ -147,6 +147,11 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
         from analysis.alignment import compute_weight_signal_alignment
         compute_weight_signal_alignment(graphs, model, analysis_params["signal"], analysis_params["signal_patch_index"], train_loader)
 
+    if 'activation' in analysis_list:
+        assert model_name in ["conv_with_last", "conv_fixed_last"]
+        from analysis.activation import get_activation_pattern
+        get_activation_pattern(graphs, model, device, train_loader)
+
 
 class features:
     pass
@@ -156,7 +161,7 @@ def hook(self, input, output):
 
     
 if __name__ == "__main__":
-    DATASETS = ["spurious", "cifar", "mnist", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal"]
+    DATASETS = ["spurious", "cifar", "mnist", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal"]
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
@@ -312,6 +317,11 @@ if __name__ == "__main__":
     elif dataset_name == "secondary_feature":
         from data.spurious import load_secondary_feature_data
         train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot, data_params = load_secondary_feature_data(loss_name, sp_patch_dim, sp_feat_dim, sp_train_size, batch_size)
+        model_params = model_params | {"patch_dim": sp_patch_dim, "feat_dim": sp_feat_dim, "train_size": sp_train_size}
+        analysis_params = analysis_params | data_params
+    elif dataset_name == "orthogonal":
+        from data.spurious import load_orthogonal_data
+        train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot, data_params = load_orthogonal_data(loss_name, sp_patch_dim, sp_feat_dim, sp_train_size, batch_size)
         model_params = model_params | {"patch_dim": sp_patch_dim, "feat_dim": sp_feat_dim, "train_size": sp_train_size}
         analysis_params = analysis_params | data_params
     compute_acc = data_params["compute_acc"]
