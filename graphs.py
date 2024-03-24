@@ -64,6 +64,6 @@ class graphs:
         self.align_signal_1     = []
         self.align_signal_2     = []
         self.align_noise        = []
-        self.out_layer          = []
+        self.linear_coefs       = []
         self.model_output       = []
         self.activation_pattern = []

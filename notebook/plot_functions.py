@@ -167,14 +167,15 @@ def plot_figures_align(opts, model_params, opt_params, signal_nums=1):
         plt.title('Align Noise')
 
         plt.subplot(2,6,i+2)
-        out_layer = getattr(train_graphs, "out_layer") # get_attr('sgd-0.05', model_params, opt_params, "out_layer")
+        out_layer = getattr(train_graphs, "linear_coefs") # get_attr('sgd-0.05', model_params, opt_params, "out_layer")
         plot_max_2d(out_layer, 2, xaxis=cur_epochs)
         #.legend(['Loss + Weight Decay'])
         plt.xlabel('Epoch')
         plt.ylabel('Value')
         plt.title('Output Layer')
+
     
-        plt.subplot(2,6,i+3)
+        plt.subplot(2,6,i+4)
         model_output = getattr(train_graphs, "model_output") # get_attr('sgd-0.05', model_params, opt_params, "out_layer")
         plt.plot(cur_epochs, [np.sum(model_output[i] > 0) for i in range(len(model_output))])
         #.legend(['Loss + Weight Decay'])

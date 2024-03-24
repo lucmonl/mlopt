@@ -24,6 +24,8 @@ def compute_weight_signal_alignment(graphs, model, signals, signal_index, train_
         
     
     graphs.align_noise.append(np.concatenate(align_noise_list, axis=-1).reshape(-1))
+    return
 
-    graphs.out_layer.append([model.v_plus.item(), model.v_minus.item()])
+def get_linear_coefs(graphs, model):
+    graphs.linear_coefs.append([model.v_plus.item(), model.v_minus.item()])
     return

@@ -163,6 +163,8 @@ def load_orthogonal_data(loss_name, patch_dim, feat_dim, train_size, batch_size)
 
     torch.manual_seed(1)
     C = 1 #output dim
+    
+    w_true = torch.randn(feat_dim)
     transform_to_one_hot = False
 
     X_train, X_test = torch.randn(feat_dim, patch_dim), torch.randn(feat_dim, patch_dim)
@@ -176,11 +178,79 @@ def load_orthogonal_data(loss_name, patch_dim, feat_dim, train_size, batch_size)
     X_train = torch.einsum('ijk,ij->ijk', X_train, torch.rand(train_size, patch_dim))
     X_test = torch.einsum('ijk,ij->ijk', X_test, torch.rand(train_size, patch_dim))
 
-    y_train_true, y_test_true = torch.bernoulli(0.5*torch.ones(train_size)), torch.bernoulli(0.5*torch.ones(train_size)) #equal prob for 0 and 1
+    flip_prob = 0.2
+    flip_index_train = torch.randperm(train_size)[:int(flip_prob * train_size)]
+    flip_index_test = torch.randperm(train_size)[:int(flip_prob * train_size)]
+
+    #y_train_true, y_test_true = torch.bernoulli(0.5*torch.ones(train_size)), torch.bernoulli(0.5*torch.ones(train_size)) #equal prob for 0 and 1
+    #y_train_true, y_test_true = 2*(y_train_true-0.5), 2*(y_test_true-0.5) # adjust to +- 1
+    y_train_true, y_test_true = ((X_train[:,0,:] @ w_true) > 0).int(), ((X_test[:,0,:] @ w_true) > 0).int()
+    y_train_true[flip_index_train]  = (1 - y_train_true[flip_index_train])
+    y_test_true[flip_index_test]    = (1 - y_test_true[flip_index_test])
+
     y_train_true, y_test_true = 2*(y_train_true-0.5), 2*(y_test_true-0.5) # adjust to +- 1
     
     train = TensorDataset(X_train, y_train_true)
     test = TensorDataset(X_test, y_test_true)
+    anaylsis_size = min(train_size, max(batch_size, 128))
+    analysis = torch.utils.data.Subset(train, range(anaylsis_size))
+    analysis_test = torch.utils.data.Subset(test, range(anaylsis_size))
+
+    shuffle = False
+    assert not shuffle ## will use the exact order of signal index in analysis/align
+    train_loader = torch.utils.data.DataLoader(
+        train,
+        batch_size=batch_size, shuffle=shuffle)
+    test_loader = torch.utils.data.DataLoader(
+        test,
+        batch_size=batch_size, shuffle=False)
+    analysis_loader = torch.utils.data.DataLoader(
+        analysis,
+        batch_size=anaylsis_size, shuffle=False)
+    analysis_test_loader = torch.utils.data.DataLoader(
+        analysis_test,
+        batch_size=anaylsis_size, shuffle=False)
+    
+    data_params = {"compute_acc": True}
+    return train_loader, test_loader, analysis_loader, analysis_test_loader, feat_dim, C, transform_to_one_hot, data_params
+
+def load_scalaraized_data(loss_name, patch_dim, feat_dim, train_size, batch_size):
+    #assert loss_name == "CrossEntropyLoss"
+    data_params = {}
+
+    torch.manual_seed(1)
+    C = 1 #output dim
+    
+    w_true = torch.randn(feat_dim)
+    transform_to_one_hot = False
+
+    X_train, X_test = torch.randn(feat_dim, patch_dim), torch.randn(feat_dim, patch_dim)
+    X_train, _ = torch.linalg.qr(X_train)
+    X_train = X_train.repeat(train_size, 1, 1)
+    X_train = torch.permute(X_train, [0,2,1])
+    X_test, _ = torch.linalg.qr(X_test)
+    X_test = X_test.repeat(train_size, 1, 1)
+    X_test = torch.permute(X_test, [0,2,1])
+
+    X_train_coef = torch.rand(train_size, patch_dim)
+    X_train = torch.einsum('ijk,ij->ijk', X_train, X_train_coef)
+    X_test_coef = torch.rand(train_size, patch_dim)
+    X_test = torch.einsum('ijk,ij->ijk', X_test, X_test_coef)
+
+    flip_prob = 0.2
+    flip_index_train = torch.randperm(train_size)[:int(flip_prob * train_size)]
+    flip_index_test = torch.randperm(train_size)[:int(flip_prob * train_size)]
+
+    #y_train_true, y_test_true = torch.bernoulli(0.5*torch.ones(train_size)), torch.bernoulli(0.5*torch.ones(train_size)) #equal prob for 0 and 1
+    #y_train_true, y_test_true = 2*(y_train_true-0.5), 2*(y_test_true-0.5) # adjust to +- 1
+    y_train_true, y_test_true = ((X_train[:,0,:] @ w_true) > 0).int(), ((X_test[:,0,:] @ w_true) > 0).int()
+    y_train_true[flip_index_train]  = (1 - y_train_true[flip_index_train])
+    y_test_true[flip_index_test]    = (1 - y_test_true[flip_index_test])
+
+    y_train_true, y_test_true = 2*(y_train_true-0.5), 2*(y_test_true-0.5) # adjust to +- 1
+    
+    train = TensorDataset(X_train_coef, y_train_true)
+    test = TensorDataset(X_test_coef, y_test_true)
     anaylsis_size = min(train_size, max(batch_size, 128))
     analysis = torch.utils.data.Subset(train, range(anaylsis_size))
     analysis_test = torch.utils.data.Subset(test, range(anaylsis_size))
