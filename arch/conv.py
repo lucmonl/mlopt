@@ -98,3 +98,10 @@ class scalarized_conv(nn.Module):
         #batched_x2 = torch.zeros_like(batched_x)
         #return torch.stack([batched_x, batched_x2], dim=1)
         return batched_x
+    
+    def get_activation(self, batched_x):
+        batched_x_plus = (torch.einsum('ij,jk->ijk', batched_x, self.w_plus) > 0).int() ## (B*P) * (P*width) -> (B * P * width)
+        batched_x_minus = (torch.einsum('ij,jk->ijk', batched_x, self.w_minus) > 0).int()
+        activation = torch.cat([batched_x_plus.reshape(batched_x_plus.shape[0], -1), 
+                                batched_x_minus.reshape(batched_x_plus.shape[0], -1)], axis=-1)
+        return activation

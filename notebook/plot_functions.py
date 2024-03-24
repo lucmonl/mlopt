@@ -174,17 +174,48 @@ def plot_figures_align(opts, model_params, opt_params, signal_nums=1):
         plt.ylabel('Value')
         plt.title('Output Layer')
 
-    
-        plt.subplot(2,6,i+4)
+        plt.subplot(2,6,i+3)
         model_output = getattr(train_graphs, "model_output") # get_attr('sgd-0.05', model_params, opt_params, "out_layer")
         plt.plot(cur_epochs, [np.sum(model_output[i] > 0) for i in range(len(model_output))])
         #.legend(['Loss + Weight Decay'])
         plt.xlabel('Epoch')
         plt.ylabel('Value')
         plt.title("(out-target)*target > 0")
-
-        
+      
 
     plt.legend(opts)
     plt.tight_layout()
     plt.show()
+
+def plot_attr_figure(opts, model_params, opt_params, signal_nums=1):
+    plt.figure(figsize=(15,5))
+    for opt_name in opts:
+        model_param = model_params[opt_name]
+        directory = get_directory(opt_params[opt_name]['lr'], 
+                                opt_params[opt_name]['dataset_name'],
+                                opt_params[opt_name]['loss'],
+                                opt_params[opt_name]['opt'], 
+                                opt_params[opt_name]['model_name'], 
+                                opt_params[opt_name]['momentum'], 
+                                opt_params[opt_name]['weight_decay'], 
+                                opt_params[opt_name]['batch_size'], 
+                                opt_params[opt_name]['epochs'], 
+                                multi_run = False,
+                                **model_param
+                                )
+        print(directory)
+        with open(f'../{directory}train_graphs.pk', 'rb') as f:
+            train_graphs = pickle.load(f)
+
+        #if len(train_graphs.log_epochs) != 0:
+        #    cur_epochs = train_graphs.log_epochs
+        #else:
+        #cur_epochs = np.arange(len(train_graphs.loss))
+        cur_epochs = train_graphs.log_epochs
+
+    activation = getattr(train_graphs, "activation_pattern")
+    plt.plot(cur_epochs, [np.sum(activation[i][1]) for i in range(len(activation))])
+    #.legend(['Loss + Weight Decay'])
+    plt.xlabel('Epoch')
+    plt.ylabel('Value')
+    plt.title("# of activated neurons")

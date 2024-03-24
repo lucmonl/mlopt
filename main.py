@@ -152,7 +152,7 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
         get_linear_coefs(graphs, model)
 
     if 'activation' in analysis_list:
-        assert model_name in ["conv_with_last", "conv_fixed_last"]
+        assert model_name in ["conv_with_last", "conv_fixed_last", "scalarized_conv"]
         from analysis.activation import get_activation_pattern
         get_activation_pattern(graphs, model, device, train_loader)
 
