@@ -48,7 +48,7 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
     exp_avg = exp_avg if exp_avg is not None else torch.zeros(p).to(device)
     exp_avg_sq = exp_avg_sq if exp_avg_sq is not None else torch.zeros(p).to(device)
 
-    sketch_matrix_m, sketch_matrix_v = torch.randn(sketch_size, p).to(device) / (p**0.5), torch.randn(sketch_size, p).to(device) / (p**0.5)
+    sketch_matrix_m, sketch_matrix_v = torch.randn(sketch_size, p).to(device) / (sketch_size**0.5), torch.randn(sketch_size, p).to(device) / (sketch_size**0.5)
     old_params = parameters_to_vector(model.parameters())
     for client_id in range(client_num):
         # update client models
@@ -64,8 +64,8 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
                 sketch_updates[name] = rand_dict[name] @ param
         """
         new_params = parameters_to_vector(client_model.parameters())
-        vector_m += sketch_matrix_m @ (old_params - new_params)
-        vector_v += sketch_matrix_v @ ((old_params - new_params) ** 2)
+        vector_m += sketch_matrix_m @ (old_params - new_params).detach()
+        vector_v += sketch_matrix_v @ ((old_params - new_params) ** 2).detach()
     
     # server update
     vector_m, vector_v = vector_m / client_num, vector_v / client_num
@@ -73,9 +73,10 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
     vector_v = sketch_matrix_v.T @ vector_v
     exp_avg = momentum * exp_avg + (1-momentum) * vector_m
     exp_avg_sq = momentum_v * exp_avg_sq + (1-momentum_v) * vector_v
-    new_params = old_params - lr * exp_avg / (F.relu(exp_avg_sq) + 0.05)
+    new_params = old_params - lr * exp_avg / torch.sqrt(F.relu(exp_avg_sq) + 0.005)
     vector_to_parameters(new_params, model.parameters())
 
+    del sketch_matrix_m, sketch_matrix_v
     return exp_avg, exp_avg_sq
 
 
@@ -525,6 +526,7 @@ if __name__ == "__main__":
                 #lr_scheduler.step()
             
             if epoch in epoch_list:
+                print("Epoch: ", epoch)
                 train_graphs.log_epochs.append(epoch)
                 #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
                 analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc,train_loader, test_loader, analysis_loader, analysis_test_loader, analysis_params)
