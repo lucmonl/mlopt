@@ -45,6 +45,12 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         from optimizer.goldstein import Goldstein
         optimizer = Goldstein(model.parameters(), base_optimizer, delta=kwargs["gold_delta"], lr=lr, momentum=momentum, weight_decay=weight_decay)
         model_params = model_params | {"gold_delta": kwargs["gold_delta"]}
+    elif opt_name == "federated":
+        optimizer = optim.SGD(model.parameters(),
+                            lr=lr,
+                            momentum=momentum,
+                            weight_decay=weight_decay)
+        model_params = model_params | {'client_opt': kwargs['client_opt_name'], 'client_lr': kwargs['client_lr'], "client_num": kwargs['client_num'], 'client_epoch': kwargs['client_epoch']}
 
     lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
                                                 milestones=epochs_lr_decay,

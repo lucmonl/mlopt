@@ -33,7 +33,51 @@ from optimizer.load_optimizer import load_optimizer
 #parent_dir = os.path.dirname(current_dir)
 #sys.path.append(parent_dir)
 #print(parent_dir)
-#from utilities import get_hessian_eigenvalues_weight_decay, get_hessian_eigenvalues     
+#from utilities import get_hessian_eigenvalues_weight_decay, get_hessian_eigenvalues
+
+def federated_train(model, loss_name, criterion, device, num_classes, train_loaders, exp_avg, exp_avg_sq, opt_params):
+    client_num, client_opt_name, client_lr, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_lr"], opt_params["client_epoch"]
+    momentum, momentum_v = 0.9, 0.99
+    vector_m, vector_v = 0, 0
+    import copy
+    from torch.nn.utils import parameters_to_vector, vector_to_parameters
+    # initialize client models, optimizers
+    p = len(parameters_to_vector(model.parameters()))
+    #sketch_size = int(opt_params["sketch_size"] * p)
+    sketch_size = opt_params["sketch_size"]
+    exp_avg = exp_avg if exp_avg is not None else torch.zeros(p).to(device)
+    exp_avg_sq = exp_avg_sq if exp_avg_sq is not None else torch.zeros(p).to(device)
+
+    sketch_matrix_m, sketch_matrix_v = torch.randn(sketch_size, p).to(device) / (p**0.5), torch.randn(sketch_size, p).to(device) / (p**0.5)
+    old_params = parameters_to_vector(model.parameters())
+    for client_id in range(client_num):
+        # update client models
+        client_model = copy.deepcopy(model)
+        optimizer, _, _= load_optimizer(client_opt_name, client_model, client_lr, 0, weight_decay, lr_decay, epochs_lr_decay, model_params, **opt_params)
+        #vector_to_parameters(old_params, client_model.parameters())
+        for epoch in range(client_epoch):
+            train(client_model, loss_name, criterion, device, num_classes, train_loaders[client_id], optimizer, epoch)
+        """
+        sketch_updates = models[client_id].state_dict().copy()
+        if sketch_size:
+            for name, param in models[]
+                sketch_updates[name] = rand_dict[name] @ param
+        """
+        new_params = parameters_to_vector(client_model.parameters())
+        vector_m += sketch_matrix_m @ (old_params - new_params)
+        vector_v += sketch_matrix_v @ ((old_params - new_params) ** 2)
+    
+    # server update
+    vector_m, vector_v = vector_m / client_num, vector_v / client_num
+    vector_m = sketch_matrix_m.T @ vector_m
+    vector_v = sketch_matrix_v.T @ vector_v
+    exp_avg = momentum * exp_avg + (1-momentum) * vector_m
+    exp_avg_sq = momentum_v * exp_avg_sq + (1-momentum_v) * vector_v
+    new_params = old_params - lr * exp_avg / (F.relu(exp_avg_sq) + 0.05)
+    vector_to_parameters(new_params, model.parameters())
+
+    return exp_avg, exp_avg_sq
+
 
 def train(model, loss_name, criterion, device, num_classes, train_loader, optimizer, epoch):
     model.train()
@@ -169,7 +213,7 @@ if __name__ == "__main__":
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
-    OPTIMIZERS = ['gd', 'goldstein','sam', 'sgd', 'norm-sgd','adam']
+    OPTIMIZERS = ['gd', 'goldstein','sam', 'sgd', 'norm-sgd','adam', 'federated']
     BASE_OPTIMIZERS = ['sgd','adam']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")
@@ -217,6 +261,14 @@ if __name__ == "__main__":
     parser.add_argument("--no_train", action='store_true', help="train model")
     parser.add_argument("--do_eval", action='store_true', help="evaluate model")
     parser.add_argument("--model_average", nargs='+', type=int, default=[0,1], help="index of runs to be averaged")
+
+    #federated learning hyperparameters
+    parser.add_argument("--client_num", type=int, default=1, help="number of clients")
+    parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd"], help="optimizer of clients")
+    parser.add_argument("--client_lr", type=float, default=0.01, help="lr of clients")
+    parser.add_argument("--client_epoch", type=int, default=200, help="total epochs of client training")
+    parser.add_argument("--sketch_size", type=int, default=1000, help="sketch size in communication")
+
     args = parser.parse_args()
 
 
@@ -273,6 +325,15 @@ if __name__ == "__main__":
     # analysis hyperparameters
     analysis_params["adv_eta"]        = args.adv_eta
 
+    #federated learning parameters
+    opt_params["client_opt_name"]  = args.client_opt_name
+    opt_params["client_lr"]        = args.client_lr
+    opt_params["client_num"]       = args.client_num
+    opt_params["client_epoch"]     = args.client_epoch
+    opt_params["sketch_size"]      = args.sketch_size
+    exp_avg, exp_avg_sq            = None, None
+
+
     if debug:
         torch.autograd.set_detect_anomaly(True)
     if not multi_run:
@@ -294,6 +355,9 @@ if __name__ == "__main__":
         from data.cifar import load_cifar
         if opt_name == 'gd':
             train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot = load_cifar(loss_name, batch_size, sp_train_size)
+        elif opt_name == "federated":
+            from data.cifar import load_cifar_federated
+            train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar_federated(loss_name, batch_size, client_num=opt_params["client_num"])
         else:
             train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot = load_cifar(loss_name, batch_size)
     elif dataset_name == "mnist":
@@ -454,8 +518,11 @@ if __name__ == "__main__":
 
         cur_epochs = []
         for epoch in range(load_from_epoch+1, epochs + 1):
-            train(model, loss_name, criterion, device, C, train_loader, optimizer, epoch)
-            #lr_scheduler.step()
+            if opt_name == "federated":
+                exp_avg, exp_avg_sq = federated_train(model, loss_name, criterion, device, C, client_loaders, exp_avg, exp_avg_sq, opt_params)
+            else:
+                train(model, loss_name, criterion, device, C, train_loader, optimizer, epoch)
+                #lr_scheduler.step()
             
             if epoch in epoch_list:
                 train_graphs.log_epochs.append(epoch)

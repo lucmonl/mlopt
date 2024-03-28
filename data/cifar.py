@@ -88,3 +88,55 @@ def load_cifar(loss: str, batch_size: int, train_size = -1):
         analysis_test,
         batch_size=analysis_size, shuffle=False)
     return train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot
+
+def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num=1):
+    data_params = {"compute_acc": True}
+    input_ch = 3
+    num_pixels = 32 * 32 * 3
+    C = 10
+    transform_to_one_hot = True
+
+    train_transform = transforms.Compose([transforms.RandomCrop(32, padding=4),
+                                          transforms.RandomHorizontalFlip()])
+
+    cifar10_train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
+    cifar10_test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False)
+    """
+    X_train = train_transform(cifar10_train.data)
+    """
+    X_train, X_test = flatten(cifar10_train.data / 255), flatten(cifar10_test.data / 255)
+    #y_train, y_test = make_labels(torch.tensor(cifar10_train.targets), loss), \
+    #    make_labels(torch.tensor(cifar10_test.targets), loss)
+    y_train, y_test = torch.LongTensor(cifar10_train.targets), \
+                        torch.LongTensor(cifar10_test.targets)
+    center_X_train, center_X_test = center(X_train, X_test)
+    standardized_X_train, standardized_X_test = standardize(center_X_train, center_X_test)
+    train = TensorDataset(torch.from_numpy(unflatten(standardized_X_train, (32, 32, 3)).transpose((0, 3, 1, 2))).float(), y_train)
+    if train_size != -1:
+        train = take_first(train, batch_size)
+    test = TensorDataset(torch.from_numpy(unflatten(standardized_X_test, (32, 32, 3)).transpose((0, 3, 1, 2))).float(), y_test)
+    
+    analysis_size = max(batch_size, 128)
+    analysis = torch.utils.data.Subset(train, range(analysis_size))
+    analysis_test = torch.utils.data.Subset(test, range(analysis_size))
+    client_loaders = []
+    randperm = np.random.permutation(len(train))
+    for i in range(client_num):
+        data_index = randperm[i:-1:client_num]
+        client_train = torch.utils.data.Subset(train, data_index)
+        client_loaders.append(torch.utils.data.DataLoader(
+                        client_train,
+                        batch_size=batch_size, shuffle=True))
+    train_loader = torch.utils.data.DataLoader(
+        train,
+        batch_size=batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(
+        test,
+        batch_size=batch_size, shuffle=False)
+    analysis_loader = torch.utils.data.DataLoader(
+        analysis,
+        batch_size=analysis_size, shuffle=False)
+    analysis_test_loader = torch.utils.data.DataLoader(
+        analysis_test,
+        batch_size=analysis_size, shuffle=False)
+    return train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params

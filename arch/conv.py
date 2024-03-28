@@ -76,23 +76,27 @@ class scalarized_conv(nn.Module):
         self.std_v = 1/math.sqrt(self.num_filters)
         self.w_plus  = torch.nn.parameter.Parameter(torch.empty(patch_dim, num_filters), requires_grad=True)
         self.w_minus = torch.nn.parameter.Parameter(torch.empty(patch_dim, num_filters), requires_grad=True)
-        self.v_plus = torch.nn.parameter.Parameter(torch.empty(1,), requires_grad=True)
-        self.v_minus = torch.nn.parameter.Parameter(torch.empty(1,), requires_grad=True)
+        self.v_plus = torch.nn.parameter.Parameter(torch.empty(patch_dim,), requires_grad=True)
+        self.v_minus = torch.nn.parameter.Parameter(torch.empty(patch_dim,), requires_grad=True)
         self.reset_parameters()
 
     def reset_parameters(self):
-        self.w_plus.data.uniform_(-1, 1)
-        self.w_minus.data.uniform_(-1, 1)
-        out_init = torch.rand(1)
-        #self.v_plus.data.uniform_(0,1)
-        #self.v_minus.data.uniform_(0,1)
-        self.v_plus.data, self.v_minus.data = out_init, out_init
+        std_v = 0.5
+        self.w_plus.data.uniform_(-std_v, std_v)
+        self.w_minus.data.uniform_(-std_v, std_v)
+        #out_init = torch.rand(1)
+        self.v_plus.data.uniform_(0,std_v)
+        self.v_minus.data.uniform_(0,std_v)
+        #self.v_plus.data, self.v_minus.data = out_init, out_init
 
     def forward(self, batched_x):
         batched_x_plus = torch.nn.ReLU()(torch.einsum('ij,jk->ijk', batched_x, self.w_plus)) ## (B*P) * (P*width) -> (B * P * width)
         batched_x_minus = torch.nn.ReLU()(torch.einsum('ij,jk->ijk', batched_x, self.w_minus))
 
-        batched_x = 1/(self.num_filters**0.5)*(self.v_plus*torch.sum(batched_x_plus, [1,2]) - self.v_minus*torch.sum(batched_x_minus, [1,2]))
+        batched_x_plus = torch.einsum('ijk,j->ijk', batched_x_plus, self.v_plus)
+        batched_x_minus = torch.einsum('ijk,j->ijk', batched_x_minus, self.v_minus)
+
+        batched_x = 1/(self.num_filters**0.5)*(torch.sum(batched_x_plus, [1,2]) - torch.sum(batched_x_minus, [1,2]))
         #batched_x = self.v_plus*torch.sum(batched_x_plus, [1,2]) - self.v_minus*torch.sum(batched_x_minus, [1,2])
         #batched_x = 1/self.num_filters*(torch.sum(batched_x_plus, [1,2]) - torch.sum(batched_x_minus, [1,2]))
         #batched_x2 = torch.zeros_like(batched_x)

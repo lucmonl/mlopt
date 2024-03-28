@@ -187,8 +187,8 @@ def plot_figures_align(opts, model_params, opt_params, signal_nums=1):
     plt.tight_layout()
     plt.show()
 
-def plot_attr_figure(opts, model_params, opt_params, signal_nums=1):
-    plt.figure(figsize=(15,5))
+def plot_attr_figure(opts, model_params, opt_params, attr_name):
+    plt.figure(figsize=(4,4))
     for opt_name in opts:
         model_param = model_params[opt_name]
         directory = get_directory(opt_params[opt_name]['lr'], 
@@ -212,10 +212,19 @@ def plot_attr_figure(opts, model_params, opt_params, signal_nums=1):
         #else:
         #cur_epochs = np.arange(len(train_graphs.loss))
         cur_epochs = train_graphs.log_epochs
-
-    activation = getattr(train_graphs, "activation_pattern")
-    plt.plot(cur_epochs, [np.sum(activation[i][1]) for i in range(len(activation))])
-    #.legend(['Loss + Weight Decay'])
-    plt.xlabel('Epoch')
-    plt.ylabel('Value')
-    plt.title("# of activated neurons")
+    if attr_name == "activation_pattern":
+        activation = getattr(train_graphs, "activation_pattern")
+        plt.plot(cur_epochs, [np.sum(activation[i][1]) for i in range(len(activation))])
+        #.legend(['Loss + Weight Decay'])
+        plt.xlabel('Epoch')
+        plt.ylabel('Value')
+        plt.title("# of activated neurons")
+    elif attr_name == "loss":
+        train_loss = getattr(train_graphs, "loss")
+        plt.semilogy(cur_epochs, train_loss)
+        #.legend(['Loss + Weight Decay'])
+        plt.xlabel('Epoch')
+        plt.ylabel('Value')
+        plt.title("Loss")
+    plt.tight_layout()
+    plt.show()
