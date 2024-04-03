@@ -37,7 +37,7 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
     
     if compute_model_output:
         graphs.model_output.append(np.concatenate(model_output))
-
+    
     model.eval()
     pbar = tqdm(total=len(test_loader), position=0, leave=True)
     loss_sum = 0
@@ -46,13 +46,6 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
         data, target = data.to(device), target.to(device)
         out = model(data)
         loss = criterion_summed(out, target)
-        """
-        if loss_name == 'BCELoss':
-            accuracy = torch.sum(out*target > 0).item()
-        elif out.dim() > 1:
-            accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
-            #wrong_index = torch.where((torch.argmax(out,dim=1)==target).float() == 0)[0]
-        """
         if compute_acc:
             if out.dim() > 1:
                 accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
@@ -78,8 +71,9 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
     pbar.close()
     graphs.test_loss.append(loss_sum / len(test_loader.dataset))
     graphs.test_accuracy.append(accuracy_sum / len(test_loader.dataset))
+    
     print("Mean Train Loss: {} \t Accuarcy: {}".format(graphs.loss[-1], graphs.accuracy[-1]))
-    print("Mean Test Loss: {} \t Accuarcy: {}".format(graphs.test_loss[-1], graphs.test_accuracy[-1]))
+    #print("Mean Test Loss: {} \t Accuarcy: {}".format(graphs.test_loss[-1], graphs.test_accuracy[-1]))
 
     enable_running_stats(model)
 

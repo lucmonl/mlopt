@@ -35,12 +35,13 @@ from optimizer.load_optimizer import load_optimizer
 #print(parent_dir)
 #from utilities import get_hessian_eigenvalues_weight_decay, get_hessian_eigenvalues
 
-def federated_train(model, loss_name, criterion, device, num_classes, train_loaders, exp_avg, exp_avg_sq, opt_params):
+def federated_train(model, loss_name, criterion, device, num_classes, train_loaders, exp_avg, exp_avg_sq, opt_params, server_epoch):
     client_num, client_opt_name, client_lr, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_lr"], opt_params["client_epoch"]
     momentum, momentum_v = 0.9, 0.99
     vector_m, vector_v = 0, 0
     import copy
     from torch.nn.utils import parameters_to_vector, vector_to_parameters
+    #from utilities import state_dict_to_vector, vector_to_state_dict
     # initialize client models, optimizers
     p = len(parameters_to_vector(model.parameters()))
     #sketch_size = int(opt_params["sketch_size"] * p)
@@ -50,13 +51,23 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
 
     sketch_matrix_m, sketch_matrix_v = torch.randn(sketch_size, p).to(device) / (sketch_size**0.5), torch.randn(sketch_size, p).to(device) / (sketch_size**0.5)
     old_params = parameters_to_vector(model.parameters())
+    running_stats = {}
     for client_id in range(client_num):
         # update client models
         client_model = copy.deepcopy(model)
-        optimizer, _, _= load_optimizer(client_opt_name, client_model, client_lr, 0, weight_decay, lr_decay, epochs_lr_decay, model_params, **opt_params)
+        client_model.train()
+        optimizer, _, _= load_optimizer(client_opt_name, client_model, client_lr, momentum, weight_decay, lr_decay, epochs_lr_decay, model_params, **opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
             train(client_model, loss_name, criterion, device, num_classes, train_loaders[client_id], optimizer, epoch)
+
+        for name in client_model.state_dict():
+            if 'running_mean' in name or 'running_var' in name:
+                if name not in running_stats:
+                    running_stats[name] = client_model.state_dict()[name] / client_num
+                else:
+                    running_stats[name] += client_model.state_dict()[name] / client_num
+
         """
         sketch_updates = models[client_id].state_dict().copy()
         if sketch_size:
@@ -64,18 +75,25 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
                 sketch_updates[name] = rand_dict[name] @ param
         """
         new_params = parameters_to_vector(client_model.parameters())
-        vector_m += sketch_matrix_m @ (old_params - new_params).detach()
-        vector_v += sketch_matrix_v @ ((old_params - new_params) ** 2).detach()
+        #vector_m += sketch_matrix_m @ (old_params - new_params).detach()
+        #vector_v += sketch_matrix_v @ ((old_params - new_params) ** 2).detach()
+        vector_m += (old_params - new_params).detach()
+        vector_v += ((old_params - new_params) ** 2).detach()
     
     # server update
+    
     vector_m, vector_v = vector_m / client_num, vector_v / client_num
-    vector_m = sketch_matrix_m.T @ vector_m
-    vector_v = sketch_matrix_v.T @ vector_v
+    #vector_m = sketch_matrix_m.T @ vector_m
+    #vector_v = sketch_matrix_v.T @ vector_v
     exp_avg = momentum * exp_avg + (1-momentum) * vector_m
     exp_avg_sq = momentum_v * exp_avg_sq + (1-momentum_v) * vector_v
-    new_params = old_params - lr * exp_avg / torch.sqrt(F.relu(exp_avg_sq) + 0.005)
-    vector_to_parameters(new_params, model.parameters())
-
+    new_params = old_params - lr * exp_avg #/ torch.sqrt(F.relu(exp_avg_sq) + 0.005)
+    
+    #model = copy.deepcopy(client_model)
+    #server_state_dict = vector_to_state_dict(new_params.detach(), model.state_dict())
+    #model.load_state_dict(server_state_dict)
+    model.load_state_dict(running_stats, strict=False)
+    vector_to_parameters(new_params.detach(), model.parameters())
     del sketch_matrix_m, sketch_matrix_v
     return exp_avg, exp_avg_sq
 
@@ -145,7 +163,6 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
             optimizer.step()
 
         
-        
         pbar.update(1)
         
         pbar.set_description(
@@ -201,6 +218,11 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
         from analysis.activation import get_activation_pattern
         get_activation_pattern(graphs, model, device, train_loader)
 
+    if 'diagonal' in analysis_list:
+        assert model_name in ["scalarized_conv"]
+        from analysis.diagonal import get_diagonal_coef, get_diagonal_invariate
+        get_diagonal_coef(graphs, model, device, train_loader)
+        get_diagonal_invariate(graphs, model, device, train_loader)
 
 class features:
     pass
@@ -301,7 +323,7 @@ if __name__ == "__main__":
     # loss_name = 'CrossEntropyLoss'
     loss_name           = args.loss
     opt_name            = args.opt
-    analysis_list       = args.analysis # ['loss', 'eigs'] #['loss','eigs','nc',''weight_norm']
+    analysis_list       = args.analysis if args.analysis else [] # ['loss', 'eigs'] #['loss','eigs','nc',''weight_norm']
     analysis_interval   = args.log_interval
 
     # Optimization hyperparameters
@@ -520,7 +542,7 @@ if __name__ == "__main__":
         cur_epochs = []
         for epoch in range(load_from_epoch+1, epochs + 1):
             if opt_name == "federated":
-                exp_avg, exp_avg_sq = federated_train(model, loss_name, criterion, device, C, client_loaders, exp_avg, exp_avg_sq, opt_params)
+                exp_avg, exp_avg_sq = federated_train(model, loss_name, criterion, device, C, client_loaders, exp_avg, exp_avg_sq, opt_params, epoch)
             else:
                 train(model, loss_name, criterion, device, C, train_loader, optimizer, epoch)
                 #lr_scheduler.step()

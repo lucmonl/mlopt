@@ -67,3 +67,7 @@ class graphs:
         self.linear_coefs       = []
         self.model_output       = []
         self.activation_pattern = []
+
+        # diagonal statistics
+        self.diagonal_coef      = []
+        self.diagonal_invariate = []
