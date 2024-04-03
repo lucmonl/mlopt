@@ -51,23 +51,25 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
 
     sketch_matrix_m, sketch_matrix_v = torch.randn(sketch_size, p).to(device) / (sketch_size**0.5), torch.randn(sketch_size, p).to(device) / (sketch_size**0.5)
     old_params = parameters_to_vector(model.parameters())
-    running_stats = {}
+    #running_stats = {}
     for client_id in range(client_num):
         # update client models
         client_model = copy.deepcopy(model)
+
         client_model.train()
         optimizer, _, _= load_optimizer(client_opt_name, client_model, client_lr, momentum, weight_decay, lr_decay, epochs_lr_decay, model_params, **opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
-            train(client_model, loss_name, criterion, device, num_classes, train_loaders[client_id], optimizer, epoch)
-
+            train(client_model, loss_name, criterion, device, num_classes, train_loaders[client_id], optimizer, server_epoch)
+        """
         for name in client_model.state_dict():
             if 'running_mean' in name or 'running_var' in name:
+                #print(client_model.state_dict()[name])
                 if name not in running_stats:
                     running_stats[name] = client_model.state_dict()[name] / client_num
                 else:
                     running_stats[name] += client_model.state_dict()[name] / client_num
-
+        """
         """
         sketch_updates = models[client_id].state_dict().copy()
         if sketch_size:
@@ -87,13 +89,14 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
     #vector_v = sketch_matrix_v.T @ vector_v
     exp_avg = momentum * exp_avg + (1-momentum) * vector_m
     exp_avg_sq = momentum_v * exp_avg_sq + (1-momentum_v) * vector_v
-    new_params = old_params - lr * exp_avg #/ torch.sqrt(F.relu(exp_avg_sq) + 0.005)
+    new_params = old_params - lr * exp_avg / torch.sqrt(F.relu(exp_avg_sq) + 0.005)
     
     #model = copy.deepcopy(client_model)
     #server_state_dict = vector_to_state_dict(new_params.detach(), model.state_dict())
     #model.load_state_dict(server_state_dict)
-    model.load_state_dict(running_stats, strict=False)
+    #model.load_state_dict(running_stats, strict=False)
     vector_to_parameters(new_params.detach(), model.parameters())
+
     del sketch_matrix_m, sketch_matrix_v
     return exp_avg, exp_avg_sq
 
@@ -233,7 +236,7 @@ def hook(self, input, output):
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "mnist", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized"]
-    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG"]
+    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG", "ViT"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sgd', 'norm-sgd','adam', 'federated']
@@ -382,7 +385,7 @@ if __name__ == "__main__":
             from data.cifar import load_cifar_federated
             train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar_federated(loss_name, batch_size, client_num=opt_params["client_num"])
         else:
-            train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot = load_cifar(loss_name, batch_size)
+            train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar(loss_name, batch_size)
     elif dataset_name == "mnist":
         from data.mnist import load_mnist
         train_loader, test_loader, analysis_loader, input_ch, C, transform_to_one_hot = load_mnist(loss_name, batch_size)
@@ -428,10 +431,23 @@ if __name__ == "__main__":
         if dataset_name == "mnist":
             model.conv1 = nn.Conv2d(input_ch, model.conv1.weight.shape[0], 3, 1, 1, bias=False) # Small dataset filter size used by He et al. (2015)
             model.maxpool = nn.MaxPool2d(kernel_size=1, stride=1, padding=0)
+        if opt_name == "federated":
+            for name, module in model.named_modules():
+                if isinstance(module, nn.modules.batchnorm.BatchNorm2d):
+                    module.track_running_stats = False
     elif model_name == "WideResNet":
         from arch.wide_resnet import WideResNet
         model = WideResNet(depth=16, width_factor=width_factor, dropout=0.0, in_channels=input_ch, labels=C)
         model_params = {"width": width_factor}
+    elif model_name == "ViT":
+        from torchvision.models.vision_transformer import VisionTransformer
+        model = VisionTransformer(image_size=int(np.sqrt(num_pixels/input_ch)), 
+                                  patch_size=4, 
+                                  num_layers=6, 
+                                  num_heads=width, # embed_dim must be divisible by num_heads
+                                  hidden_dim = 512,
+                                  mlp_dim = 512,
+                                  num_classes = C)
     elif model_name == "weight_norm":
         from arch.weight_norm import weight_norm_net
         model = weight_norm_net(num_pixels, [width, width], wn_init_mode, wn_basis_var, wn_scale)
@@ -548,7 +564,7 @@ if __name__ == "__main__":
                 #lr_scheduler.step()
             
             if epoch in epoch_list:
-                print("Epoch: ", epoch)
+                #print("Epoch: ", epoch)
                 train_graphs.log_epochs.append(epoch)
                 #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
                 analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc,train_loader, test_loader, analysis_loader, analysis_test_loader, analysis_params)

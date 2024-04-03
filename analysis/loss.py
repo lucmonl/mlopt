@@ -38,7 +38,7 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
     if compute_model_output:
         graphs.model_output.append(np.concatenate(model_output))
     
-    model.eval()
+    #model.eval()
     pbar = tqdm(total=len(test_loader), position=0, leave=True)
     loss_sum = 0
     accuracy_sum = 0
@@ -73,9 +73,9 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
     graphs.test_accuracy.append(accuracy_sum / len(test_loader.dataset))
     
     print("Mean Train Loss: {} \t Accuarcy: {}".format(graphs.loss[-1], graphs.accuracy[-1]))
-    #print("Mean Test Loss: {} \t Accuarcy: {}".format(graphs.test_loss[-1], graphs.test_accuracy[-1]))
+    print("Mean Test Loss: {} \t Accuarcy: {}".format(graphs.test_loss[-1], graphs.test_accuracy[-1]))
 
-    enable_running_stats(model)
+    #enable_running_stats(model)
 
 from transformers.trainer_pt_utils import LabelSmoother
 

@@ -4,7 +4,6 @@ import torch
 def get_min_weight_norm(graphs, model, C, model_name):
     norm_min = 1e10
     for name, param in model.named_parameters():
-        print(name, param.shape)
         """
         if 'weight_g' in name:  #if param.shape[1] == 1:
             continue
@@ -46,14 +45,13 @@ def get_grad_loss_ratio(graphs, model, loss_name, loader, criterion, criterion_s
         if param.grad is not None:
             grad_norm += torch.norm(param.grad)**2
     graphs.wn_grad_loss_ratio.append((grad_norm/loss_mean).item())
-    print(graphs.wn_grad_loss_ratio[-1])
-    print(graphs.wn_norm_min[-1])
+    print("Grad Loss Ratio:", graphs.wn_grad_loss_ratio[-1], "\t Minimum Weight Norm:", graphs.wn_norm_min[-1])
 
 def get_min_weight_norm_with_g(graphs, model, C, model_name):
     norm_min = 1e10
     for name, param in model.named_parameters():
         #print(name)
-        print(name, param.shape)
+        #print(name, param.shape)
         """
         if 'weight_g' in name:  #if param.shape[1] == 1:
             continue

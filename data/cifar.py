@@ -47,6 +47,7 @@ def make_labels(y, loss):
 
 
 def load_cifar(loss: str, batch_size: int, train_size = -1):
+    data_params = {"compute_acc": True}
     input_ch = 3
     num_pixels = 32 * 32 * 3
     C = 10
@@ -87,7 +88,7 @@ def load_cifar(loss: str, batch_size: int, train_size = -1):
     analysis_test_loader = torch.utils.data.DataLoader(
         analysis_test,
         batch_size=analysis_size, shuffle=False)
-    return train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot
+    return train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params
 
 def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num=1):
     data_params = {"compute_acc": True}
