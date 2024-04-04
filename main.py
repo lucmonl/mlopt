@@ -35,22 +35,40 @@ from optimizer.load_optimizer import load_optimizer
 #print(parent_dir)
 #from utilities import get_hessian_eigenvalues_weight_decay, get_hessian_eigenvalues
 
+def srht_sketch(P, H, D):
+    return 
+
+def sparse_skethc(m,n,s):
+    assert s < m
+    non_zero_index = torch.randint(low=0, high=m, size=(s, n))
+    return 
+
 def federated_train(model, loss_name, criterion, device, num_classes, train_loaders, exp_avg, exp_avg_sq, opt_params, server_epoch):
     client_num, client_opt_name, client_lr, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_lr"], opt_params["client_epoch"]
     momentum, momentum_v = 0.9, 0.99
     vector_m, vector_v = 0, 0
     import copy
+    import math
     from torch.nn.utils import parameters_to_vector, vector_to_parameters
+    
     #from utilities import state_dict_to_vector, vector_to_state_dict
     # initialize client models, optimizers
-    p = len(parameters_to_vector(model.parameters()))
+    old_params = parameters_to_vector(model.parameters())
+    device = old_params.get_device()
+    p = len(old_params)
     #sketch_size = int(opt_params["sketch_size"] * p)
     sketch_size = opt_params["sketch_size"]
     exp_avg = exp_avg if exp_avg is not None else torch.zeros(p).to(device)
     exp_avg_sq = exp_avg_sq if exp_avg_sq is not None else torch.zeros(p).to(device)
 
-    sketch_matrix_m, sketch_matrix_v = torch.randn(sketch_size, p).to(device) / (sketch_size**0.5), torch.randn(sketch_size, p).to(device) / (sketch_size**0.5)
-    old_params = parameters_to_vector(model.parameters())
+    #sketch_matrix_m, sketch_matrix_v = torch.randn(sketch_size, p).to(device) / (sketch_size**0.5), torch.randn(sketch_size, p).to(device) / (sketch_size**0.5)
+    from hadamard_transform import hadamard_transform, pad_to_power_of_2 
+    p_pad = pow(2, math.ceil(math.log(p)/math.log(2)))
+    D = (((torch.randn(p_pad, dtype=torch.float32) > 0).float() - 0.5) * 2).to(device)
+    sample_rows = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
+    sub_sample_row = torch.sparse_coo_tensor(sample_rows, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
+
+    
     #running_stats = {}
     for client_id in range(client_num):
         # update client models
@@ -77,19 +95,30 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
                 sketch_updates[name] = rand_dict[name] @ param
         """
         new_params = parameters_to_vector(client_model.parameters())
+        
         #vector_m += sketch_matrix_m @ (old_params - new_params).detach()
         #vector_v += sketch_matrix_v @ ((old_params - new_params) ** 2).detach()
-        vector_m += (old_params - new_params).detach()
-        vector_v += ((old_params - new_params) ** 2).detach()
+        
+        #vector_m += (old_params - new_params).detach()
+        #vector_v += ((old_params - new_params) ** 2).detach()
+
+        new_params_pad = pad_to_power_of_2(new_params)
+        hadamard_params_pad = hadamard_transform(D*new_params_pad)
+        vector_m += sub_sample_row @ hadamard_params_pad
     
     # server update
     
-    vector_m, vector_v = vector_m / client_num, vector_v / client_num
+    #vector_m, vector_v = vector_m / client_num, vector_v / client_num
     #vector_m = sketch_matrix_m.T @ vector_m
     #vector_v = sketch_matrix_v.T @ vector_v
-    exp_avg = momentum * exp_avg + (1-momentum) * vector_m
-    exp_avg_sq = momentum_v * exp_avg_sq + (1-momentum_v) * vector_v
-    new_params = old_params - lr * exp_avg / torch.sqrt(F.relu(exp_avg_sq) + 0.005)
+    vector_m = vector_m / client_num
+    vector_m = sub_sample_row.T @ vector_m
+    vector_m = hadamard_transform(vector_m) * D
+    print("sketch error:", torch.norm(vector_m - new_params_pad), torch.norm(new_params_pad))
+
+    exp_avg = momentum * exp_avg + (1-momentum) * vector_m[:p]
+    #exp_avg_sq = momentum_v * exp_avg_sq + (1-momentum_v) * vector_v
+    new_params = old_params - lr * exp_avg #/ torch.sqrt(F.relu(exp_avg_sq) + 0.005)
     
     #model = copy.deepcopy(client_model)
     #server_state_dict = vector_to_state_dict(new_params.detach(), model.state_dict())
@@ -97,7 +126,7 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
     #model.load_state_dict(running_stats, strict=False)
     vector_to_parameters(new_params.detach(), model.parameters())
 
-    del sketch_matrix_m, sketch_matrix_v
+    #del sketch_matrix_m, sketch_matrix_v
     return exp_avg, exp_avg_sq
 
 
@@ -489,7 +518,7 @@ if __name__ == "__main__":
         model_params = {"nfilters": width} | model_params
     else:
         raise NotImplementedError
-
+    print("number of parameters:", len(model.parameters()))
 
     # analysis parameters
     """
