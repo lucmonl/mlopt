@@ -50,7 +50,7 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
                             lr=lr,
                             momentum=momentum,
                             weight_decay=weight_decay)
-        model_params = model_params | {'client_opt': kwargs['client_opt_name'], 'client_lr': kwargs['client_lr'], "client_num": kwargs['client_num'], 'client_epoch': kwargs['client_epoch']}
+        model_params = model_params | {'client_opt': kwargs['client_opt_name'], 'client_lr': kwargs['client_lr'], "client_num": kwargs['client_num'], 'client_epoch': kwargs['client_epoch'], 'sketch_size': kwargs['sketch_size']}
 
     lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
                                                 milestones=epochs_lr_decay,

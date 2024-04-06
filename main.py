@@ -24,8 +24,10 @@ from IPython import embed
 from graphs import graphs
 from path_manage import get_running_directory, get_directory, continue_training
 from optimizer.sam import disable_running_stats, enable_running_stats
+from torch.nn.utils import parameters_to_vector, vector_to_parameters
 
 from optimizer.load_optimizer import load_optimizer
+
 
 
 # setting path
@@ -49,7 +51,7 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
     vector_m, vector_v = 0, 0
     import copy
     import math
-    from torch.nn.utils import parameters_to_vector, vector_to_parameters
+    
     
     #from utilities import state_dict_to_vector, vector_to_state_dict
     # initialize client models, optimizers
@@ -64,9 +66,11 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
     #sketch_matrix_m, sketch_matrix_v = torch.randn(sketch_size, p).to(device) / (sketch_size**0.5), torch.randn(sketch_size, p).to(device) / (sketch_size**0.5)
     from hadamard_transform import hadamard_transform, pad_to_power_of_2 
     p_pad = pow(2, math.ceil(math.log(p)/math.log(2)))
-    D = (((torch.randn(p_pad, dtype=torch.float32) > 0).float() - 0.5) * 2).to(device)
-    sample_rows = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
-    sub_sample_row = torch.sparse_coo_tensor(sample_rows, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
+    #for i in range(200):
+    if sketch_size != -1:
+        D = (((torch.randn(p_pad, dtype=torch.float32) > 0).float() - 0.5) * 2).to(device)
+        sample_rows = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
+        sub_sample_row = torch.sparse_coo_tensor(sample_rows, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
 
     
     #running_stats = {}
@@ -95,16 +99,35 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
                 sketch_updates[name] = rand_dict[name] @ param
         """
         new_params = parameters_to_vector(client_model.parameters())
-        
+
+        if sketch_size == -1:
+            vector_m += (old_params - new_params).detach()
+        else:
+            new_params_pad = pad_to_power_of_2((old_params - new_params).detach())
+            hadamard_params_pad = hadamard_transform(D*new_params_pad)
+            vector_m += sub_sample_row @ hadamard_params_pad
         #vector_m += sketch_matrix_m @ (old_params - new_params).detach()
         #vector_v += sketch_matrix_v @ ((old_params - new_params) ** 2).detach()
         
         #vector_m += (old_params - new_params).detach()
         #vector_v += ((old_params - new_params) ** 2).detach()
+        #vector_m += sub_sample_row @ hadamard_params_pad
+        """
+        x_recovered = 0
+        for i in range(1, 200):
+            D = (((torch.randn(p_pad, dtype=torch.float32) > 0).float() - 0.5) * 2).to(device)
+            sample_rows = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
+            sub_sample_row = torch.sparse_coo_tensor(sample_rows, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
+            
+            hadamard_params_pad = hadamard_transform(D*new_params_pad)
+            vector_m = sub_sample_row @ hadamard_params_pad
 
-        new_params_pad = pad_to_power_of_2(new_params)
-        hadamard_params_pad = hadamard_transform(D*new_params_pad)
-        vector_m += sub_sample_row @ hadamard_params_pad
+            desketched_vec = sub_sample_row.T @ vector_m
+            desketched_vec = hadamard_transform(desketched_vec) * D
+
+            x_recovered += desketched_vec
+            print(i, torch.norm(x_recovered[:p]/i - new_params_pad[:p]))
+        """
     
     # server update
     
@@ -112,11 +135,13 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
     #vector_m = sketch_matrix_m.T @ vector_m
     #vector_v = sketch_matrix_v.T @ vector_v
     vector_m = vector_m / client_num
-    vector_m = sub_sample_row.T @ vector_m
-    vector_m = hadamard_transform(vector_m) * D
-    print("sketch error:", torch.norm(vector_m - new_params_pad), torch.norm(new_params_pad))
+    if sketch_size != -1:
+        vector_m = sub_sample_row.T @ vector_m
+        vector_m = hadamard_transform(vector_m) * D
+        print("sketch error:", torch.norm(vector_m - new_params_pad), torch.norm(new_params_pad))
+        vector_m = vector_m[:p]
 
-    exp_avg = momentum * exp_avg + (1-momentum) * vector_m[:p]
+    exp_avg = momentum * exp_avg + (1-momentum) * vector_m
     #exp_avg_sq = momentum_v * exp_avg_sq + (1-momentum_v) * vector_v
     new_params = old_params - lr * exp_avg #/ torch.sqrt(F.relu(exp_avg_sq) + 0.005)
     
@@ -264,7 +289,7 @@ def hook(self, input, output):
 
     
 if __name__ == "__main__":
-    DATASETS = ["spurious", "cifar", "mnist", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized"]
+    DATASETS = ["spurious", "cifar", "mnist", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher"]
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG", "ViT"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
@@ -452,6 +477,12 @@ if __name__ == "__main__":
         train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot, data_params = load_scalaraized_data(loss_name, sp_patch_dim, sp_feat_dim, sp_train_size, batch_size)
         model_params = model_params | {"patch_dim": sp_patch_dim, "train_size": sp_train_size}
         analysis_params = analysis_params | data_params
+    elif dataset_name == "weight_norm_teacher":
+        from data.synthetic import load_weight_norm_teacher
+        train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot, data_params = load_weight_norm_teacher(sp_feat_dim, sp_train_size, batch_size)
+        model_params = model_params | {"feat_dim": sp_feat_dim, "train_size": sp_train_size}
+        analysis_params = analysis_params | data_params
+    
     compute_acc = data_params["compute_acc"]
 
     if model_name == "resnet18":
@@ -471,23 +502,23 @@ if __name__ == "__main__":
     elif model_name == "ViT":
         from torchvision.models.vision_transformer import VisionTransformer
         model = VisionTransformer(image_size=int(np.sqrt(num_pixels/input_ch)), 
-                                  patch_size=4, 
-                                  num_layers=6, 
-                                  num_heads=width, # embed_dim must be divisible by num_heads
-                                  hidden_dim = 512,
-                                  mlp_dim = 512,
+                                  patch_size= 4, 
+                                  num_layers = 4, 
+                                  num_heads= 8, # embed_dim must be divisible by num_heads
+                                  hidden_dim = width,
+                                  mlp_dim = width,
                                   num_classes = C)
     elif model_name == "weight_norm":
         from arch.weight_norm import weight_norm_net
-        model = weight_norm_net(num_pixels, [width, width], wn_init_mode, wn_basis_var, wn_scale)
+        model = weight_norm_net(num_pixels, [width, width], wn_init_mode, wn_basis_var, wn_scale, C)
         model_params = {"width": width, "init": wn_init_mode, "var": wn_basis_var, "scale": wn_scale} | model_params
     elif model_name == "weight_norm_width_scale":
         from arch.weight_norm import weight_norm_net_old
-        model = weight_norm_net_old(num_pixels, [width, width], wn_init_mode, wn_basis_var, wn_scale)
+        model = weight_norm_net_old(num_pixels, [width, width], wn_init_mode, wn_basis_var, wn_scale, C)
         model_params = {"width": width, "init": wn_init_mode, "var": wn_basis_var, "scale": wn_scale} | model_params
     elif model_name == "weight_norm_torch":
         from arch.weight_norm import weight_norm_torch
-        model = weight_norm_torch(num_pixels, [width, width])
+        model = weight_norm_torch(num_pixels, [width, width], C)
         model_params = {"width": width} | model_params
     elif model_name == "WideResNet_WN_woG":
         from arch.weight_norm import WideResNet_WN_woG
@@ -518,7 +549,7 @@ if __name__ == "__main__":
         model_params = {"nfilters": width} | model_params
     else:
         raise NotImplementedError
-    print("number of parameters:", len(model.parameters()))
+    print("number of parameters:", len(parameters_to_vector(model.parameters())))
 
     # analysis parameters
     """

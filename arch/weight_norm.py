@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 
 
 class weight_norm_net(nn.Module):
-    def __init__(self, num_pixels, widths, init_mode, basis_var, scale):
+    def __init__(self, num_pixels, widths, init_mode, basis_var, scale, C):
         super().__init__()
         self.scale = scale
         self.num_pixels = num_pixels
@@ -20,7 +20,7 @@ class weight_norm_net(nn.Module):
         for l in range(len(widths)):
             prev_width = widths[l-1] if l > 0 else num_pixels
             self.module_list.append(nn.Linear(prev_width, widths[l], bias=False))
-        self.output_layer = nn.Linear(widths[-1],10,bias=False)
+        self.output_layer = nn.Linear(widths[-1],C,bias=False)
         self.__initialize__(widths, init_mode)
     
     def __initialize__(self, widths, init_mode):
@@ -45,10 +45,10 @@ class weight_norm_net(nn.Module):
             x = torch.tanh(x)
         x = self.output_layer(x)
         x = self.scale * x
-        return x
+        return x.squeeze()
 
 class weight_norm_net_old(nn.Module):
-    def __init__(self, num_pixels, widths, init_mode, basis_var, scale):
+    def __init__(self, num_pixels, widths, init_mode, basis_var, scale, C):
         super().__init__()
         self.scale = scale
         self.num_pixels = num_pixels
@@ -58,7 +58,7 @@ class weight_norm_net_old(nn.Module):
         for l in range(len(widths)):
             prev_width = widths[l-1] if l > 0 else num_pixels
             self.module_list.append(nn.Linear(prev_width, widths[l], bias=False))
-        self.output_layer = nn.Linear(widths[-1],10,bias=False)
+        self.output_layer = nn.Linear(widths[-1],C,bias=False)
         self.__initialize__(widths, init_mode)
     
     def __initialize__(self, widths, init_mode):
@@ -92,7 +92,7 @@ class weight_norm_net_old(nn.Module):
         return x
 
 class weight_norm_torch(nn.Module):
-    def __init__(self, num_pixels, widths):
+    def __init__(self, num_pixels, widths, C):
         super().__init__()
         self.num_pixels = num_pixels
         self.flatten = nn.Flatten()
@@ -100,7 +100,7 @@ class weight_norm_torch(nn.Module):
         for l in range(len(widths)):
             prev_width = widths[l-1] if l > 0 else num_pixels
             self.module_list.append(weight_norm(nn.Linear(prev_width, widths[l], bias=False)))
-        self.output_layer = nn.Linear(widths[-1],10,bias=True)
+        self.output_layer = nn.Linear(widths[-1],C,bias=True)
         #self.__initialize__(widths, init_mode)
 
     def forward(self, x):
