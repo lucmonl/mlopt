@@ -500,14 +500,18 @@ if __name__ == "__main__":
         model = WideResNet(depth=16, width_factor=width_factor, dropout=0.0, in_channels=input_ch, labels=C)
         model_params = {"width": width_factor}
     elif model_name == "ViT":
-        from torchvision.models.vision_transformer import VisionTransformer
+        #from torchvision.models.vision_transformer import VisionTransformer
+        from vit_pytorch import ViT
+        """
         model = VisionTransformer(image_size=int(np.sqrt(num_pixels/input_ch)), 
                                   patch_size= 4, 
                                   num_layers = 4, 
                                   num_heads= 8, # embed_dim must be divisible by num_heads
                                   hidden_dim = width,
                                   mlp_dim = width,
-                                  num_classes = C)
+                                  num_classes = C) """
+        model = ViT(image_size=int(np.sqrt(num_pixels/input_ch)), patch_size=4, num_classes=C, dim=width, depth=6, heads=8, mlp_dim=width)
+        model_params = {"width": width}
     elif model_name == "weight_norm":
         from arch.weight_norm import weight_norm_net
         model = weight_norm_net(num_pixels, [width, width], wn_init_mode, wn_basis_var, wn_scale, C)
