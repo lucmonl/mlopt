@@ -75,7 +75,7 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
     print("Mean Train Loss: {} \t Accuarcy: {}".format(graphs.loss[-1], graphs.accuracy[-1]))
     print("Mean Test Loss: {} \t Accuarcy: {}".format(graphs.test_loss[-1], graphs.test_accuracy[-1]))
 
-    #enable_running_stats(model)
+    enable_running_stats(model)
 
 from transformers.trainer_pt_utils import LabelSmoother
 

@@ -89,7 +89,7 @@ class weight_norm_net_old(nn.Module):
         #print(torch.norm(self.output_layer.weight))
         x = self.output_layer(x)# / torch.norm(self.output_layer.weight)
         x = self.scale * x / np.sqrt(width)
-        return x
+        return x.squeeze()
 
 class weight_norm_torch(nn.Module):
     def __init__(self, num_pixels, widths, C):

@@ -196,6 +196,16 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
             loss.backward()
             optimizer.second_step(zero_grad=True)
             enable_running_stats(model)
+        elif opt_name == "replay_sam":
+            disable_running_stats(model)
+            if epoch != 1:
+                optimizer.first_step(zero_grad=True)
+                # second forward-backward step
+                out = model(data)
+                loss = criterion(out, target).float()
+                loss.backward()
+            optimizer.second_step(zero_grad=True)
+            enable_running_stats(model)
         elif opt_name == "goldstein":
             gold_iters = 0
             while gold_iters < 1:
@@ -239,7 +249,7 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
 
     pbar.close()
 
-def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, analysis_params):
+def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, analysis_params):    
     if 'loss' in analysis_list:
         from analysis.loss import compute_loss
         compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader, compute_acc, compute_model_output='output' in analysis_list)
@@ -293,7 +303,7 @@ if __name__ == "__main__":
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG", "ViT"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
-    OPTIMIZERS = ['gd', 'goldstein','sam', 'sgd', 'norm-sgd','adam', 'federated']
+    OPTIMIZERS = ['gd', 'goldstein','sam', 'sgd', 'norm-sgd','adam', 'federated','replay_sam']
     BASE_OPTIMIZERS = ['sgd','adam']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")
