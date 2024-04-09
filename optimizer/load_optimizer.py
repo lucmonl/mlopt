@@ -37,13 +37,10 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         if kwargs["sam_adaptive"]:
             model_params = model_params | {"sam": "adaptive"}
     elif opt_name == "look_sam":
-        from optimizer.sam import Look_SAM
+        from optimizer.sam import LookSAM
         if kwargs["base_opt"] == "sgd":
             base_optimizer = torch.optim.SGD
-            optimizer = Look_SAM(k=10, alpha=0.7, model=model, base_optimizer=base_optimizer, rho=kwargs["sam_rho"], adaptive=kwargs["sam_adaptive"], lr=lr, momentum=momentum, weight_decay=weight_decay)
-        elif kwargs["base_opt"] == "adam":
-            base_optimizer = torch.optim.Adam
-            optimizer = Look_SAM(model.parameters(), base_optimizer, rho=kwargs["sam_rho"], adaptive=kwargs["sam_adaptive"], lr=lr, betas=(momentum, 0.99), weight_decay=weight_decay)
+            optimizer = LookSAM(alpha=0.0, params=model.parameters(), base_optimizer=base_optimizer, rho=kwargs["sam_rho"], lr=lr, momentum=momentum, weight_decay=weight_decay)
         else:
             raise NotImplementedError
         model_params = model_params | {"base_opt": kwargs["base_opt"], "sam_rho": kwargs["sam_rho"]} 

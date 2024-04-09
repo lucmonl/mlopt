@@ -176,7 +176,7 @@ class Replay_SAM(torch.optim.Optimizer):
 
 class LookSAM(torch.optim.Optimizer):
     "from https://github.com/rollovd/LookSAM/blob/master/looksam.py"
-    def __init__(self, k, alpha, model, base_optimizer, criterion, rho=0.05, **kwargs):
+    def __init__(self, alpha, params, base_optimizer, rho, **kwargs):
 
         """
         LookSAM algorithm: https://arxiv.org/pdf/2203.02714.pdf
@@ -216,22 +216,17 @@ class LookSAM(torch.optim.Optimizer):
         """
 
         defaults = dict(alpha=alpha, rho=rho, **kwargs)
-        self.model = model
-        super(LookSAM, self).__init__(self.model.parameters(), defaults)
+        super(LookSAM, self).__init__(params, defaults)
 
-        self.k = k
         self.alpha = torch.tensor(alpha, requires_grad=False)
-        self.criterion = criterion
-
         self.base_optimizer = base_optimizer(self.param_groups, **kwargs)
         self.param_groups = self.base_optimizer.param_groups
-        self.criterion = criterion
 
     @staticmethod
     def normalized(g):
-        return g / g.norm(p=2)
+        return g / (g.norm(p=2) + 1e-8)
 
-    def first_step(self, ):
+    def first_step(self, zero_grad=True):
         # do actual sharpness-aware update
         group = self.param_groups[0]
         scale = group['rho'] / (self._grad_norm() + 1e-8)
@@ -246,6 +241,8 @@ class LookSAM(torch.optim.Optimizer):
             with torch.no_grad():
                 e_w = p.grad * scale.to(p)
                 p.add_(e_w)
+        if zero_grad:
+            self.zero_grad()
 
     def second_step(self, zero_grad=True):
         # update gv
@@ -273,6 +270,7 @@ class LookSAM(torch.optim.Optimizer):
             with torch.no_grad():
                 gv = self.state[f'gv_{index_p}']['gv']
                 p.grad.add_(self.alpha.to(p) * (p.grad.norm(p=2) / (gv.norm(p=2) + 1e-8) * gv))
+                #print((gv).norm(p=2), p.grad.norm(p=2))
         self.base_optimizer.step()
         if zero_grad:
             self.zero_grad()
