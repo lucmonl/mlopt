@@ -47,7 +47,7 @@ def sparse_skethc(m,n,s):
 
 def federated_train(model, loss_name, criterion, device, num_classes, train_loaders, exp_avg, exp_avg_sq, opt_params, server_epoch):
     client_num, client_opt_name, client_lr, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_lr"], opt_params["client_epoch"]
-    momentum, momentum_v = 0.9, 0.99
+    momentum, momentum_v = opt_params["server_momentum"], 0.99
     vector_m, vector_v = 0, 0
     import copy
     import math
@@ -72,6 +72,10 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
         sample_rows = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
         sub_sample_row = torch.sparse_coo_tensor(sample_rows, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
 
+        D_sq = (((torch.randn(p_pad, dtype=torch.float32) > 0).float() - 0.5) * 2).to(device)
+        sample_rows_sq = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
+        sub_sample_row_sq = torch.sparse_coo_tensor(sample_rows_sq, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
+
     
     #running_stats = {}
     for client_id in range(client_num):
@@ -79,7 +83,7 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
         client_model = copy.deepcopy(model)
 
         client_model.train()
-        optimizer, _, _= load_optimizer(client_opt_name, client_model, client_lr, momentum, weight_decay, lr_decay, epochs_lr_decay, model_params, **opt_params)
+        optimizer, _, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], weight_decay, lr_decay, epochs_lr_decay, model_params, **opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
             train(client_model, loss_name, criterion, device, num_classes, train_loaders[client_id], optimizer, server_epoch)
@@ -102,10 +106,14 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
 
         if sketch_size == -1:
             vector_m += (old_params - new_params).detach()
+            vector_v += ((old_params - new_params) ** 2).detach()
         else:
             new_params_pad = pad_to_power_of_2((old_params - new_params).detach())
             hadamard_params_pad = hadamard_transform(D*new_params_pad)
             vector_m += sub_sample_row @ hadamard_params_pad
+
+            hadamard_params_pad = hadamard_transform(D_sq*(new_params_pad ** 2))
+            vector_v += sub_sample_row_sq @ hadamard_params_pad
         #vector_m += sketch_matrix_m @ (old_params - new_params).detach()
         #vector_v += sketch_matrix_v @ ((old_params - new_params) ** 2).detach()
         
@@ -135,15 +143,21 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
     #vector_m = sketch_matrix_m.T @ vector_m
     #vector_v = sketch_matrix_v.T @ vector_v
     vector_m = vector_m / client_num
+    vector_v = vector_v / client_num
     if sketch_size != -1:
         vector_m = sub_sample_row.T @ vector_m
         vector_m = hadamard_transform(vector_m) * D
         print("sketch error:", torch.norm(vector_m - new_params_pad), torch.norm(new_params_pad))
         vector_m = vector_m[:p]
 
+        vector_v = sub_sample_row_sq.T @ vector_v
+        vector_v = hadamard_transform(vector_v) * D_sq
+        print("sketch error:", torch.norm(vector_v - new_params_pad**2), torch.norm(new_params_pad**2))
+        vector_v = vector_v[:p]
+
     exp_avg = momentum * exp_avg + (1-momentum) * vector_m
-    #exp_avg_sq = momentum_v * exp_avg_sq + (1-momentum_v) * vector_v
-    new_params = old_params - lr * exp_avg #/ torch.sqrt(F.relu(exp_avg_sq) + 0.005)
+    exp_avg_sq = momentum_v * exp_avg_sq + (1-momentum_v) * vector_v
+    new_params = old_params - lr * exp_avg / torch.sqrt(F.relu(exp_avg_sq) + 0.005)
     
     #model = copy.deepcopy(client_model)
     #server_state_dict = vector_to_state_dict(new_params.detach(), model.state_dict())
@@ -357,6 +371,7 @@ if __name__ == "__main__":
     parser.add_argument("--base_opt", type=str, default="sgd", choices=BASE_OPTIMIZERS, help="base optimizer for sam/norm-sgd optimizer")
     parser.add_argument("--sam_rho", type=float, default=0.2, help="rho for SAM")
     parser.add_argument("--sam_adaptive", type=bool, default=False, help="use adaptive SAM")
+    parser.add_argument("--look_alpha", type=float, default=0.1, help="alpha for LookSAM")
     parser.add_argument("--gold_delta", type=float, default=1, help="delta for goldstein")
     parser.add_argument("--norm_sgd_lr", type=float, default=1e-3, help="learning rate for normalized sgd when overfit")
 
@@ -374,6 +389,7 @@ if __name__ == "__main__":
     parser.add_argument("--client_num", type=int, default=1, help="number of clients")
     parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd"], help="optimizer of clients")
     parser.add_argument("--client_lr", type=float, default=0.01, help="lr of clients")
+    parser.add_argument("--client_momentum", type=float, default=0.0, help="momentum of clients")
     parser.add_argument("--client_epoch", type=int, default=200, help="total epochs of client training")
     parser.add_argument("--sketch_size", type=int, default=1000, help="sketch size in communication")
 
@@ -427,6 +443,7 @@ if __name__ == "__main__":
     opt_params["base_opt"]            = args.base_opt
     opt_params["sam_rho"]             = args.sam_rho #0.1
     opt_params["sam_adaptive"]        = args.sam_adaptive #False
+    opt_params["look_alpha"]          = args.look_alpha
     opt_params["norm_sgd_lr"]         = args.norm_sgd_lr
     opt_params["gold_delta"]          = args.gold_delta
 
@@ -439,6 +456,8 @@ if __name__ == "__main__":
     opt_params["client_num"]       = args.client_num
     opt_params["client_epoch"]     = args.client_epoch
     opt_params["sketch_size"]      = args.sketch_size
+    opt_params["server_momentum"]  = args.momentum
+    opt_params["client_momentum"]  = args.client_momentum
     exp_avg, exp_avg_sq            = None, None
 
 
