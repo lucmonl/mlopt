@@ -205,7 +205,7 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
                 loss.backward()
             optimizer.second_step(zero_grad=True)
             enable_running_stats(model)
-        elif opt_name == "look_sam":
+        elif opt_name.startswith("look_sam"):
             disable_running_stats(model)
             if not (batch_idx-1) % 10:
             #if True:
@@ -213,7 +213,10 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
                 out = model(data)
                 loss = criterion(out, target).float()
                 loss.backward()
-                optimizer.second_step(zero_grad=True)
+                if "v2" in opt_name:
+                    optimizer.second_step_v2(zero_grad=True)
+                else:
+                    optimizer.second_step(zero_grad=True)
                 #sys.exit()
             else:
                 optimizer.normal_step(zero_grad=True)
@@ -315,7 +318,7 @@ if __name__ == "__main__":
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG", "ViT"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
-    OPTIMIZERS = ['gd', 'goldstein','sam', 'sgd', 'norm-sgd','adam', 'federated','replay_sam', 'look_sam']
+    OPTIMIZERS = ['gd', 'goldstein','sam', 'sgd', 'norm-sgd','adam', 'federated','replay_sam', 'look_sam', 'look_sam_v2']
     BASE_OPTIMIZERS = ['sgd','adam']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")

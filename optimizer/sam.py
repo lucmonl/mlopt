@@ -261,6 +261,75 @@ class LookSAM(torch.optim.Optimizer):
         if zero_grad:
             self.zero_grad()
 
+    def _ip_g_g_s(self):
+        shared_device = self.param_groups[0]['params'][0].device
+        norm = torch.sum(
+            torch.stack([
+                self.state[f'old_grad_p_{index_p}']['old_grad_p'].to(shared_device).reshape(-1) @ p.grad.to(shared_device).reshape(-1)
+                for group in self.param_groups for index_p, p in enumerate(group['params'])
+                if p.grad is not None
+            ]),
+        )
+        return norm
+
+    def _ip_g_gv(self):
+        shared_device = self.param_groups[0]['params'][0].device
+        norm = torch.sum(
+            torch.stack([
+                self.state[f'gv_{index_p}']['gv'].to(shared_device).reshape(-1) @ self.state[f'old_grad_p_{index_p}']['old_grad_p'].to(shared_device).reshape(-1)
+                for group in self.param_groups for index_p, p in enumerate(group['params'])
+                if p.grad is not None
+            ])
+        )
+        norm_1 = torch.norm(
+            torch.stack([
+                self.state[f'gv_{index_p}']['gv'].to(shared_device).norm(p=2)
+                for group in self.param_groups for index_p, p in enumerate(group['params'])
+                if p.grad is not None
+            ]),
+            p=2
+        )
+        norm_2 = torch.norm(
+            torch.stack([
+                self.state[f'old_grad_p_{index_p}']['old_grad_p'].to(shared_device).norm(p=2)
+                for group in self.param_groups for index_p, p in enumerate(group['params'])
+                if p.grad is not None
+            ]),
+            p=2
+        )
+        return norm, norm_1, norm_2
+
+    def _old_grad_norm(self):
+        shared_device = self.param_groups[0]['params'][0].device
+        norm = torch.norm(
+            torch.stack([
+                self.state[f'old_grad_p_{index_p}']['old_grad_p'].norm(p=2).to(shared_device) for group in self.param_groups for index_p, p in enumerate(group['params'])
+                if p.grad is not None
+            ]),
+            p=2
+        )
+        return norm
+
+    def second_step_v2(self, zero_grad = True):
+        "what described in the paper"
+        group = self.param_groups[0]
+        scale = self._ip_g_g_s() / (self._old_grad_norm()**2 + 1e-8)
+
+        for index_p, p in enumerate(group['params']):
+            if p.grad is None:
+                continue
+            old_grad_p = self.state[f'old_grad_p_{index_p}']['old_grad_p']
+            #g_grad_norm = LookSAM.normalized(old_grad_p)
+            #g_s_grad_norm = LookSAM.normalized(p.grad)
+            self.state[f'gv_{index_p}']['gv'] = torch.sub(p.grad, scale * old_grad_p)
+            # recover data
+            p.data = self.state[p]['old_p']
+
+        #print(self._ip_g_gv())
+        self.base_optimizer.step()
+        if zero_grad:
+            self.zero_grad()
+
     def normal_step(self, zero_grad=True):
         group = self.param_groups[0]
         for index_p, p in enumerate(group['params']):
@@ -275,6 +344,20 @@ class LookSAM(torch.optim.Optimizer):
         if zero_grad:
             self.zero_grad()
             
+    def normal_step_v2(self, zero_grad=True):
+        group = self.param_groups[0]
+        scale = self._grad_norm() / (self._gv_norm() + 1e-8)
+        for index_p, p in enumerate(group['params']):
+            if p.grad is None:
+                continue
+            # retrieve gv and update grad
+            with torch.no_grad():
+                gv = self.state[f'gv_{index_p}']['gv']
+                p.grad.add_(self.alpha.to(p) * scale * gv)
+                #print((gv).norm(p=2), p.grad.norm(p=2))
+        self.base_optimizer.step()
+        if zero_grad:
+            self.zero_grad()
 
     def step(self, t, samples, targets, zero_grad=False):
         if not t % self.k:
@@ -321,6 +404,18 @@ class LookSAM(torch.optim.Optimizer):
         norm = torch.norm(
             torch.stack([
                 p.grad.norm(p=2).to(shared_device) for group in self.param_groups for p in group['params']
+                if p.grad is not None
+            ]),
+            p=2
+        )
+
+        return norm
+
+    def _gv_norm(self):
+        shared_device = self.param_groups[0]['params'][0].device
+        norm = torch.norm(
+            torch.stack([
+                self.state[f'gv_{index_p}']['gv'].norm(p=2).to(shared_device) for group in self.param_groups for p in group['params']
                 if p.grad is not None
             ]),
             p=2

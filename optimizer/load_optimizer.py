@@ -36,7 +36,7 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         model_params = model_params | {"base_opt": kwargs["base_opt"], "sam_rho": kwargs["sam_rho"]} 
         if kwargs["sam_adaptive"]:
             model_params = model_params | {"sam": "adaptive"}
-    elif opt_name == "look_sam":
+    elif opt_name.startswith("look_sam"):
         from optimizer.sam import LookSAM
         if kwargs["base_opt"] == "sgd":
             base_optimizer = torch.optim.SGD
@@ -74,7 +74,9 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
                             momentum=momentum,
                             weight_decay=weight_decay)
         model_params = model_params | {'client_opt': kwargs['client_opt_name'], 'client_lr': kwargs['client_lr'], "client_num": kwargs['client_num'], 'client_epoch': kwargs['client_epoch'], 'sketch_size': kwargs['sketch_size']}
-
+    else:
+        raise NotImplementedError
+        
     lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
                                                 milestones=epochs_lr_decay,
                                                 gamma=lr_decay)
