@@ -353,7 +353,8 @@ class LookSAM(torch.optim.Optimizer):
             # retrieve gv and update grad
             with torch.no_grad():
                 gv = self.state[f'gv_{index_p}']['gv']
-                p.grad.add_(self.alpha.to(p) * scale * gv)
+                #p.grad.add_(self.alpha.to(p) * scale * gv)
+                p.grad.add_(0.1 * scale * gv)
                 #print((gv).norm(p=2), p.grad.norm(p=2))
         self.base_optimizer.step()
         if zero_grad:
@@ -415,7 +416,8 @@ class LookSAM(torch.optim.Optimizer):
         shared_device = self.param_groups[0]['params'][0].device
         norm = torch.norm(
             torch.stack([
-                self.state[f'gv_{index_p}']['gv'].norm(p=2).to(shared_device) for group in self.param_groups for p in group['params']
+                self.state[f'gv_{index_p}']['gv'].norm(p=2).to(shared_device)
+                for group in self.param_groups for index_p, p in enumerate(group['params'])
                 if p.grad is not None
             ]),
             p=2

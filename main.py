@@ -219,7 +219,10 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
                     optimizer.second_step(zero_grad=True)
                 #sys.exit()
             else:
-                optimizer.normal_step(zero_grad=True)
+                if "v2" in opt_name:
+                    optimizer.normal_step_v2(zero_grad=True)
+                else:
+                    optimizer.normal_step(zero_grad=True)
             enable_running_stats(model)
         elif opt_name == "goldstein":
             gold_iters = 0
