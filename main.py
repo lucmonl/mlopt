@@ -142,23 +142,31 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
     #vector_m, vector_v = vector_m / client_num, vector_v / client_num
     #vector_m = sketch_matrix_m.T @ vector_m
     #vector_v = sketch_matrix_v.T @ vector_v
-    vector_m = vector_m / client_num
-    vector_v = vector_v / client_num
-    if sketch_size != -1:
-        vector_m = sub_sample_row.T @ vector_m
-        vector_m = hadamard_transform(vector_m) * D
-        print("sketch error:", torch.norm(vector_m - new_params_pad), torch.norm(new_params_pad))
-        vector_m = vector_m[:p]
+    if 'adam' == opt_params["server_opt_name"]:
+        vector_m = vector_m / client_num
+        vector_v = vector_v / client_num
+        if sketch_size != -1:
+            vector_m = sub_sample_row.T @ vector_m
+            vector_m = hadamard_transform(vector_m) * D
+            print("sketch error:", torch.norm(vector_m - new_params_pad), torch.norm(new_params_pad))
+            vector_m = vector_m[:p]
 
-        vector_v = sub_sample_row_sq.T @ vector_v
-        vector_v = hadamard_transform(vector_v) * D_sq
-        print("sketch error:", torch.norm(vector_v - new_params_pad**2), torch.norm(new_params_pad**2))
-        vector_v = vector_v[:p]
+            vector_v = sub_sample_row_sq.T @ vector_v
+            vector_v = hadamard_transform(vector_v) * D_sq
+            print("sketch error:", torch.norm(vector_v - new_params_pad**2), torch.norm(new_params_pad**2))
+            vector_v = vector_v[:p]
 
-    exp_avg = momentum * exp_avg + (1-momentum) * vector_m
-    exp_avg_sq = momentum_v * exp_avg_sq + (1-momentum_v) * vector_v
-    new_params = old_params - lr * exp_avg / torch.sqrt(F.relu(exp_avg_sq) + 0.005)
-    
+        exp_avg = momentum * exp_avg + (1-momentum) * vector_m
+        exp_avg_sq = momentum_v * exp_avg_sq + (1-momentum_v) * vector_v
+        new_params = old_params - lr * (exp_avg / (1-momentum**server_epoch)) / torch.sqrt(F.relu(exp_avg_sq / (1-momentum_v**server_epoch)) + 0.005)
+    elif 'gd' == opt_params["server_opt_name"]:
+        vector_m = vector_m / client_num
+        if sketch_size != -1:
+            vector_m = sub_sample_row.T @ vector_m
+            vector_m = hadamard_transform(vector_m) * D
+            print("sketch error:", torch.norm(vector_m - new_params_pad), torch.norm(new_params_pad))
+            vector_m = vector_m[:p]
+        new_params = old_params - lr * vector_m
     #model = copy.deepcopy(client_model)
     #server_state_dict = vector_to_state_dict(new_params.detach(), model.state_dict())
     #model.load_state_dict(server_state_dict)
@@ -386,6 +394,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_average", nargs='+', type=int, default=[0,1], help="index of runs to be averaged")
 
     #federated learning hyperparameters
+    parser.add_argument("--server_opt_name", type=str, default="adam", choices=["gd", "adam"], help="optimizer of server")
     parser.add_argument("--client_num", type=int, default=1, help="number of clients")
     parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd"], help="optimizer of clients")
     parser.add_argument("--client_lr", type=float, default=0.01, help="lr of clients")
@@ -451,6 +460,7 @@ if __name__ == "__main__":
     analysis_params["adv_eta"]        = args.adv_eta
 
     #federated learning parameters
+    opt_params["server_opt_name"]  = args.server_opt_name
     opt_params["client_opt_name"]  = args.client_opt_name
     opt_params["client_lr"]        = args.client_lr
     opt_params["client_num"]       = args.client_num
