@@ -85,7 +85,7 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
                                                 milestones=epochs_lr_decay,
                                                 gamma=lr_decay)
     if lr_decay != 1:
-        model_params = {"lr_decay": lr_decay} | model_params
+        model_params = model_params | {"lr_decay": lr_decay} 
     return optimizer, lr_scheduler, model_params
 
 
