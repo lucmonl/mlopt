@@ -84,6 +84,8 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
     lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
                                                 milestones=epochs_lr_decay,
                                                 gamma=lr_decay)
+    if lr_decay != 1:
+        model_params = {"lr_decay": lr_decay} | model_params
     return optimizer, lr_scheduler, model_params
 
 

@@ -177,7 +177,7 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
     return exp_avg, exp_avg_sq
 
 
-def train(model, loss_name, criterion, device, num_classes, train_loader, optimizer, epoch):
+def train(model, loss_name, criterion, device, num_classes, train_loader, optimizer, lr_scheduler, epoch):
     model.train()
     
     pbar = tqdm(total=len(train_loader), position=0, leave=True)
@@ -268,8 +268,7 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
                 raise NotImplementedError
         else:
             optimizer.step()
-
-        
+                
         pbar.update(1)
         
         pbar.set_description(
@@ -286,8 +285,8 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
         
         if debug and batch_idx > 20:
             break
-
     pbar.close()
+    lr_scheduler.step()
 
 def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, analysis_params):    
     if 'loss' in analysis_list:
@@ -487,6 +486,8 @@ if __name__ == "__main__":
     momentum            = args.momentum #0 # 0.9
     weight_decay        = args.weight_decay #0 # 5e-4 * 10
 
+    if lr_decay != 1 and not run_from_scratch:
+        raise NameError('Must run from scratch if using learning rate decay.')
 
     if dataset_name == "cifar":
         from data.cifar import load_cifar
@@ -681,7 +682,7 @@ if __name__ == "__main__":
             if opt_name == "federated":
                 exp_avg, exp_avg_sq = federated_train(model, loss_name, criterion, device, C, client_loaders, exp_avg, exp_avg_sq, opt_params, epoch)
             else:
-                train(model, loss_name, criterion, device, C, train_loader, optimizer, epoch)
+                train(model, loss_name, criterion, device, C, train_loader, optimizer, lr_scheduler, epoch)
                 #lr_scheduler.step()
             
             if epoch in epoch_list:
