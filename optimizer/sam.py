@@ -121,6 +121,10 @@ class Replay_SAM(torch.optim.Optimizer):
             scale = group["rho"] / (replay_norm + 1e-12)
             for p in group["params"]:
                 p.add_(self.state[p]["replay_gradient"] * scale.to(p))
+        
+        if zero_grad:
+            self.zero_grad()
+        
 
     @torch.no_grad()
     def second_step(self, zero_grad=False):

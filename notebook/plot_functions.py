@@ -267,7 +267,7 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
         plt.title('Training Loss')
 
         plt.subplot(2,6,2)
-        plt.semilogy(cur_epochs, train_graphs.accuracy)
+        plt.plot(cur_epochs, train_graphs.accuracy)
         #.legend(['Loss + Weight Decay'])
         plt.xlabel('Epoch')
         plt.ylabel('Value')
@@ -281,7 +281,7 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
         plt.title('Testing Loss')
 
         plt.subplot(2,6,4)
-        plt.semilogy(cur_epochs, train_graphs.test_accuracy)
+        plt.plot(cur_epochs, train_graphs.test_accuracy)
         #.legend(['Loss + Weight Decay'])
         plt.xlabel('Epoch')
         plt.ylabel('Value')
