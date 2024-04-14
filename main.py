@@ -181,8 +181,12 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
     model.train()
     
     pbar = tqdm(total=len(train_loader), position=0, leave=True)
+
+    # initialize training statistics
     accuracy = 0
     loss = torch.FloatTensor([0])
+    cos_descent_ascent = 0
+
     for batch_idx, (data, target) in enumerate(train_loader, start=1):
         
         if data.shape[0] != batch_size:
@@ -220,7 +224,7 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
         elif opt_name == "replay_sam":
             disable_running_stats(model)
             if not (epoch == 1 and batch_idx==1):
-                optimizer.first_step(zero_grad=True)
+                cos_descent_ascent += abs(optimizer.first_step(zero_grad=True))
                 # second forward-backward step
                 out = model(data)
                 loss = criterion(out, target).float()
@@ -282,11 +286,15 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
                 loss.item(),
                 accuracy))
         
-        
         if debug and batch_idx > 20:
             break
     pbar.close()
+
     lr_scheduler.step()
+
+    #deal with training track statistics
+    train_graphs.cos_descent_ascent.append(cos_descent_ascent / len(train_loader))
+    
 
 def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, analysis_params):    
     if 'loss' in analysis_list:
@@ -368,6 +376,8 @@ if __name__ == "__main__":
     parser.add_argument("--epoch", type=int, help="total training epoches")
     parser.add_argument("--batch_size", type=int, help="batch size in training, also the number of samples in analysis dataset")
     parser.add_argument("--log_interval", type=int, default=200, help="do analysis every $ of epochs")
+    parser.add_argument("--train_stats", type=bool, default=False, help="track stats along training process. Behavior depends on the specific training algorithm.")
+
     
     # data
     parser.add_argument("--sp_train_size", type=int, default=4096, help="training size for spurious dataset")

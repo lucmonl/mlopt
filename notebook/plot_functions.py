@@ -290,3 +290,28 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
     plt.legend(opts)
     plt.tight_layout()
     plt.show()
+
+def plot_figure_cos_descent_ascent(opts, model_params, opt_params):
+    for opt_name in opts:
+        model_param = model_params[opt_name]
+        directory = get_directory(opt_params[opt_name]['lr'], 
+                                opt_params[opt_name]['dataset_name'],
+                                opt_params[opt_name]['loss'],
+                                opt_params[opt_name]['opt'], 
+                                opt_params[opt_name]['model_name'], 
+                                opt_params[opt_name]['momentum'], 
+                                opt_params[opt_name]['weight_decay'], 
+                                opt_params[opt_name]['batch_size'], 
+                                opt_params[opt_name]['epochs'], 
+                                multi_run = False,
+                                **model_param
+                                )
+        print(directory)
+        with open(f'../{directory}train_graphs.pk', 'rb') as f:
+            train_graphs = pickle.load(f)
+
+        cur_epochs = train_graphs.log_epochs
+        plt.plot(train_graphs.cos_descent_ascent)
+        plt.xlabel('Epoch')
+        plt.ylabel('Value')
+        plt.title('cos_descent_ascent')

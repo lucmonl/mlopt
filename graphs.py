@@ -71,3 +71,5 @@ class graphs:
         # diagonal statistics
         self.diagonal_coef      = []
         self.diagonal_invariate = []
+
+        self.cos_descent_ascent = []

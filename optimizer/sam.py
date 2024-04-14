@@ -82,7 +82,7 @@ def enable_running_stats(model):
 
 
 class Replay_SAM(torch.optim.Optimizer):
-    def __init__(self, params, base_optimizer, rho=0.05, adaptive=False, **kwargs):
+    def __init__(self, params, base_optimizer, rho=0.05, adaptive=False, train_stats=False, **kwargs):
         assert rho >= 0.0, f"Invalid rho, should be non-negative: {rho}"
 
         defaults = dict(rho=rho, adaptive=adaptive, **kwargs)
@@ -91,6 +91,7 @@ class Replay_SAM(torch.optim.Optimizer):
         self.base_optimizer = base_optimizer(self.param_groups, **kwargs)
         self.param_groups = self.base_optimizer.param_groups
         self.replay_gradient = None
+        self.track_cos_descent_ascent = train_stats
 
         self.defaults.update(self.base_optimizer.defaults)
 
@@ -116,16 +117,23 @@ class Replay_SAM(torch.optim.Optimizer):
                 for (p, g) in zip(group["params"]. replay_group["params"]):
                     p.add_(g)
         """
+        cos_descent_ascent = 0
+        if self.track_cos_descent_ascent:
+            grad_norm = self._grad_norm()
+
         replay_norm = self._replay_norm()
         for group in self.param_groups:
             scale = group["rho"] / (replay_norm + 1e-12)
             for p in group["params"]:
                 self.state[p]["old_p"] = p.data.clone()
                 p.add_(self.state[p]["replay_gradient"] * scale.to(p))
-        
+
+                if self.track_cos_descent_ascent:
+                    cos_descent_ascent += (self.state[p]["replay_gradient"]).reshape(-1) * scale.to(p) @ p.grad.reshape(-1) / (grad_norm + 1e-12).to(p)
+
         if zero_grad:
             self.zero_grad()
-        
+        return cos_descent_ascent.item()
 
     @torch.no_grad()
     def second_step(self, zero_grad=False):
@@ -135,8 +143,10 @@ class Replay_SAM(torch.optim.Optimizer):
                 if "old_p" in self.state[p]:
                     p.data = self.state[p]["old_p"]  # get back to "w" from "w + e(w)"
                 # update replay_gradient
-                self.state[p]["replay_gradient"] = torch.normal(mean = torch.zeros_like(p.grad), 
-                                                                std = torch.abs(p.grad.clone()))
+                #self.state[p]["replay_gradient"] = torch.normal(mean = torch.zeros_like(p.grad), 
+                #                                                std = torch.abs(p.grad.clone()))
+                self.state[p]["replay_gradient"] = torch.normal(mean = 0, std = 1, size=p.grad.shape).to(p)
+                                                               
 
         self.base_optimizer.step()  # do the actual "sharpness-aware" update
 
