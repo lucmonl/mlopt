@@ -219,7 +219,7 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
             enable_running_stats(model)
         elif opt_name == "replay_sam":
             disable_running_stats(model)
-            if epoch != 1:
+            if not (epoch == 1 and batch_idx==1):
                 optimizer.first_step(zero_grad=True)
                 # second forward-backward step
                 out = model(data)

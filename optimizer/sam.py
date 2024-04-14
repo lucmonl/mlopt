@@ -120,6 +120,7 @@ class Replay_SAM(torch.optim.Optimizer):
         for group in self.param_groups:
             scale = group["rho"] / (replay_norm + 1e-12)
             for p in group["params"]:
+                self.state[p]["old_p"] = p.data.clone()
                 p.add_(self.state[p]["replay_gradient"] * scale.to(p))
         
         if zero_grad:
@@ -131,7 +132,8 @@ class Replay_SAM(torch.optim.Optimizer):
         for group in self.param_groups:
             for p in group["params"]:
                 if p.grad is None: continue
-                #p.data = self.state[p]["old_p"]  # get back to "w" from "w + e(w)"
+                if "old_p" in self.state[p]:
+                    p.data = self.state[p]["old_p"]  # get back to "w" from "w + e(w)"
                 # update replay_gradient
                 self.state[p]["replay_gradient"] = torch.normal(mean = torch.zeros_like(p.grad), 
                                                                 std = torch.abs(p.grad.clone()))
