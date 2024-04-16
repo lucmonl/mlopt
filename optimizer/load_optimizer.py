@@ -14,10 +14,10 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         from optimizer.sam import SAM
         if kwargs["base_opt"] == "sgd":
             base_optimizer = torch.optim.SGD
-            optimizer = SAM(model.parameters(), base_optimizer, rho=kwargs["sam_rho"], adaptive=kwargs["sam_adaptive"], lr=lr, momentum=momentum, weight_decay=weight_decay)
+            optimizer = SAM(model.parameters(), base_optimizer, rho=kwargs["sam_rho"], adaptive=kwargs["sam_adaptive"], train_stats=kwargs["train_stats"], lr=lr, momentum=momentum, weight_decay=weight_decay)
         elif kwargs["base_opt"] == "adam":
             base_optimizer = torch.optim.Adam
-            optimizer = SAM(model.parameters(), base_optimizer, rho=kwargs["sam_rho"], adaptive=kwargs["sam_adaptive"], lr=lr, betas=(momentum, 0.99), weight_decay=weight_decay)
+            optimizer = SAM(model.parameters(), base_optimizer, rho=kwargs["sam_rho"], adaptive=kwargs["sam_adaptive"], train_stats=kwargs["train_stats"], lr=lr, betas=(momentum, 0.99), weight_decay=weight_decay)
         else:
             raise NotImplementedError
         model_params = model_params | {"base_opt": kwargs["base_opt"], "sam_rho": kwargs["sam_rho"]} 

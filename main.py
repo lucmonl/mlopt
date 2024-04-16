@@ -219,7 +219,7 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
             #loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
             loss = criterion(out, target).float()
             loss.backward()
-            optimizer.second_step(zero_grad=True)
+            cos_descent_ascent += optimizer.second_step(zero_grad=True)
             enable_running_stats(model)
         elif opt_name == "replay_sam":
             disable_running_stats(model)
@@ -464,6 +464,7 @@ if __name__ == "__main__":
     opt_params["look_alpha"]          = args.look_alpha
     opt_params["norm_sgd_lr"]         = args.norm_sgd_lr
     opt_params["gold_delta"]          = args.gold_delta
+    opt_params["train_stats"]         = args.train_stats
 
     # analysis hyperparameters
     analysis_params["adv_eta"]        = args.adv_eta
