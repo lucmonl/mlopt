@@ -387,6 +387,7 @@ if __name__ == "__main__":
     parser.add_argument("--weight_decay", type=float, default=0, help ="weight decay")
     parser.add_argument("--epoch", type=int, help="total training epoches")
     parser.add_argument("--batch_size", type=int, help="batch size in training, also the number of samples in analysis dataset")
+    parser.add_argument("--label_smoothing", type=float, default=0.0, help="label_smoothing param")
     parser.add_argument("--log_interval", type=int, default=200, help="do analysis every $ of epochs")
     parser.add_argument("--train_stats", type=bool, default=False, help="track stats along training process. Behavior depends on the specific training algorithm.")
 
@@ -464,7 +465,6 @@ if __name__ == "__main__":
 
     # Optimization hyperparameters
     lr_decay            = args.lr_decay #1# 0.1
-
     epochs              = args.epoch
     epochs_lr_decay     = [epochs//3, epochs*2//3]
 
@@ -517,6 +517,7 @@ if __name__ == "__main__":
     lr                  = args.lr
     momentum            = args.momentum #0 # 0.9
     weight_decay        = args.weight_decay #0 # 5e-4 * 10
+    label_smoothing     = args.label_smoothing
 
     if opt_params["scheduler_name"] != "none" and not run_from_scratch:
         raise NameError('Must run from scratch if using learning rate decay.')
@@ -666,8 +667,10 @@ if __name__ == "__main__":
 
     if loss_name == 'CrossEntropyLoss':
         assert transform_to_one_hot # assert target is index vector
-        criterion = nn.CrossEntropyLoss()
-        criterion_summed = nn.CrossEntropyLoss(reduction='sum')
+        criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+        criterion_summed = nn.CrossEntropyLoss(label_smoothing=label_smoothing, reduction='sum')
+        if label_smoothing != 0:
+            model_params = model_params | {"smooth": label_smoothing}
     elif loss_name == 'MSELoss':
         if transform_to_one_hot:
             def mse_sum_with_one_hot(out, target):
