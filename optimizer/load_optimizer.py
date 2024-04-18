@@ -85,10 +85,16 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
                                                 milestones=epochs_lr_decay,
                                                 gamma=lr_decay)
     """
-    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=400, eta_min=1e-5)
+    if kwargs["scheduler_name"] == "cosine":
+        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=kwargs["epoch"], eta_min=kwargs["lr_min"])
+        model_params = model_params | {"scheduler": "cosine", "lr_min": kwargs["lr_min"]} 
+    elif kwargs["scheduler_name"] == "multistep":
+        lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=epochs_lr_decay, gamma=lr_decay)
+        model_params = model_params | {"scheduler": "cosine", "lr_decay": lr_decay}
+    else:
+        lr_scheduler = None
     #self.scheduler = warmup_scheduler.GradualWarmupScheduler(self.optimizer, multiplier=1., total_epoch=self.hparams.warmup_epoch, after_scheduler=self.base_scheduler)
-    if lr_decay != 1:
-        model_params = model_params | {"lr_decay": lr_decay} 
+        
     return optimizer, lr_scheduler, model_params
 
 
@@ -132,6 +138,7 @@ def load_optimizer_from_args(opt_name, model, lr, momentum, weight_decay, lr_dec
         from optimizer.goldstein import Goldstein
         optimizer = Goldstein(model.parameters(), base_optimizer, delta=kwargs.gold_delta, lr=lr, momentum=momentum, weight_decay=weight_decay)
         model_params = model_params | {"gold_delta": kwargs.gold_delta}
+
 
     lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
                                                 milestones=epochs_lr_decay,

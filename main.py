@@ -297,7 +297,8 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
             break
     pbar.close()
 
-    lr_scheduler.step()
+    if opt_params["scheduler_name"] != 'none':
+        lr_scheduler.step()
 
     #deal with training track statistics
     train_graphs.cos_descent_ascent.append(cos_descent_ascent / len(train_loader))
@@ -372,12 +373,16 @@ if __name__ == "__main__":
     parser.add_argument("--basis_var", type=float, default=5, help="variance for initialization")
     parser.add_argument("--wn_scale", type=float, default=10, help="scaling coef for weight_norm model")
 
+    #parser.add_argument("--vit_patch_size", type=int, default=8, help="patch size for ViT")
+    #parser.add_argument("--vit_patch_size", type=int, default=8, help="patch size for ViT")
 
     parser.add_argument("--loss",  type=str, choices=LOSSES, help="Training Loss")
     parser.add_argument("--opt",  type=str, choices=OPTIMIZERS, help="Training Optimizer")
+    parser.add_argument("--scheduler",  type=str, choices=['none', 'cosine', 'multistep'], default='none', help="LR Scheduler")
     parser.add_argument('--analysis', nargs='+', type=str, help="quantities that will be analyzed")
     parser.add_argument("--lr", type=float, help="the learning rate")
     parser.add_argument("--lr_decay", type=float, default=1, help="the learning rate decat. default: no decay")
+    parser.add_argument("--lr_min", type=float, default=1e-5, help="lr min for cosine scheduler")
     parser.add_argument("--momentum", type=float, default=0.0, help="momentum")
     parser.add_argument("--weight_decay", type=float, default=0, help ="weight decay")
     parser.add_argument("--epoch", type=int, help="total training epoches")
@@ -446,6 +451,10 @@ if __name__ == "__main__":
     wn_scale            = args.wn_scale
     width_factor        = args.width_factor
 
+    #vit_patch_size      = args.vit_patch_size
+    #vit_head_num        = args.vit_head_num
+    #vit_depth           = args.vit_depth
+
     # Optimization Criterion
     # loss_name = 'CrossEntropyLoss'
     loss_name           = args.loss
@@ -465,6 +474,9 @@ if __name__ == "__main__":
     
     # for training process
     opt_params["mixup"]               = args.mixup
+    opt_params["epoch"]               = args.epoch
+    opt_params["scheduler_name"]      = args.scheduler
+    opt_params["lr_min"]              = args.lr_min
 
     #hyperparameters for sam
     opt_params["base_opt"]            = args.base_opt
@@ -506,7 +518,7 @@ if __name__ == "__main__":
     momentum            = args.momentum #0 # 0.9
     weight_decay        = args.weight_decay #0 # 5e-4 * 10
 
-    if lr_decay != 1 and not run_from_scratch:
+    if opt_params["scheduler_name"] != "none" and not run_from_scratch:
         raise NameError('Must run from scratch if using learning rate decay.')
 
     if dataset_name == "cifar":
@@ -595,7 +607,7 @@ if __name__ == "__main__":
         #model = ViT(image_size=int(np.sqrt(num_pixels/input_ch)), patch_size=8, num_classes=C, dim=width, depth=7, heads=12, mlp_dim=width) #depth=6, heads=8
         from arch.vit import ViT
         model = ViT(in_c=input_ch, num_classes=C, img_size=int(np.sqrt(num_pixels/input_ch)),patch=8,dropout=0,num_layers=7,hidden=width,mlp_hidden=4*width,head=12,is_cls_token=True)
-        model_params = {"width": width, "heads":12, "depth":7}
+        model_params = {"width": width,  "depth":7, "heads":12}
     elif model_name == "weight_norm":
         from arch.weight_norm import weight_norm_net
         model = weight_norm_net(num_pixels, [width, width], wn_init_mode, wn_basis_var, wn_scale, C)
