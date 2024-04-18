@@ -83,10 +83,10 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
         client_model = copy.deepcopy(model)
 
         client_model.train()
-        optimizer, _, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], weight_decay, lr_decay, epochs_lr_decay, model_params, **opt_params)
+        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], weight_decay, lr_decay, epochs_lr_decay, model_params, **opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
-            train(client_model, loss_name, criterion, device, num_classes, train_loaders[client_id], optimizer, server_epoch)
+            train(client_model, loss_name, criterion, device, num_classes, train_loaders[client_id], optimizer, lr_scheduler, server_epoch)
         """
         for name in client_model.state_dict():
             if 'running_mean' in name or 'running_var' in name:
@@ -177,7 +177,7 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
     return exp_avg, exp_avg_sq
 
 
-def train(model, loss_name, criterion, device, num_classes, train_loader, optimizer, lr_scheduler, epoch):
+def train(model, loss_name, criterion, device, num_classes, train_loader, optimizer, lr_scheduler, epoch, opt_params):
     model.train()
     
     pbar = tqdm(total=len(train_loader), position=0, leave=True)
@@ -194,9 +194,16 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
         
         data, target = data.to(device), target.to(device)
 
+        if opt_params["mixup"] == "cut":
+            data, target, rand_target, lambda_= cutmix((data, target))
+
         optimizer.zero_grad()
         out = model(data)
-        loss = criterion(out, target)
+
+        if opt_params["mixup"] == "none":
+            loss = criterion(out, target)
+        elif opt_params["mixup"] == "cut":
+            loss = criterion(out, target) * lambda_ + criterion(out, rand_target)*(1.-lambda_)
         loss.backward()
         """
         if loss_name == 'BCELoss':
@@ -380,6 +387,7 @@ if __name__ == "__main__":
 
     
     # data
+    parser.add_argument("--mixup", type=str, choices=["cut","none","mix"], help="mixup strategy for data augmentation")
     parser.add_argument("--sp_train_size", type=int, default=4096, help="training size for spurious dataset")
     parser.add_argument("--sp_feat_dim", type=int, default=20, help="dimension for spurious data")
     parser.add_argument("--sp_patch_dim", type=int, default=20, help="patch dimension for 2d spurious data")
@@ -455,7 +463,8 @@ if __name__ == "__main__":
 
     model_average       = args.model_average
     
-    
+    # for training process
+    opt_params["mixup"]               = args.mixup
 
     #hyperparameters for sam
     opt_params["base_opt"]            = args.base_opt
@@ -553,6 +562,10 @@ if __name__ == "__main__":
         analysis_params = analysis_params | data_params
     
     compute_acc = data_params["compute_acc"]
+    if args.mixup == "cut":
+        from data.data_process import CutMix
+        cutmix = CutMix(int(np.sqrt(num_pixels/input_ch)), beta=1)
+        model_params = model_params | {"mixup" : "cut"}
 
     if model_name == "resnet18":
         model = models.resnet18(pretrained=False, num_classes=C)
@@ -570,7 +583,7 @@ if __name__ == "__main__":
         model_params = {"width": width_factor}
     elif model_name == "ViT":
         #from torchvision.models.vision_transformer import VisionTransformer
-        from vit_pytorch import ViT
+        #from vit_pytorch import ViT
         """
         model = VisionTransformer(image_size=int(np.sqrt(num_pixels/input_ch)), 
                                   patch_size= 4, 
@@ -579,8 +592,10 @@ if __name__ == "__main__":
                                   hidden_dim = width,
                                   mlp_dim = width,
                                   num_classes = C) """
-        model = ViT(image_size=int(np.sqrt(num_pixels/input_ch)), patch_size=4, num_classes=C, dim=width, depth=6, heads=8, mlp_dim=width)
-        model_params = {"width": width}
+        #model = ViT(image_size=int(np.sqrt(num_pixels/input_ch)), patch_size=8, num_classes=C, dim=width, depth=7, heads=12, mlp_dim=width) #depth=6, heads=8
+        from arch.vit import ViT
+        model = ViT(in_c=input_ch, num_classes=C, img_size=int(np.sqrt(num_pixels/input_ch)),patch=8,dropout=0,num_layers=7,hidden=width,mlp_hidden=4*width,head=12,is_cls_token=True)
+        model_params = {"width": width, "heads":12, "depth":7}
     elif model_name == "weight_norm":
         from arch.weight_norm import weight_norm_net
         model = weight_norm_net(num_pixels, [width, width], wn_init_mode, wn_basis_var, wn_scale, C)
@@ -623,7 +638,6 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError
     print("number of parameters:", len(parameters_to_vector(model.parameters())))
-
     # analysis parameters
     """
     epoch_list          = [1,   2,   3,   4,   5,   6,   7,   8,   9,   10,   11,
@@ -693,7 +707,7 @@ if __name__ == "__main__":
             if opt_name == "federated":
                 exp_avg, exp_avg_sq = federated_train(model, loss_name, criterion, device, C, client_loaders, exp_avg, exp_avg_sq, opt_params, epoch)
             else:
-                train(model, loss_name, criterion, device, C, train_loader, optimizer, lr_scheduler, epoch)
+                train(model, loss_name, criterion, device, C, train_loader, optimizer, lr_scheduler, epoch, opt_params)
                 #lr_scheduler.step()
             
             if epoch in epoch_list:

@@ -9,7 +9,7 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
                             weight_decay=weight_decay)
     elif opt_name == "adam":
         from torch.optim import Adam
-        optimizer = Adam(model.parameters(), lr=lr, betas=(momentum, 0.99), weight_decay=weight_decay)
+        optimizer = Adam(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
     elif opt_name == "sam":
         from optimizer.sam import SAM
         if kwargs["base_opt"] == "sgd":
@@ -80,10 +80,13 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
                                        "client_num": kwargs['client_num'], 'client_epoch': kwargs['client_epoch'], 'sketch_size': kwargs['sketch_size']}
     else:
         raise NotImplementedError
-
+    """
     lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
                                                 milestones=epochs_lr_decay,
                                                 gamma=lr_decay)
+    """
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=400, eta_min=1e-5)
+    #self.scheduler = warmup_scheduler.GradualWarmupScheduler(self.optimizer, multiplier=1., total_epoch=self.hparams.warmup_epoch, after_scheduler=self.base_scheduler)
     if lr_decay != 1:
         model_params = model_params | {"lr_decay": lr_decay} 
     return optimizer, lr_scheduler, model_params
