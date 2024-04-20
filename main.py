@@ -86,7 +86,7 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], weight_decay, lr_decay, epochs_lr_decay, model_params, **opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
-            train(client_model, loss_name, criterion, device, num_classes, train_loaders[client_id], optimizer, lr_scheduler, server_epoch)
+            train(client_model, loss_name, criterion, device, num_classes, train_loaders[client_id], optimizer, None, server_epoch, opt_params)
         """
         for name in client_model.state_dict():
             if 'running_mean' in name or 'running_var' in name:
@@ -204,6 +204,8 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
             loss = criterion(out, target)
         elif opt_params["mixup"] == "cut":
             loss = criterion(out, target) * lambda_ + criterion(out, rand_target)*(1.-lambda_)
+        else:
+            assert False
         loss.backward()
         """
         if loss_name == 'BCELoss':
@@ -218,7 +220,7 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
                 accuracy = torch.mean((out*target > 0).float()).item()
 
         
-        if opt_name == "sam":
+        if opt_name in ["sam", "sam_on"]:
             optimizer.first_step(zero_grad=True)
             # second forward-backward step
             disable_running_stats(model)
@@ -297,7 +299,8 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
             break
     pbar.close()
 
-    if opt_params["scheduler_name"] != 'none':
+    #if opt_params["scheduler_name"] != 'none':
+    if lr_scheduler is not None:
         lr_scheduler.step()
 
     #deal with training track statistics
@@ -358,7 +361,7 @@ if __name__ == "__main__":
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG", "ViT"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
-    OPTIMIZERS = ['gd', 'goldstein','sam', 'sgd', 'norm-sgd','adam', 'federated','replay_sam', 'look_sam', 'look_sam_v2']
+    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'federated','replay_sam', 'look_sam', 'look_sam_v2']
     BASE_OPTIMIZERS = ['sgd','adam']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")
@@ -393,7 +396,7 @@ if __name__ == "__main__":
 
     
     # data
-    parser.add_argument("--mixup", type=str, choices=["cut","none","mix"], help="mixup strategy for data augmentation")
+    parser.add_argument("--mixup", type=str, choices=["cut","none","mix"], default="none", help="mixup strategy for data augmentation")
     parser.add_argument("--sp_train_size", type=int, default=4096, help="training size for spurious dataset")
     parser.add_argument("--sp_feat_dim", type=int, default=20, help="dimension for spurious data")
     parser.add_argument("--sp_patch_dim", type=int, default=20, help="patch dimension for 2d spurious data")
@@ -596,7 +599,7 @@ if __name__ == "__main__":
         model_params = {"width": width_factor}
     elif model_name == "ViT":
         #from torchvision.models.vision_transformer import VisionTransformer
-        #from vit_pytorch import ViT
+        from vit_pytorch import ViT
         """
         model = VisionTransformer(image_size=int(np.sqrt(num_pixels/input_ch)), 
                                   patch_size= 4, 
@@ -605,9 +608,9 @@ if __name__ == "__main__":
                                   hidden_dim = width,
                                   mlp_dim = width,
                                   num_classes = C) """
-        #model = ViT(image_size=int(np.sqrt(num_pixels/input_ch)), patch_size=8, num_classes=C, dim=width, depth=7, heads=12, mlp_dim=width) #depth=6, heads=8
-        from arch.vit import ViT
-        model = ViT(in_c=input_ch, num_classes=C, img_size=int(np.sqrt(num_pixels/input_ch)),patch=8,dropout=0,num_layers=7,hidden=width,mlp_hidden=4*width,head=12,is_cls_token=True)
+        model = ViT(image_size=int(np.sqrt(num_pixels/input_ch)), patch_size=8, num_classes=C, dim=width, depth=7, heads=12, mlp_dim=4*width) #depth=6, heads=8
+        #from arch.vit import ViT
+        #model = ViT(in_c=input_ch, num_classes=C, img_size=int(np.sqrt(num_pixels/input_ch)),patch=8,dropout=0,num_layers=7,hidden=width,mlp_hidden=4*width,head=12,is_cls_token=True)
         model_params = {"width": width,  "depth":7, "heads":12}
     elif model_name == "weight_norm":
         from arch.weight_norm import weight_norm_net

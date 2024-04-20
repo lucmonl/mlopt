@@ -23,6 +23,11 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         model_params = model_params | {"base_opt": kwargs["base_opt"], "sam_rho": kwargs["sam_rho"]} 
         if kwargs["sam_adaptive"]:
             model_params = model_params | {"sam": "adaptive"}
+    elif opt_name == "sam_on":
+        from optimizer.sam_on import SAM_ON
+        if kwargs["base_opt"] == "sgd":
+            base_optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
+        optimizer = SAM_ON(optimizer=base_optimizer, model=model, rho=kwargs["sam_rho"], adaptive=kwargs["sam_adaptive"], only_norm=True)
     elif opt_name == "replay_sam":
         from optimizer.sam import Replay_SAM
         if kwargs["base_opt"] == "sgd":
