@@ -34,9 +34,9 @@ class SAM(torch.optim.Optimizer):
 
     @torch.no_grad()
     def second_step(self, zero_grad=False):
+        cos_descent_ascent = 0
         if self.track_cos_descent_ascent:
             grad_norm = self._grad_norm()
-            cos_descent_ascent = 0
 
         for group in self.param_groups:
             for p in group["params"]:
@@ -44,13 +44,13 @@ class SAM(torch.optim.Optimizer):
                 p.data = self.state[p]["old_p"]  # get back to "w" from "w + e(w)"
 
                 if self.track_cos_descent_ascent:
-                    cos_descent_ascent += self.state[p]["ascent_grad"] @ (p.grad.clone().reshape(-1) / (grad_norm + 1e-12))
+                    cos_descent_ascent += (self.state[p]["ascent_grad"] @ (p.grad.clone().reshape(-1) / (grad_norm + 1e-12))).item()
 
         self.base_optimizer.step()  # do the actual "sharpness-aware" update
 
         if zero_grad: self.zero_grad()
 
-        return cos_descent_ascent.item()
+        return cos_descent_ascent
 
     @torch.no_grad()
     def step(self, closure=None):
