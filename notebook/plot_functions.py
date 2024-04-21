@@ -230,10 +230,38 @@ def plot_attr_figure(opts, model_params, opt_params, attr_name):
     plt.legend(opts)
     plt.show()
 
+def plot_train_loss(ax, xaxis, yaxis):
+    ax.semilogy(xaxis, yaxis)
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Value')
+    ax.set_title('Training Loss')
 
+def plot_train_acc(ax, xaxis, yaxis):
+    ax.plot(xaxis, yaxis)
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Value')
+    ax.set_title('Training Accuracy')
+
+def plot_train_eig(ax, xaxis, yaxis):
+    ax.plot(xaxis, yaxis)
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Value')
+    ax.set_title('Sharpness')
+
+def plot_test_loss(ax, xaxis, yaxis):
+    ax.semilogy(xaxis, yaxis)
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Value')
+    ax.set_title('Test Loss')
+
+def plot_test_acc(ax, xaxis, yaxis):
+    ax.plot(xaxis, yaxis)
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Value')
+    ax.set_title('Test Accuracy')
 
 def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
-    plt.figure(figsize=(15,5))
+    fig, axs = plt.subplots(1,len(attrs), figsize=(len(attrs)*3, 2))
     for opt_name in opts:
         model_param = model_params[opt_name]
         directory = get_directory(opt_params[opt_name]['lr'], 
@@ -257,22 +285,27 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
         #else:
         #cur_epochs = np.arange(len(train_graphs.loss))
         cur_epochs = train_graphs.log_epochs
-        plt.subplot(2,6,1)
-        #print(cur_epochs)
-        #print(train_graphs.loss)
-        plt.semilogy(cur_epochs, train_graphs.loss)
-        #plt.legend(['Loss + Weight Decay'])
-        plt.xlabel('Epoch')
-        plt.ylabel('Value')
-        plt.title('Training Loss')
+        ax_ptr = 0
+        if 'loss' in attrs:
+            plot_train_loss(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.loss)
+            ax_ptr += 1
+        
+        if 'acc' in attrs:
+            plot_train_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.accuracy)
+            ax_ptr += 1
 
-        plt.subplot(2,6,2)
-        plt.plot(cur_epochs, train_graphs.accuracy)
-        #.legend(['Loss + Weight Decay'])
-        plt.xlabel('Epoch')
-        plt.ylabel('Value')
-        plt.title('Training Accuracy')
+        if 'eigs' in attrs:
+            plot_train_eig(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.eigs)
+            ax_ptr += 1
 
+        if 'test_loss' in attrs:
+            plot_train_loss(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_loss)
+            ax_ptr += 1
+
+        if 'test_acc' in attrs:
+            plot_train_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_accuracy)
+            ax_ptr += 1
+        """
         plt.subplot(2,6,3)
         plt.semilogy(cur_epochs, train_graphs.test_loss)
         #.legend(['Loss + Weight Decay'])
@@ -286,6 +319,7 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
         plt.xlabel('Epoch')
         plt.ylabel('Value')
         plt.title('Testing Accuracy')
+        """
 
     plt.legend(opts)
     plt.tight_layout()
