@@ -146,8 +146,7 @@ class Replay_SAM(torch.optim.Optimizer):
                 if self.track_cos_descent_ascent:
                     cos_descent_ascent += (self.state[p]["replay_gradient"]).reshape(-1) * scale.to(p) @ p.grad.reshape(-1) / (grad_norm + 1e-12).to(p)
 
-        if zero_grad:
-            self.zero_grad()
+        if zero_grad: self.zero_grad()
         return cos_descent_ascent.item()
 
     @torch.no_grad()
@@ -160,7 +159,8 @@ class Replay_SAM(torch.optim.Optimizer):
                 # update replay_gradient
                 #self.state[p]["replay_gradient"] = torch.normal(mean = torch.zeros_like(p.grad), 
                 #                                                std = torch.abs(p.grad.clone()))
-                self.state[p]["replay_gradient"] = torch.normal(mean = 0, std = 1, size=p.grad.shape).to(p)
+                #self.state[p]["replay_gradient"] = torch.normal(mean = 0, std = 1, size=p.grad.shape).to(p)
+                self.state[p]["replay_gradient"] = p.grad.clone().detach()
                                                                
 
         self.base_optimizer.step()  # do the actual "sharpness-aware" update

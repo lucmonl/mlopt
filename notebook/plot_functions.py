@@ -260,6 +260,12 @@ def plot_test_acc(ax, xaxis, yaxis):
     ax.set_ylabel('Value')
     ax.set_title('Test Accuracy')
 
+def plot_test_eigs(ax, xaxis, yaxis):
+    ax.plot(xaxis, yaxis)
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Value')
+    ax.set_title('Test Sharpness')
+
 def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
     fig, axs = plt.subplots(1,len(attrs), figsize=(len(attrs)*3, 2))
     for opt_name in opts:
@@ -299,11 +305,15 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
             ax_ptr += 1
 
         if 'test_loss' in attrs:
-            plot_train_loss(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_loss)
+            plot_test_loss(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_loss)
             ax_ptr += 1
 
         if 'test_acc' in attrs:
-            plot_train_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_accuracy)
+            plot_test_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_accuracy)
+            ax_ptr += 1
+
+        if 'test_eigs' in attrs:
+            plot_test_eigs(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.eigs_test)
             ax_ptr += 1
         """
         plt.subplot(2,6,3)
