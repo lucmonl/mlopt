@@ -315,6 +315,10 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
     if 'eigs' in analysis_list:
         from analysis.eigs import compute_eigenvalues
         compute_eigenvalues(graphs, model, criterion_summed, weight_decay, analysis_loader, analysis_test_loader, num_classes, device)
+
+    if 'gn_eigs' in analysis_list:
+        from analysis.eigs import compute_gn_eigenvalues
+        compute_gn_eigenvalues(graphs, loss_name, model, analysis_loader, num_classes, device)
     
     if 'nc' in analysis_list:
         from analysis.nc import get_nc_statistics
@@ -465,6 +469,7 @@ if __name__ == "__main__":
     opt_name            = args.opt
     analysis_list       = args.analysis if args.analysis else [] # ['loss', 'eigs'] #['loss','eigs','nc',''weight_norm']
     analysis_interval   = args.log_interval
+    use_small_analysis  = 'gn_eigs' in analysis_list # avoid endless running time in computing gauss newton matrix
 
     # Optimization hyperparameters
     lr_decay            = args.lr_decay #1# 0.1
@@ -533,7 +538,7 @@ if __name__ == "__main__":
             from data.cifar import load_cifar_federated
             train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar_federated(loss_name, batch_size, client_num=opt_params["client_num"])
         else:
-            train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar(loss_name, batch_size)
+            train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar(loss_name, batch_size, use_small_analysis=use_small_analysis)
     elif dataset_name == "mnist":
         from data.mnist import load_mnist
         train_loader, test_loader, analysis_loader, input_ch, C, transform_to_one_hot = load_mnist(loss_name, batch_size)

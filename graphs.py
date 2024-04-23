@@ -4,6 +4,7 @@ class graphs:
         self.accuracy     = []
         self.loss         = []
         self.eigs         = []
+        self.gn_eigs         = []
         self.eigs_test    = []
         self.adv_eigs     = {} # the keys are adv_eta
 

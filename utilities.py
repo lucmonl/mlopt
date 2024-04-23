@@ -303,9 +303,9 @@ def get_hessian_eigenvalues_smallest(network: nn.Module, loss_fn: nn.Module, lr:
     s_evals, s_evecs = lanczos(hvp_delta_small, nparams, neigs=neigs)
     return alpha - s_evals, s_evecs
 
-def get_gauss_newton_eigenvalues(network: nn.Module, dataset: Dataset, neigs=6, num_class=10):
+def get_gauss_newton_eigenvalues(loss_name: str, network: nn.Module, dataset: Dataset, neigs=6, num_class=10, device=torch.device('cpu')):
     """ Compute the leading Hessian eigenvalues. """
-    hvp_delta = lambda delta: compute_gnvp(network, dataset, delta, num_class).detach().cpu()
+    hvp_delta = lambda delta: compute_gnvp(loss_name, network, dataset, delta, num_class, device).detach().cpu()
     nparams = len(parameters_to_vector((network.parameters())))
     l_evals, l_evecs = lanczos(hvp_delta, nparams, neigs=neigs)
     return l_evals, l_evecs
@@ -383,19 +383,25 @@ def get_eig_grad(network: nn.Module, loss_fn: nn.Module, dataset: Dataset,
     print("cosine:", grad_sum @ eig_grad)
     return eig_grad
 
-def compute_gnvp(network: nn.Module, dataset: Dataset, vector: Tensor, num_class: int):
+def second_derivative_of_loss(loss_name, x=0, y=0):
+    if loss_name == "MSELoss":
+        return 2
+    else: raise NotImplementedError
+
+def compute_gnvp(loss_name: str, network: nn.Module, dataset: Dataset, vector: Tensor, num_class: int, device):
     p = len(parameters_to_vector(network.parameters()))
     n = len(dataset)
     #gnvp = torch.zeros(p, dtype=torch.float, device=device)
     gnvp = torch.zeros(p, dtype=torch.float, device=device)
     vector = vector.to(device)
     pred_grad = torch.zeros((p, num_class), dtype=torch.float, device=device)
-    for (X, _) in iterate_dataset(dataset, 1):
+    for (X, y) in iterate_dataset(dataset, n):
         predictor = network(X)
-        for i in range(predictor.shape[1]):
-            grads_i = parameters_to_vector(torch.autograd.grad(predictor[0, i], network.parameters(), retain_graph = True))
-            pred_grad[:,i] = grads_i
-        gnvp += pred_grad @ (pred_grad.T @ vector) / n
+        for sample_idx in range(X.shape[0]):
+            for i in range(predictor.shape[1]):
+                grads_i = parameters_to_vector(torch.autograd.grad(predictor[sample_idx, i], network.parameters(), retain_graph = True))
+                pred_grad[:,i] = grads_i
+            gnvp += (second_derivative_of_loss(loss_name, X[sample_idx], y[sample_idx]) * pred_grad) @ (pred_grad.T @ vector) / n
     return gnvp
 
 def compute_jacobian_norm(network: nn.Module, dataset: Dataset, num_class: int):

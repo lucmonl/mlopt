@@ -46,7 +46,7 @@ def make_labels(y, loss):
     
 
 
-def load_cifar(loss: str, batch_size: int, train_size = -1):
+def load_cifar(loss: str, batch_size: int, train_size = -1, use_small_analysis=False):
     data_params = {"compute_acc": True}
     input_ch = 3
     num_pixels = 32 * 32 * 3
@@ -73,7 +73,8 @@ def load_cifar(loss: str, batch_size: int, train_size = -1):
         train = take_first(train, batch_size)
     test = TensorDataset(torch.from_numpy(unflatten(standardized_X_test, (32, 32, 3)).transpose((0, 3, 1, 2))).float(), y_test)
     
-    analysis_size = max(batch_size, 128)
+    #analysis_size = max(batch_size, 128)
+    analysis_size = 32 if use_small_analysis else max(batch_size, 128)
     analysis = torch.utils.data.Subset(train, range(analysis_size))
     analysis_test = torch.utils.data.Subset(test, range(analysis_size))
     train_loader = torch.utils.data.DataLoader(
