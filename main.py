@@ -142,7 +142,7 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
     #vector_m, vector_v = vector_m / client_num, vector_v / client_num
     #vector_m = sketch_matrix_m.T @ vector_m
     #vector_v = sketch_matrix_v.T @ vector_v
-    if 'adam' == opt_params["server_opt_name"]:
+    if opt_params["server_opt_name"] in ['adam', 'sgdm']:
         vector_m = vector_m / client_num
         vector_v = vector_v / client_num
         if sketch_size != -1:
@@ -158,7 +158,15 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
 
         exp_avg = momentum * exp_avg + (1-momentum) * vector_m
         exp_avg_sq = momentum_v * exp_avg_sq + (1-momentum_v) * vector_v
-        new_params = old_params - lr * (exp_avg / (1-momentum**server_epoch)) / torch.sqrt(F.relu(exp_avg_sq / (1-momentum_v**server_epoch)) + 0.005)
+        print("vector_m:", torch.min(vector_m).item(), torch.max(vector_m).item())
+        real_update = exp_avg / (1-momentum**server_epoch)
+        print("exp_avg: ", torch.min(real_update).item(), torch.max(real_update).item())
+        #real_update =  (exp_avg / (1-momentum**server_epoch)) / torch.sqrt(F.relu(exp_avg_sq / (1-momentum_v**server_epoch)) + 0.005)
+        #print("update:", torch.min(exp_avg / (1-momentum**server_epoch)).item())
+        if opt_params["server_opt_name"] == 'adam':
+            new_params = old_params - lr * (exp_avg / (1-momentum**server_epoch)) / torch.sqrt(F.relu(exp_avg_sq / (1-momentum_v**server_epoch)) + 0.005)
+        elif opt_params["server_opt_name"] == 'sgdm':
+            new_params = old_params - lr * exp_avg / (1-momentum**server_epoch)
     elif 'gd' == opt_params["server_opt_name"]:
         vector_m = vector_m / client_num
         if sketch_size != -1:
@@ -424,7 +432,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_average", nargs='+', type=int, default=[0,1], help="index of runs to be averaged")
 
     #federated learning hyperparameters
-    parser.add_argument("--server_opt_name", type=str, default="adam", choices=["gd", "adam"], help="optimizer of server")
+    parser.add_argument("--server_opt_name", type=str, default="adam", choices=["gd", "adam", "sgdm"], help="optimizer of server")
     parser.add_argument("--client_num", type=int, default=1, help="number of clients")
     parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd"], help="optimizer of clients")
     parser.add_argument("--client_lr", type=float, default=0.01, help="lr of clients")
