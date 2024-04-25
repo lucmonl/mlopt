@@ -47,7 +47,7 @@ def sparse_skethc(m,n,s):
 
 def federated_train(model, loss_name, criterion, device, num_classes, train_loaders, exp_avg, exp_avg_sq, opt_params, server_epoch):
     client_num, client_opt_name, client_lr, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_lr"], opt_params["client_epoch"]
-    momentum, momentum_v = opt_params["server_momentum"], 0.99
+    momentum, momentum_v = opt_params["server_momentum"], 0.999
     vector_m, vector_v = 0, 0
     import copy
     import math
@@ -194,9 +194,9 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
     accuracy = 0
     loss = torch.FloatTensor([0])
     cos_descent_ascent = 0
+    ascent_step_diff_sum = 0
 
     for batch_idx, (data, target) in enumerate(train_loader, start=1):
-        
         if data.shape[0] != batch_size:
             continue
         
@@ -229,7 +229,9 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
 
         
         if opt_name in ["sam", "sam_on"]:
-            optimizer.first_step(zero_grad=True)
+            ascent_step_diff = optimizer.first_step(zero_grad=True)
+            if not (epoch == 1 and batch_idx==1):
+                ascent_step_diff_sum += ascent_step_diff.item()
             # second forward-backward step
             disable_running_stats(model)
             out = model(data)
@@ -313,6 +315,8 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
 
     #deal with training track statistics
     train_graphs.cos_descent_ascent.append(cos_descent_ascent / len(train_loader))
+    train_graphs.ascent_step_diff.append(ascent_step_diff_sum / len(train_loader))
+    #print(train_graphs.ascent_step_diff)
     
 
 def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, analysis_params):    
@@ -626,9 +630,9 @@ if __name__ == "__main__":
                                   hidden_dim = width,
                                   mlp_dim = width,
                                   num_classes = C) """
-        model = ViT(image_size=int(np.sqrt(num_pixels/input_ch)), patch_size=8, num_classes=C, dim=width, depth=7, heads=12, mlp_dim=4*width) #depth=6, heads=8
-        #from arch.vit import ViT
-        #model = ViT(in_c=input_ch, num_classes=C, img_size=int(np.sqrt(num_pixels/input_ch)),patch=8,dropout=0,num_layers=7,hidden=width,mlp_hidden=4*width,head=12,is_cls_token=True)
+        #model = ViT(image_size=int(np.sqrt(num_pixels/input_ch)), patch_size=8, num_classes=C, dim=width, depth=7, heads=12, mlp_dim=4*width) #depth=6, heads=8
+        from arch.vit import ViT
+        model = ViT(in_c=input_ch, num_classes=C, img_size=int(np.sqrt(num_pixels/input_ch)),patch=8,dropout=0,num_layers=7,hidden=width,mlp_hidden=width,head=12,is_cls_token=True)
         model_params = {"width": width,  "depth":7, "heads":12}
     elif model_name == "weight_norm":
         from arch.weight_norm import weight_norm_net
@@ -685,11 +689,47 @@ if __name__ == "__main__":
     if "nc" in analysis_list:
         classifier = model.fc
         classifier.register_forward_hook(hook)
+    """
+    class LabelSmoothingCrossEntropyLoss(torch.nn.Module):
+        def __init__(self, classes, smoothing=0.0, dim=-1):
+            super(LabelSmoothingCrossEntropyLoss, self).__init__()
+            self.confidence = 1.0 - smoothing
+            self.smoothing = smoothing
+            self.cls = classes
+            self.dim = dim
 
+        def forward(self, pred, target):
+            pred = pred.log_softmax(dim=self.dim)
+            with torch.no_grad():
+                true_dist = torch.zeros_like(pred)
+                true_dist.fill_(self.smoothing / (self.cls - 1))
+                true_dist.scatter_(1, target.data.unsqueeze(1), self.confidence)
+            return torch.mean(torch.sum(-true_dist * pred, dim=self.dim))    
+
+    class LabelSmoothingCrossEntropyLoss_summed(torch.nn.Module):
+        def __init__(self, classes, smoothing=0.0, dim=-1):
+            super(LabelSmoothingCrossEntropyLoss_summed, self).__init__()
+            self.confidence = 1.0 - smoothing
+            self.smoothing = smoothing
+            self.cls = classes
+            self.dim = dim
+
+        def forward(self, pred, target):
+            pred = pred.log_softmax(dim=self.dim)
+            with torch.no_grad():
+                true_dist = torch.zeros_like(pred)
+                true_dist.fill_(self.smoothing / (self.cls - 1))
+                true_dist.scatter_(1, target.data.unsqueeze(1), self.confidence)
+            return torch.sum(torch.sum(-true_dist * pred, dim=self.dim))    
+    """
     if loss_name == 'CrossEntropyLoss':
+        
         assert transform_to_one_hot # assert target is index vector
         criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
         criterion_summed = nn.CrossEntropyLoss(label_smoothing=label_smoothing, reduction='sum')
+        
+        #criterion = LabelSmoothingCrossEntropyLoss(classes=C, smoothing=label_smoothing)
+        #criterion_summed = LabelSmoothingCrossEntropyLoss_summed(classes=C, smoothing=label_smoothing)
         if label_smoothing != 0:
             model_params = model_params | {"smooth": label_smoothing}
     elif loss_name == 'MSELoss':

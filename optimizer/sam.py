@@ -12,11 +12,14 @@ class SAM(torch.optim.Optimizer):
         self.param_groups = self.base_optimizer.param_groups
 
         self.track_cos_descent_ascent = train_stats
+        self.track_ascent_step_diff = train_stats
         self.defaults.update(self.base_optimizer.defaults)
 
     @torch.no_grad()
     def first_step(self, zero_grad=False):
         grad_norm = self._grad_norm()
+        ascent_step_diff = 0
+
         for group in self.param_groups:
             scale = group["rho"] / (grad_norm + 1e-12)
 
@@ -26,11 +29,17 @@ class SAM(torch.optim.Optimizer):
                 e_w = (torch.pow(p, 2) if group["adaptive"] else 1.0) * p.grad * scale.to(p)
                 p.add_(e_w)  # climb to the local maximum "w + e(w)"
 
+                if self.track_ascent_step_diff and "ascent_grad" in self.state[p]: # do not execute on the first iteration
+                    ascent_step_diff += torch.norm(p.grad.reshape(-1) / (grad_norm + 1e-12)  - self.state[p]["ascent_grad"].reshape(-1)) ** 2
+
                 if self.track_cos_descent_ascent:
                     #cos_descent_ascent += self.state[p]["descent_grad"] @ (p.grad.clone() / (grad_norm + 1e-12))
                     self.state[p]["ascent_grad"] = p.grad.clone().reshape(-1) / (grad_norm + 1e-12)
 
         if zero_grad: self.zero_grad()
+
+        return ascent_step_diff
+
 
     @torch.no_grad()
     def second_step(self, zero_grad=False):

@@ -74,3 +74,4 @@ class graphs:
         self.diagonal_invariate = []
 
         self.cos_descent_ascent = []
+        self.ascent_step_diff   = []

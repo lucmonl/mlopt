@@ -43,7 +43,31 @@ def make_labels(y, loss):
     else:
         raise NotImplementedError
     
+def get_transform():
+    train_transform = []
+    test_transform = []
+    train_transform += [
+        transforms.RandomCrop(size=32, padding=4)
+    ]
+
+    train_transform += [transforms.RandomHorizontalFlip()]
+
+    mean = [0.4914, 0.4822, 0.4465]
+    std = [0.247, 0.2435, 0.2616]
+    train_transform += [
+        transforms.ToTensor(),
+        transforms.Normalize(mean=mean, std=std)
+    ]
     
+    test_transform += [
+        transforms.ToTensor(),
+        transforms.Normalize(mean=mean, std=std)
+    ]
+
+    train_transform = transforms.Compose(train_transform)
+    test_transform = transforms.Compose(test_transform)
+
+    return train_transform, test_transform
 
 
 def load_cifar(loss: str, batch_size: int, train_size = -1, use_small_analysis=False):
@@ -52,15 +76,11 @@ def load_cifar(loss: str, batch_size: int, train_size = -1, use_small_analysis=F
     num_pixels = 32 * 32 * 3
     C = 10
     transform_to_one_hot = True
-
+    """
     train_transform = transforms.Compose([transforms.RandomCrop(32, padding=4),
                                           transforms.RandomHorizontalFlip()])
-
     cifar10_train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
     cifar10_test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False)
-    """
-    X_train = train_transform(cifar10_train.data)
-    """
     X_train, X_test = flatten(cifar10_train.data / 255), flatten(cifar10_test.data / 255)
     #y_train, y_test = make_labels(torch.tensor(cifar10_train.targets), loss), \
     #    make_labels(torch.tensor(cifar10_test.targets), loss)
@@ -72,7 +92,13 @@ def load_cifar(loss: str, batch_size: int, train_size = -1, use_small_analysis=F
     if train_size != -1:
         train = take_first(train, batch_size)
     test = TensorDataset(torch.from_numpy(unflatten(standardized_X_test, (32, 32, 3)).transpose((0, 3, 1, 2))).float(), y_test)
-    
+    """
+
+    train_transform, test_transform = get_transform()
+    train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
+    test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False, transform=test_transform)
+
+
     #analysis_size = max(batch_size, 128)
     analysis_size = 32 if use_small_analysis else max(batch_size, 128)
     analysis = torch.utils.data.Subset(train, range(analysis_size))
