@@ -266,6 +266,24 @@ def plot_test_eigs(ax, xaxis, yaxis):
     ax.set_ylabel('Value')
     ax.set_title('Test Sharpness')
 
+def plot_ascent_step_diff(ax, yaxis):
+    ax.plot(yaxis)
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Value')
+    ax.set_title('Ascent_step_diff')
+
+def plot_xy(ax, xaxis, yaxis, name):
+    ax.plot(yaxis)
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Value')
+    ax.set_title('name')
+
+def plot_y(ax, yaxis, name):
+    ax.plot(yaxis)
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Value')
+    ax.set_title('name')
+
 def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
     fig, axs = plt.subplots(1,len(attrs), figsize=(len(attrs)*3, 2))
     for opt_name in opts:
@@ -315,6 +333,16 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
         if 'test_eigs' in attrs:
             plot_test_eigs(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.eigs_test)
             ax_ptr += 1
+
+        if 'ascent_diff' in attrs:
+            if hasattr(train_graphs, 'ascent_step_diff'):
+                plot_ascent_step_diff(ax=axs[ax_ptr], yaxis=train_graphs.ascent_step_diff)
+            ax_ptr += 1
+
+        if 'descent_norm' in attrs:
+            if hasattr(train_graphs, 'descent_norm'):
+                plot_ascent_step_diff(ax=axs[ax_ptr], yaxis=train_graphs.descent_norm)
+            ax_ptr += 1
         """
         plt.subplot(2,6,3)
         plt.semilogy(cur_epochs, train_graphs.test_loss)
@@ -331,7 +359,7 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
         plt.title('Testing Accuracy')
         """
 
-    plt.legend(opts)
+    axs[0].legend(opts)
     plt.tight_layout()
     plt.show()
 

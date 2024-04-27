@@ -800,3 +800,13 @@ def vector_to_state_dict(vec, state_dict) -> None:
         pointer += num_param
 
     return state_dict
+
+def map_update(map1, map2, reduction="sum"):
+    for key in map2:
+        if reduction == "sum":
+            if key in map1:
+                map1[key] += map2[key]
+            else:
+                map1[key] = map2[key]
+        else:
+            raise NotImplementedError

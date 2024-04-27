@@ -13,12 +13,14 @@ class SAM(torch.optim.Optimizer):
 
         self.track_cos_descent_ascent = train_stats
         self.track_ascent_step_diff = train_stats
+        self.track_descent_norm = train_stats
         self.defaults.update(self.base_optimizer.defaults)
 
     @torch.no_grad()
     def first_step(self, zero_grad=False):
         grad_norm = self._grad_norm()
-        ascent_step_diff = 0
+        #ascent_step_diff = 0
+        train_stats = {"ascent_step_diff": 0}
 
         for group in self.param_groups:
             scale = group["rho"] / (grad_norm + 1e-12)
@@ -30,7 +32,7 @@ class SAM(torch.optim.Optimizer):
                 p.add_(e_w)  # climb to the local maximum "w + e(w)"
 
                 if self.track_ascent_step_diff and "ascent_grad" in self.state[p]: # do not execute on the first iteration
-                    ascent_step_diff += torch.norm(p.grad.reshape(-1) / (grad_norm + 1e-12)  - self.state[p]["ascent_grad"].reshape(-1)) ** 2
+                    train_stats["ascent_step_diff"] += (torch.norm(p.grad.reshape(-1) / (grad_norm + 1e-12)  - self.state[p]["ascent_grad"].reshape(-1)) ** 2).item()
 
                 if self.track_cos_descent_ascent:
                     #cos_descent_ascent += self.state[p]["descent_grad"] @ (p.grad.clone() / (grad_norm + 1e-12))
@@ -38,14 +40,15 @@ class SAM(torch.optim.Optimizer):
 
         if zero_grad: self.zero_grad()
 
-        return ascent_step_diff
+        return train_stats
 
 
     @torch.no_grad()
     def second_step(self, zero_grad=False):
-        cos_descent_ascent = 0
-        if self.track_cos_descent_ascent:
+        train_stats = {"cos_descent_ascent": 0, "descent_norm": 0}
+        if self.track_cos_descent_ascent or self.track_descent_norm:
             grad_norm = self._grad_norm()
+            train_stats["descent_norm"] = grad_norm.item()
 
         for group in self.param_groups:
             for p in group["params"]:
@@ -53,13 +56,13 @@ class SAM(torch.optim.Optimizer):
                 p.data = self.state[p]["old_p"]  # get back to "w" from "w + e(w)"
 
                 if self.track_cos_descent_ascent:
-                    cos_descent_ascent += (self.state[p]["ascent_grad"] @ (p.grad.clone().reshape(-1) / (grad_norm + 1e-12))).item()
+                    train_stats["cos_descent_ascent"] += (self.state[p]["ascent_grad"] @ (p.grad.clone().reshape(-1) / (grad_norm + 1e-12))).item()
 
         self.base_optimizer.step()  # do the actual "sharpness-aware" update
 
         if zero_grad: self.zero_grad()
 
-        return cos_descent_ascent
+        return train_stats
 
     @torch.no_grad()
     def step(self, closure=None):

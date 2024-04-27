@@ -29,7 +29,7 @@ from torch.nn.utils import parameters_to_vector, vector_to_parameters
 from optimizer.load_optimizer import load_optimizer
 
 
-
+from utilities import map_update
 # setting path
 #current_dir = os.path.dirname(os.path.abspath(__file__))
 #parent_dir = os.path.dirname(current_dir)
@@ -86,7 +86,7 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], weight_decay, lr_decay, epochs_lr_decay, model_params, **opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
-            train(client_model, loss_name, criterion, device, num_classes, train_loaders[client_id], optimizer, None, server_epoch, opt_params)
+            train(client_model, loss_name, criterion, device, num_classes, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, opt_params)
         """
         for name in client_model.state_dict():
             if 'running_mean' in name or 'running_var' in name:
@@ -109,6 +109,7 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
             vector_v += ((old_params - new_params) ** 2).detach()
         else:
             new_params_pad = pad_to_power_of_2((old_params - new_params).detach())
+
             hadamard_params_pad = hadamard_transform(D*new_params_pad)
             vector_m += sub_sample_row @ hadamard_params_pad
 
@@ -193,8 +194,9 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
     # initialize training statistics
     accuracy = 0
     loss = torch.FloatTensor([0])
-    cos_descent_ascent = 0
-    ascent_step_diff_sum = 0
+    track_train_stats = {}
+    #cos_descent_ascent = 0
+    #ascent_step_diff_sum = 0
 
     for batch_idx, (data, target) in enumerate(train_loader, start=1):
         if data.shape[0] != batch_size:
@@ -229,16 +231,19 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
 
         
         if opt_name in ["sam", "sam_on"]:
-            ascent_step_diff = optimizer.first_step(zero_grad=True)
+            train_stats = optimizer.first_step(zero_grad=True)
             if not (epoch == 1 and batch_idx==1):
-                ascent_step_diff_sum += ascent_step_diff.item()
+                map_update(track_train_stats, train_stats, reduction="sum")
             # second forward-backward step
             disable_running_stats(model)
             out = model(data)
             #loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
             loss = criterion(out, target).float()
             loss.backward()
-            cos_descent_ascent += optimizer.second_step(zero_grad=True)
+
+            train_stats = optimizer.second_step(zero_grad=True)
+            map_update(track_train_stats, train_stats, reduction="sum")
+            #cos_descent_ascent += optimizer.second_step(zero_grad=True)
             enable_running_stats(model)
         elif opt_name == "replay_sam":
             disable_running_stats(model)
@@ -314,8 +319,10 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
         lr_scheduler.step()
 
     #deal with training track statistics
-    train_graphs.cos_descent_ascent.append(cos_descent_ascent / len(train_loader))
-    train_graphs.ascent_step_diff.append(ascent_step_diff_sum / len(train_loader))
+    train_graphs.cos_descent_ascent.append(track_train_stats["cos_descent_ascent"] / len(train_loader))
+    train_graphs.descent_norm.append(track_train_stats["descent_norm"] / len(train_loader))
+    if "ascent_step_diff" in train_stats:
+        train_graphs.ascent_step_diff.append(train_stats["ascent_step_diff"] / len(train_loader))
     #print(train_graphs.ascent_step_diff)
     
 
@@ -438,7 +445,7 @@ if __name__ == "__main__":
     #federated learning hyperparameters
     parser.add_argument("--server_opt_name", type=str, default="adam", choices=["gd", "adam", "sgdm"], help="optimizer of server")
     parser.add_argument("--client_num", type=int, default=1, help="number of clients")
-    parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd"], help="optimizer of clients")
+    parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd", "adam"], help="optimizer of clients")
     parser.add_argument("--client_lr", type=float, default=0.01, help="lr of clients")
     parser.add_argument("--client_momentum", type=float, default=0.0, help="momentum of clients")
     parser.add_argument("--client_epoch", type=int, default=200, help="total epochs of client training")
