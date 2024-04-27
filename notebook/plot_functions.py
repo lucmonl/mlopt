@@ -273,19 +273,19 @@ def plot_ascent_step_diff(ax, yaxis):
     ax.set_title('Ascent_step_diff')
 
 def plot_xy(ax, xaxis, yaxis, name):
-    ax.plot(yaxis)
+    ax.plot(xaxis, yaxis)
     ax.set_xlabel('Epoch')
     ax.set_ylabel('Value')
-    ax.set_title('name')
+    ax.set_title(name)
 
 def plot_y(ax, yaxis, name):
     ax.plot(yaxis)
     ax.set_xlabel('Epoch')
     ax.set_ylabel('Value')
-    ax.set_title('name')
+    ax.set_title(name)
 
 def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
-    fig, axs = plt.subplots(1,len(attrs), figsize=(len(attrs)*3, 2))
+    fig, axs = plt.subplots(1,len(attrs), figsize=(len(attrs)*2.5, 2))
     for opt_name in opts:
         model_param = model_params[opt_name]
         directory = get_directory(opt_params[opt_name]['lr'], 
@@ -341,7 +341,7 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
 
         if 'descent_norm' in attrs:
             if hasattr(train_graphs, 'descent_norm'):
-                plot_ascent_step_diff(ax=axs[ax_ptr], yaxis=train_graphs.descent_norm)
+                plot_y(ax=axs[ax_ptr], yaxis=train_graphs.descent_norm, name="descent_norm")
             ax_ptr += 1
         """
         plt.subplot(2,6,3)

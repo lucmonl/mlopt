@@ -248,7 +248,8 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
         elif opt_name == "replay_sam":
             disable_running_stats(model)
             if not (epoch == 1 and batch_idx==1):
-                cos_descent_ascent += abs(optimizer.first_step(zero_grad=True))
+                train_stats = optimizer.first_step(zero_grad=True)
+                map_update(track_train_stats, train_stats, reduction="sum")
                 # second forward-backward step
                 out = model(data)
                 loss = criterion(out, target).float()
@@ -320,9 +321,10 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
 
     #deal with training track statistics
     train_graphs.cos_descent_ascent.append(track_train_stats["cos_descent_ascent"] / len(train_loader))
-    train_graphs.descent_norm.append(track_train_stats["descent_norm"] / len(train_loader))
-    if "ascent_step_diff" in train_stats:
-        train_graphs.ascent_step_diff.append(train_stats["ascent_step_diff"] / len(train_loader))
+    if "descent_norm" in track_train_stats:
+        train_graphs.descent_norm.append(track_train_stats["descent_norm"] / len(train_loader))
+    if "ascent_step_diff" in track_train_stats:
+        train_graphs.ascent_step_diff.append(track_train_stats["ascent_step_diff"] / len(train_loader))
     #print(train_graphs.ascent_step_diff)
     
 
@@ -772,10 +774,12 @@ if __name__ == "__main__":
             load_from_epoch = continue_training(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
         epoch_list = np.arange(load_from_epoch+1, epochs+1, analysis_interval).tolist()
         if load_from_epoch != 0:
+            from utilities import optimizer_to
             print("loading from trained epoch {}".format(load_from_epoch))
             load_from_dir = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, load_from_epoch, multi_run, **model_params)
             model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))
             optimizer.load_state_dict(torch.load(os.path.join(load_from_dir, "optimizer.ckpt")))
+            optimizer_to(optimizer, device)
             with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
                 train_graphs = pickle.load(f)
         model = model.to(device)

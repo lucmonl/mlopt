@@ -234,7 +234,7 @@ class Replay_SAM(torch.optim.Optimizer):
                 for (p, g) in zip(group["params"]. replay_group["params"]):
                     p.add_(g)
         """
-        cos_descent_ascent = 0
+        train_stats = {"cos_descent_ascent": 0}
         if self.track_cos_descent_ascent:
             grad_norm = self._grad_norm()
 
@@ -246,10 +246,11 @@ class Replay_SAM(torch.optim.Optimizer):
                 p.add_(self.state[p]["replay_gradient"] * scale.to(p))
 
                 if self.track_cos_descent_ascent:
-                    cos_descent_ascent += (self.state[p]["replay_gradient"]).reshape(-1) * scale.to(p) @ p.grad.reshape(-1) / (grad_norm + 1e-12).to(p)
+                    train_stats["cos_descent_ascent"] += ((self.state[p]["replay_gradient"] / (replay_norm + 1e-12)).reshape(-1) @ p.grad.reshape(-1) / (grad_norm + 1e-12).to(p)).item()
 
         if zero_grad: self.zero_grad()
-        return cos_descent_ascent.item()
+        train_stats["cos_descent_ascent"] = abs(train_stats["cos_descent_ascent"])
+        return train_stats
 
     @torch.no_grad()
     def second_step(self, zero_grad=False):
