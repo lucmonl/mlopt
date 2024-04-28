@@ -201,33 +201,26 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
     for batch_idx, (data, target) in enumerate(train_loader, start=1):
         if data.shape[0] != batch_size:
             continue
-        
-        data, target = data.to(device), target.to(device)
 
+        data, target = data.to(device), target.to(device)
         if opt_params["mixup"] == "cut":
             data, target, rand_target, lambda_= cutmix((data, target))
-
         optimizer.zero_grad()
         out = model(data)
-
-        if opt_params["mixup"] == "none":
-            loss = criterion(out, target)
-        elif opt_params["mixup"] == "cut":
-            loss = criterion(out, target) * lambda_ + criterion(out, rand_target)*(1.-lambda_)
-        else:
-            assert False
-        loss.backward()
-        """
-        if loss_name == 'BCELoss':
-            accuracy = torch.mean((out*target > 0).float())
-        elif out.dim() > 1:
-            accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
-        """
-        if compute_acc:
-            if out.dim() > 1:
-                accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
+        if forward_backward:
+            if opt_params["mixup"] == "none":
+                loss = criterion(out, target)
+            elif opt_params["mixup"] == "cut":
+                loss = criterion(out, target) * lambda_ + criterion(out, rand_target)*(1.-lambda_)
             else:
-                accuracy = torch.mean((out*target > 0).float()).item()
+                assert False
+            loss.backward()
+
+            if compute_acc:
+                if out.dim() > 1:
+                    accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
+                else:
+                    accuracy = torch.mean((out*target > 0).float()).item()
 
         
         if opt_name in ["sam", "sam_on"]:
@@ -250,10 +243,10 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
             if not (epoch == 1 and batch_idx==1):
                 train_stats = optimizer.first_step(zero_grad=True)
                 map_update(track_train_stats, train_stats, reduction="sum")
-                # second forward-backward step
-                out = model(data)
-                loss = criterion(out, target).float()
-                loss.backward()
+            # second forward-backward step
+            out = model(data)
+            loss = criterion(out, target).float()
+            loss.backward()
             optimizer.second_step(zero_grad=True)
             enable_running_stats(model)
         elif opt_name.startswith("look_sam"):
@@ -320,7 +313,8 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
         lr_scheduler.step()
 
     #deal with training track statistics
-    train_graphs.cos_descent_ascent.append(track_train_stats["cos_descent_ascent"] / len(train_loader))
+    if "cos_descent_ascent" in track_train_stats:
+        train_graphs.cos_descent_ascent.append(track_train_stats["cos_descent_ascent"] / len(train_loader))
     if "descent_norm" in track_train_stats:
         train_graphs.descent_norm.append(track_train_stats["descent_norm"] / len(train_loader))
     if "ascent_step_diff" in track_train_stats:
@@ -490,7 +484,7 @@ if __name__ == "__main__":
     opt_name            = args.opt
     analysis_list       = args.analysis if args.analysis else [] # ['loss', 'eigs'] #['loss','eigs','nc',''weight_norm']
     analysis_interval   = args.log_interval
-    use_small_analysis  = 'gn_eigs' in analysis_list # avoid endless running time in computing gauss newton matrix
+    tiny_analysis  = 'gn_eigs' in analysis_list # avoid endless running time in computing gauss newton matrix
 
     # Optimization hyperparameters
     lr_decay            = args.lr_decay #1# 0.1
@@ -536,17 +530,12 @@ if __name__ == "__main__":
     if not multi_run:
         torch.manual_seed(32)
 
-    # Best lr after hyperparameter tuning
-    """
-    if loss_name == 'CrossEntropyLoss':
-        lr = args.lr #0.0679
-    elif loss_name == 'MSELoss':
-        lr = args.lr #0.0184
-    """
     lr                  = args.lr
     momentum            = args.momentum #0 # 0.9
     weight_decay        = args.weight_decay #0 # 5e-4 * 10
     label_smoothing     = args.label_smoothing
+
+    forward_backward    = opt_name not in ["replay_sam"]
 
     if opt_params["scheduler_name"] != "none" and not run_from_scratch:
         raise NameError('Must run from scratch if using learning rate decay.')
@@ -559,7 +548,7 @@ if __name__ == "__main__":
             from data.cifar import load_cifar_federated
             train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar_federated(loss_name, batch_size, client_num=opt_params["client_num"])
         else:
-            train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar(loss_name, batch_size, use_small_analysis=use_small_analysis)
+            train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar(loss_name, batch_size, tiny_analysis=tiny_analysis)
     elif dataset_name == "mnist":
         from data.mnist import load_mnist
         train_loader, test_loader, analysis_loader, input_ch, C, transform_to_one_hot = load_mnist(loss_name, batch_size)
