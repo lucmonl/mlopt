@@ -207,7 +207,7 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
             data, target, rand_target, lambda_= cutmix((data, target))
         optimizer.zero_grad()
         out = model(data)
-        if forward_backward:
+        if opt_params["forward_backward"]:
             if opt_params["mixup"] == "none":
                 loss = criterion(out, target)
             elif opt_params["mixup"] == "cut":
@@ -267,6 +267,19 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
                     optimizer.normal_step_v2(zero_grad=True)
                 else:
                     optimizer.normal_step(zero_grad=True)
+            enable_running_stats(model)
+        elif opt_name == "alternate_sam":
+            disable_running_stats(model)
+            if opt_params["forward_backward"]: # in odd step
+                optimizer.odd_step(zero_grad=True)
+                opt_params["forward_backward"] = False
+            else:
+                optimizer.even_first_step(zero_grad=True)
+                out = model(data)
+                loss = criterion(out, target).float()
+                loss.backward()
+                optimizer.even_second_step(zero_grad=True)
+                opt_params["forward_backward"] = True
             enable_running_stats(model)
         elif opt_name == "goldstein":
             gold_iters = 0
@@ -380,7 +393,7 @@ if __name__ == "__main__":
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG", "ViT"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
-    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'federated','replay_sam', 'look_sam', 'look_sam_v2']
+    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'federated','replay_sam', 'alternate_sam', 'look_sam', 'look_sam_v2']
     BASE_OPTIMIZERS = ['sgd','adam']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")
@@ -424,7 +437,7 @@ if __name__ == "__main__":
     parser.add_argument("--base_opt", type=str, default="sgd", choices=BASE_OPTIMIZERS, help="base optimizer for sam/norm-sgd optimizer")
     parser.add_argument("--sam_rho", type=float, default=0.2, help="rho for SAM")
     parser.add_argument("--sam_adaptive", type=bool, default=False, help="use adaptive SAM")
-    parser.add_argument("--look_alpha", type=float, default=0.1, help="alpha for LookSAM")
+    parser.add_argument("--look_alpha", type=float, default=0.1, help="alpha for LookSAM/AlternateSAM")
     parser.add_argument("--gold_delta", type=float, default=1, help="delta for goldstein")
     parser.add_argument("--norm_sgd_lr", type=float, default=1e-3, help="learning rate for normalized sgd when overfit")
 
@@ -509,6 +522,7 @@ if __name__ == "__main__":
     opt_params["norm_sgd_lr"]         = args.norm_sgd_lr
     opt_params["gold_delta"]          = args.gold_delta
     opt_params["train_stats"]         = args.train_stats
+    opt_params["forward_backward"]    = opt_name not in ["replay_sam"]
 
     # analysis hyperparameters
     analysis_params["adv_eta"]        = args.adv_eta
@@ -534,8 +548,6 @@ if __name__ == "__main__":
     momentum            = args.momentum #0 # 0.9
     weight_decay        = args.weight_decay #0 # 5e-4 * 10
     label_smoothing     = args.label_smoothing
-
-    forward_backward    = opt_name not in ["replay_sam"]
 
     if opt_params["scheduler_name"] != "none" and not run_from_scratch:
         raise NameError('Must run from scratch if using learning rate decay.')

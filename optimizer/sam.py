@@ -109,12 +109,14 @@ def enable_running_stats(model):
 
 
 class Alternate_SAM(torch.optim.Optimizer):
-    def __init__(self, params, base_optimizer, rho=0.05, adaptive=False, train_stats=False, **kwargs):
+    def __init__(self, params, base_optimizer, alpha=0.7, rho=0.05, adaptive=False, train_stats=False, **kwargs):
         assert rho >= 0.0, f"Invalid rho, should be non-negative: {rho}"
 
         defaults = dict(rho=rho, adaptive=adaptive, **kwargs)
         super(Alternate_SAM, self).__init__(params, defaults)
 
+        self.lr = kwargs["lr"]
+        self.alpha = alpha
         self.base_optimizer = base_optimizer(self.param_groups, **kwargs)
         self.param_groups = self.base_optimizer.param_groups
         self.replay_gradient = None
@@ -122,42 +124,42 @@ class Alternate_SAM(torch.optim.Optimizer):
 
         self.defaults.update(self.base_optimizer.defaults)
 
+        for group in self.param_groups:
+            for p in group["params"]:
+                self.state[p]["orthogonal_grad"] = torch.zeros_like(p.data)
 
     @torch.no_grad()
-    def first_step(self, zero_grad=False):
-        cos_descent_ascent = 0
-        if self.track_cos_descent_ascent:
-            grad_norm = self._grad_norm()
-
-        replay_norm = self._replay_norm()
+    def odd_step(self, zero_grad=True):
+        shared_device = self.param_groups[0]["params"][0].device
+        grad_norm = self._grad_norm()
+        orthogonal_grad_norm = self._get_attr_norm("orthogonal_grad").to(shared_device)
         for group in self.param_groups:
-            scale = group["rho"] / (replay_norm + 1e-12)
+            for p in group["params"]:
+                self.state[p]["grad"] = p.grad 
+                self.state[p]["phantom_grad"] = p.grad + self.alpha * self.state[p]["orthogonal_grad"].to(shared_device) * grad_norm / (orthogonal_grad_norm + 1e-12)
+                self.state[p]["phantom_p"] = p.data + group["rho"] * p.grad / (grad_norm + 1e-12)
+                p.grad = self.state[p]["phantom_grad"]
+        self.base_optimizer.step()
+        if zero_grad: self.zero_grad()
+
+    @torch.no_grad()
+    def even_first_step(self, zero_grad=True):
+        grad_norm = self._get_attr_norm("grad")
+        for group in self.param_groups:
             for p in group["params"]:
                 self.state[p]["old_p"] = p.data.clone()
-                p.add_(self.state[p]["replay_gradient"] * scale.to(p))
-
-                if self.track_cos_descent_ascent:
-                    cos_descent_ascent += (self.state[p]["replay_gradient"]).reshape(-1) * scale.to(p) @ p.grad.reshape(-1) / (grad_norm + 1e-12).to(p)
-
+                p.data = self.state[p]["phantom_p"] -self.lr * self.state[p]["phantom_grad"] - 2*group["rho"] * self.state[p]["grad"]  / (grad_norm + 1e-12)
         if zero_grad: self.zero_grad()
-        return cos_descent_ascent.item()
 
     @torch.no_grad()
-    def second_step(self, zero_grad=False):
+    def even_second_step(self, zero_grad=True):
+        scale = self._projection() / (self._get_attr_norm("grad")**2 + 1e-12)
         for group in self.param_groups:
             for p in group["params"]:
-                if p.grad is None: continue
-                if "old_p" in self.state[p]:
-                    p.data = self.state[p]["old_p"]  # get back to "w" from "w + e(w)"
-                # update replay_gradient
-                #self.state[p]["replay_gradient"] = torch.normal(mean = torch.zeros_like(p.grad), 
-                #                                                std = torch.abs(p.grad.clone()))
-                #self.state[p]["replay_gradient"] = torch.normal(mean = 0, std = 1, size=p.grad.shape).to(p)
-                self.state[p]["replay_gradient"] = torch.normal(p.grad.clone().detach(), std=torch.abs(p.grad.clone()))
-                                                               
+                self.state[p]["orthogonal_grad"] = p.grad - scale * self.state[p]["grad"]
+                p.data = self.state[p]["old_p"]
 
-        self.base_optimizer.step()  # do the actual "sharpness-aware" update
-
+        self.base_optimizer.step()
         if zero_grad: self.zero_grad()
 
     @torch.no_grad()
@@ -192,6 +194,28 @@ class Alternate_SAM(torch.optim.Optimizer):
                 p=2
                )
         return norm
+    
+    def _get_attr_norm(self, attr):
+        shared_device = self.param_groups[0]["params"][0].device  # put everything on the same device, in case of model parallelism
+        norm = torch.norm(
+                torch.stack([
+                    (self.state[p][attr]).norm(p=2).to(shared_device)
+                    for group in self.param_groups for p in group["params"]
+                    if attr in self.state[p]
+                ]),
+                p=2
+               )
+        return norm
+    
+    def _projection(self):
+        shared_device = self.param_groups[0]["params"][0].device  # put everything on the same device, in case of model parallelism
+        inner_product = torch.sum(
+            torch.stack([
+                (p.grad.reshape(-1) @ self.state[p]["grad"].reshape(-1))
+                for group in self.param_groups for p in group["params"]
+            ])
+        )
+        return inner_product
 
     def load_state_dict(self, state_dict):
         super().load_state_dict(state_dict)
