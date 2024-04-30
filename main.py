@@ -390,7 +390,7 @@ def hook(self, input, output):
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "mnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher"]
-    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_width_scale", "resnet18", "WideResNet", "WideResNet_WN_woG", "ViT"]
+    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_width_scale", "resnet18", "resnet_fixup", "WideResNet", "WideResNet_WN_woG", "ViT"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'federated','replay_sam', 'alternate_sam', 'look_sam', 'look_sam_v2']
@@ -403,6 +403,7 @@ if __name__ == "__main__":
 
     #model
     parser.add_argument("--width", type=int, default=512, help="network width for weight norm or number of filters in convnets")
+    parser.add_argument("--depth", type=int, default=7, help="network depth")
     parser.add_argument("--width_factor", type=int, default=8, help="width factor for WideResNet")
     parser.add_argument("--init_mode",  type=str, default="O(1)", choices=INIT_MODES, help="Initialization Mode")
     parser.add_argument("--basis_var", type=float, default=5, help="variance for initialization")
@@ -482,6 +483,7 @@ if __name__ == "__main__":
     # model parameters
     model_name          = args.model #"2-mlp-sim-bn"#"weight_norm_torch" #"weight_norm" #"resnet18"
     width               = args.width #2048#512 #, 1024
+    depth               = args.depth
     wn_init_mode        = args.init_mode  # "O(1)" # "O(1/sqrt{m})"
     wn_basis_var        = args.basis_var
     wn_scale            = args.wn_scale
@@ -627,6 +629,7 @@ if __name__ == "__main__":
                     module.track_running_stats = False
     elif model_name == "resnet_fixup":
         from arch.resnet_fixup import fixup_resnet
+        model = fixup_resnet(depth=depth)
     elif model_name == "WideResNet":
         from arch.wide_resnet import WideResNet
         model = WideResNet(depth=16, width_factor=width_factor, dropout=0.0, in_channels=input_ch, labels=C)
