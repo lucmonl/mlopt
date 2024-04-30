@@ -625,12 +625,15 @@ if __name__ == "__main__":
             for name, module in model.named_modules():
                 if isinstance(module, nn.modules.batchnorm.BatchNorm2d):
                     module.track_running_stats = False
+    elif model_name == "resnet_fixup":
+        from arch.resnet_fixup import fixup_resnet
     elif model_name == "WideResNet":
         from arch.wide_resnet import WideResNet
         model = WideResNet(depth=16, width_factor=width_factor, dropout=0.0, in_channels=input_ch, labels=C)
         model_params = {"width": width_factor}
     elif model_name == "ViT":
         #from torchvision.models.vision_transformer import VisionTransformer
+        vit_params = {768: {"depth": 12, "heads": 12}, 1024: {"depth": 24, "heads": 16}, 1280: {"depth": 32, "heads": 16}}
         from vit_pytorch import ViT
         """
         model = VisionTransformer(image_size=int(np.sqrt(num_pixels/input_ch)), 
@@ -640,10 +643,10 @@ if __name__ == "__main__":
                                   hidden_dim = width,
                                   mlp_dim = width,
                                   num_classes = C) """
-        #model = ViT(image_size=int(np.sqrt(num_pixels/input_ch)), patch_size=8, num_classes=C, dim=width, depth=7, heads=12, mlp_dim=4*width) #depth=6, heads=8
-        from arch.vit import ViT
-        model = ViT(in_c=input_ch, num_classes=C, img_size=int(np.sqrt(num_pixels/input_ch)),patch=8,dropout=0,num_layers=7,hidden=width,mlp_hidden=width,head=12,is_cls_token=True)
-        model_params = {"width": width,  "depth":7, "heads":12}
+        model = ViT(image_size=int(np.sqrt(num_pixels/input_ch)), patch_size=8, num_classes=C, dim=width, depth=vit_params[width]["depth"], heads=vit_params[width]["heads"], mlp_dim=4*width) #depth=6, heads=8
+        #from arch.vit import ViT
+        #model = ViT(in_c=input_ch, num_classes=C, img_size=int(np.sqrt(num_pixels/input_ch)),patch=8,dropout=0,num_layers=7,hidden=width,mlp_hidden=width,head=12,is_cls_token=True)
+        model_params = {"width": width,  "depth":vit_params[width]["depth"], "heads":vit_params[width]["heads"]}
     elif model_name == "weight_norm":
         from arch.weight_norm import weight_norm_net
         model = weight_norm_net(num_pixels, [width, width], wn_init_mode, wn_basis_var, wn_scale, C)
