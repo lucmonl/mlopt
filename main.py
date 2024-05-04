@@ -45,7 +45,7 @@ def sparse_skethc(m,n,s):
     non_zero_index = torch.randint(low=0, high=m, size=(s, n))
     return 
 
-def federated_train(model, loss_name, criterion, device, num_classes, train_loaders, exp_avg, exp_avg_sq, opt_params, server_epoch):
+def federated_train_1(model, loss_name, criterion, device, num_classes, train_loaders, server_optimizer, exp_avg, exp_avg_sq, opt_params, server_epoch):
     client_num, client_opt_name, client_lr, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_lr"], opt_params["client_epoch"]
     momentum, momentum_v = opt_params["server_momentum"], 0.999
     vector_m, vector_v = 0, 0
@@ -157,6 +157,10 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
             print("sketch error:", torch.norm(vector_v - new_params_pad**2), torch.norm(new_params_pad**2))
             vector_v = vector_v[:p]
 
+        server_optimizer.zero_grad()
+        vector_to_grads(vector_m, model.parameters())
+        server_optimizer.step()
+
         exp_avg = momentum * exp_avg + (1-momentum) * vector_m
         exp_avg_sq = momentum_v * exp_avg_sq + (1-momentum_v) * vector_v
         print("vector_m:", torch.min(vector_m).item(), torch.max(vector_m).item())
@@ -184,6 +188,92 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
 
     #del sketch_matrix_m, sketch_matrix_v
     return exp_avg, exp_avg_sq
+
+def federated_train(model, loss_name, criterion, device, num_classes, train_loaders, server_optimizer, opt_params, server_epoch):
+    client_num, client_opt_name, client_lr, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_lr"], opt_params["client_epoch"]
+    momentum, momentum_v = opt_params["server_momentum"], 0.999
+    vector_m, vector_v = 0, 0
+    import copy
+    import math
+    from utilities import vector_to_grads
+
+    #from utilities import state_dict_to_vector, vector_to_state_dict
+    # initialize client models, optimizers
+    old_params = parameters_to_vector(model.parameters())
+    device = old_params.get_device()
+    p = len(old_params)
+    #sketch_size = int(opt_params["sketch_size"] * p)
+    sketch_size = opt_params["sketch_size"]
+
+    #sketch_matrix_m, sketch_matrix_v = torch.randn(sketch_size, p).to(device) / (sketch_size**0.5), torch.randn(sketch_size, p).to(device) / (sketch_size**0.5)
+    from hadamard_transform import hadamard_transform, pad_to_power_of_2 
+    p_pad = pow(2, math.ceil(math.log(p)/math.log(2)))
+    #for i in range(200):
+    if sketch_size != -1:
+        D = (((torch.randn(p_pad, dtype=torch.float32) > 0).float() - 0.5) * 2).to(device)
+        sample_rows = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
+        sub_sample_row = torch.sparse_coo_tensor(sample_rows, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
+
+        D_sq = (((torch.randn(p_pad, dtype=torch.float32) > 0).float() - 0.5) * 2).to(device)
+        sample_rows_sq = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
+        sub_sample_row_sq = torch.sparse_coo_tensor(sample_rows_sq, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
+
+    
+    #running_stats = {}
+    for client_id in range(client_num):
+        # update client models
+        client_model = copy.deepcopy(model)
+
+        client_model.train()
+        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], weight_decay, lr_decay, epochs_lr_decay, model_params, **opt_params)
+        #vector_to_parameters(old_params, client_model.parameters())
+        for epoch in range(client_epoch):
+            train(client_model, loss_name, criterion, device, num_classes, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, opt_params)
+        """
+        for name in client_model.state_dict():
+            if 'running_mean' in name or 'running_var' in name:
+                #print(client_model.state_dict()[name])
+                if name not in running_stats:
+                    running_stats[name] = client_model.state_dict()[name] / client_num
+                else:
+                    running_stats[name] += client_model.state_dict()[name] / client_num
+        """
+        """
+        sketch_updates = models[client_id].state_dict().copy()
+        if sketch_size:
+            for name, param in models[]
+                sketch_updates[name] = rand_dict[name] @ param
+        """
+        new_params = parameters_to_vector(client_model.parameters())
+
+        if sketch_size == -1:
+            vector_m += (old_params - new_params).detach()
+            vector_v += ((old_params - new_params) ** 2).detach()
+        else:
+            new_params_pad = pad_to_power_of_2((old_params - new_params).detach())
+
+            hadamard_params_pad = hadamard_transform(D*new_params_pad)
+            vector_m += sub_sample_row @ hadamard_params_pad
+
+            hadamard_params_pad = hadamard_transform(D_sq*(new_params_pad ** 2))
+            vector_v += sub_sample_row_sq @ hadamard_params_pad
+
+    vector_m = vector_m / client_num
+    vector_v = vector_v / client_num
+    if sketch_size != -1:
+        vector_m = sub_sample_row.T @ vector_m
+        vector_m = hadamard_transform(vector_m) * D
+        print("sketch error:", torch.norm(vector_m - new_params_pad), torch.norm(new_params_pad))
+        vector_m = vector_m[:p]
+
+        vector_v = sub_sample_row_sq.T @ vector_v
+        vector_v = hadamard_transform(vector_v) * D_sq
+        print("sketch error:", torch.norm(vector_v - new_params_pad**2), torch.norm(new_params_pad**2))
+        vector_v = vector_v[:p]
+
+    server_optimizer.zero_grad()
+    vector_to_grads(vector_m, model.parameters())
+    server_optimizer.step()
 
 
 def train(model, loss_name, criterion, device, num_classes, train_loader, optimizer, lr_scheduler, epoch, opt_params):
@@ -332,6 +422,8 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
         train_graphs.descent_norm.append(track_train_stats["descent_norm"] / len(train_loader))
     if "ascent_step_diff" in track_train_stats:
         train_graphs.ascent_step_diff.append(track_train_stats["ascent_step_diff"] / len(train_loader))
+    if "descent_step_diff" in track_train_stats:
+        train_graphs.descent_step_diff.append(track_train_stats["descent_step_diff"] / len(train_loader))
     #print(train_graphs.ascent_step_diff)
     
 
@@ -453,7 +545,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_average", nargs='+', type=int, default=[0,1], help="index of runs to be averaged")
 
     #federated learning hyperparameters
-    parser.add_argument("--server_opt_name", type=str, default="adam", choices=["gd", "adam", "sgdm"], help="optimizer of server")
+    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS, help="optimizer of server")
     parser.add_argument("--client_num", type=int, default=1, help="number of clients")
     parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd", "adam"], help="optimizer of clients")
     parser.add_argument("--client_lr", type=float, default=0.01, help="lr of clients")
@@ -630,6 +722,7 @@ if __name__ == "__main__":
     elif model_name == "resnet_fixup":
         from arch.resnet_fixup import fixup_resnet
         model = fixup_resnet(depth=depth)
+        model_params = {"depth": depth}
     elif model_name == "WideResNet":
         from arch.wide_resnet import WideResNet
         model = WideResNet(depth=16, width_factor=width_factor, dropout=0.0, in_channels=input_ch, labels=C)
@@ -793,13 +886,15 @@ if __name__ == "__main__":
 
         directory = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
         os.makedirs(directory, exist_ok=True)
+        print(directory)
 
         import pickle
 
         cur_epochs = []
         for epoch in range(load_from_epoch+1, epochs + 1):
             if opt_name == "federated":
-                exp_avg, exp_avg_sq = federated_train(model, loss_name, criterion, device, C, client_loaders, exp_avg, exp_avg_sq, opt_params, epoch)
+                #exp_avg, exp_avg_sq = federated_train(model, loss_name, criterion, device, C, client_loaders, exp_avg, exp_avg_sq, opt_params, epoch)
+                federated_train(model, loss_name, criterion, device, C, client_loaders, optimizer, opt_params, epoch)
             else:
                 train(model, loss_name, criterion, device, C, train_loader, optimizer, lr_scheduler, epoch, opt_params)
                 #lr_scheduler.step()

@@ -92,8 +92,8 @@ def load_cifar(loss: str, batch_size: int, train_size = -1, tiny_analysis=False)
     if train_size != -1:
         train = take_first(train, batch_size)
     test = TensorDataset(torch.from_numpy(unflatten(standardized_X_test, (32, 32, 3)).transpose((0, 3, 1, 2))).float(), y_test)
-    
     """
+    
     train_transform, test_transform = get_transform()
     train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
     test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False, transform=test_transform)

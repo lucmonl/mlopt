@@ -345,6 +345,13 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
                 plot_ascent_step_diff(ax=axs[ax_ptr], yaxis=[])
             ax_ptr += 1
 
+        if 'descent_diff' in attrs:
+            if hasattr(train_graphs, 'descent_step_diff'):
+                plot_y(ax=axs[ax_ptr], yaxis=train_graphs.descent_step_diff, name="descent diff")
+            else:
+                plot_y(ax=axs[ax_ptr], yaxis=[], name="descent diff")
+            ax_ptr += 1
+
         if 'descent_norm' in attrs:
             if hasattr(train_graphs, 'descent_norm'):
                 plot_y(ax=axs[ax_ptr], yaxis=train_graphs.descent_norm, name="descent_norm")

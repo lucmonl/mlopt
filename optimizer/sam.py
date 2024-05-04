@@ -13,6 +13,7 @@ class SAM(torch.optim.Optimizer):
 
         self.track_cos_descent_ascent = train_stats
         self.track_ascent_step_diff = train_stats
+        self.track_descent_step_diff = train_stats
         self.track_descent_norm = train_stats
         self.defaults.update(self.base_optimizer.defaults)
 
@@ -45,7 +46,7 @@ class SAM(torch.optim.Optimizer):
 
     @torch.no_grad()
     def second_step(self, zero_grad=False):
-        train_stats = {"cos_descent_ascent": 0, "descent_norm": 0}
+        train_stats = {"cos_descent_ascent": 0, "descent_norm": 0, "descent_step_diff": 0}
         if self.track_cos_descent_ascent or self.track_descent_norm:
             grad_norm = self._grad_norm()
             train_stats["descent_norm"] = grad_norm.item()
@@ -57,6 +58,11 @@ class SAM(torch.optim.Optimizer):
 
                 if self.track_cos_descent_ascent:
                     train_stats["cos_descent_ascent"] += (self.state[p]["ascent_grad"] @ (p.grad.clone().reshape(-1) / (grad_norm + 1e-12))).item()
+
+                if self.track_descent_step_diff:
+                    if "descent_grad" in self.state[p]: # do not execute on the first iteration
+                        train_stats["descent_step_diff"] += (torch.norm(p.grad.reshape(-1) / (grad_norm + 1e-12)  - self.state[p]["descent_grad"].reshape(-1)) ** 2).item()
+                    self.state[p]["descent_grad"] = p.grad.clone().reshape(-1) / (grad_norm + 1e-12)
 
         self.base_optimizer.step()  # do the actual "sharpness-aware" update
 
