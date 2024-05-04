@@ -189,7 +189,7 @@ def federated_train_1(model, loss_name, criterion, device, num_classes, train_lo
     #del sketch_matrix_m, sketch_matrix_v
     return exp_avg, exp_avg_sq
 
-def federated_train(model, loss_name, criterion, device, num_classes, train_loaders, server_optimizer, opt_params, server_epoch):
+def federated_train(model, loss_name, criterion, device, num_classes, train_loaders, server_optimizer, server_lr_scheduler, opt_params, server_epoch):
     client_num, client_opt_name, client_lr, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_lr"], opt_params["client_epoch"]
     momentum, momentum_v = opt_params["server_momentum"], 0.999
     vector_m, vector_v = 0, 0
@@ -274,6 +274,12 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
     server_optimizer.zero_grad()
     vector_to_grads(vector_m, model.parameters())
     server_optimizer.step()
+
+    if server_lr_scheduler is not None:
+        server_lr_scheduler.step()
+
+    for group in server_optimizer.param_groups:
+        print(group['lr'])
 
 
 def train(model, loss_name, criterion, device, num_classes, train_loader, optimizer, lr_scheduler, epoch, opt_params):
@@ -894,7 +900,7 @@ if __name__ == "__main__":
         for epoch in range(load_from_epoch+1, epochs + 1):
             if opt_name == "federated":
                 #exp_avg, exp_avg_sq = federated_train(model, loss_name, criterion, device, C, client_loaders, exp_avg, exp_avg_sq, opt_params, epoch)
-                federated_train(model, loss_name, criterion, device, C, client_loaders, optimizer, opt_params, epoch)
+                federated_train(model, loss_name, criterion, device, C, client_loaders, optimizer, lr_scheduler, opt_params, epoch)
             else:
                 train(model, loss_name, criterion, device, C, train_loader, optimizer, lr_scheduler, epoch, opt_params)
                 #lr_scheduler.step()

@@ -114,7 +114,7 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
     else:
         lr_scheduler = None
     #self.scheduler = warmup_scheduler.GradualWarmupScheduler(self.optimizer, multiplier=1., total_epoch=self.hparams.warmup_epoch, after_scheduler=self.base_scheduler)
-    #lr_scheduler = warmup_scheduler.GradualWarmupScheduler(optimizer, multiplier=1., total_epoch=5, after_scheduler=lr_scheduler)
+    lr_scheduler = warmup_scheduler.GradualWarmupScheduler(optimizer, multiplier=1., total_epoch=5, after_scheduler=lr_scheduler)
     return optimizer, lr_scheduler, model_params
 
 
