@@ -488,7 +488,7 @@ def hook(self, input, output):
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "mnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher"]
-    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_width_scale", "resnet18", "resnet_fixup", "WideResNet", "WideResNet_WN_woG", "ViT"]
+    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'federated','replay_sam', 'alternate_sam', 'look_sam', 'look_sam_v2']
@@ -729,6 +729,10 @@ if __name__ == "__main__":
         from arch.resnet_fixup import fixup_resnet
         model = fixup_resnet(depth=depth)
         model_params = {"depth": depth}
+    elif model_name == "resnet_gn":
+        from arch.resnet_gn import resnet_gn
+        model = resnet_gn(depth=depth)
+        model_params = {"depth": depth}
     elif model_name == "WideResNet":
         from arch.wide_resnet import WideResNet
         model = WideResNet(depth=16, width_factor=width_factor, dropout=0.0, in_channels=input_ch, labels=C)
@@ -752,6 +756,10 @@ if __name__ == "__main__":
     elif model_name == "weight_norm":
         from arch.weight_norm import weight_norm_net
         model = weight_norm_net(num_pixels, [width, width], wn_init_mode, wn_basis_var, wn_scale, C)
+        model_params = {"width": width, "init": wn_init_mode, "var": wn_basis_var, "scale": wn_scale} | model_params
+    elif model_name == "weight_norm_v2":
+        from arch.weight_norm import weight_norm_net_v2
+        model = weight_norm_net_v2(num_pixels, [width, width, width, width], wn_init_mode, wn_basis_var, wn_scale, C)
         model_params = {"width": width, "init": wn_init_mode, "var": wn_basis_var, "scale": wn_scale} | model_params
     elif model_name == "weight_norm_width_scale":
         from arch.weight_norm import weight_norm_net_old

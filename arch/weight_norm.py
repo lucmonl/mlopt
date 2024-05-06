@@ -46,6 +46,45 @@ class weight_norm_net(nn.Module):
         x = self.output_layer(x)
         x = self.scale * x
         return x.squeeze()
+    
+class weight_norm_net_v2(nn.Module):
+    def __init__(self, num_pixels, widths, init_mode, basis_var, scale, C):
+        super().__init__()
+        self.scale = scale
+        self.num_pixels = num_pixels
+        self.basis_std = np.sqrt(basis_var)
+        self.flatten = nn.Flatten()
+        self.module_list = nn.ModuleList()
+        for l in range(len(widths)):
+            prev_width = widths[l-1] if l > 0 else num_pixels
+            self.module_list.append(nn.Linear(prev_width, widths[l], bias=False))
+        self.output_layer = nn.Linear(widths[-1],C,bias=False)
+        self.__initialize__(widths, init_mode)
+    
+    def __initialize__(self, widths, init_mode):
+        for l in range(len(widths)):
+            prev_width = widths[l-1] if l > 0 else self.num_pixels
+            if init_mode == "O(1/sqrt{m})":
+                #nn.init.normal_(self.module_list[l].weight, mean=0, std=self.basis_std/np.sqrt(prev_width))
+                nn.init.uniform_(self.module_list[l].weight, a=-self.basis_std/np.sqrt(prev_width), b=self.basis_std/np.sqrt(prev_width))
+            elif init_mode == "O(1)":
+                #nn.init.normal_(self.module_list[l].weight, mean=0, std=self.basis_std)
+                nn.init.uniform_(self.module_list[l].weight, a = -self.basis_std, b=self.basis_std)
+            else:
+                assert False
+        nn.init.normal_(self.output_layer.weight, mean=0, std=1/np.sqrt(widths[-1]))
+        #self.output_layer.weight.data = torch.nn.functional.normalize(self.output_layer.weight, dim=-1)
+
+    def forward(self, x):
+        x = self.flatten(x)
+        for linear in self.module_list:
+            x = linear(x) / torch.norm(linear.weight, dim=-1)
+            width = x.shape[-1]
+            x = self.scale * x / np.sqrt(width)
+            x = torch.tanh(x)
+        x = self.output_layer(x)
+        #x = self.scale * x
+        return x.squeeze()
 
 class weight_norm_net_old(nn.Module):
     def __init__(self, num_pixels, widths, init_mode, basis_var, scale, C):
