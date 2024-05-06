@@ -358,6 +358,14 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
             else:
                 plot_y(ax=axs[ax_ptr], yaxis=[], name="descent_norm")
             ax_ptr += 1
+
+        if 'grad_loss_ratio' in attrs:
+            plot_y(ax=axs[ax_ptr], yaxis=train_graphs.wn_grad_loss_ratio, name="grad_loss_ratio")
+            ax_ptr += 1
+
+        if 'wn_norm_min' in attrs:
+            plot_y(ax=axs[ax_ptr], yaxis=train_graphs.wn_norm_min, name="wn_norm_min")
+            ax_ptr += 1
         """
         plt.subplot(2,6,3)
         plt.semilogy(cur_epochs, train_graphs.test_loss)

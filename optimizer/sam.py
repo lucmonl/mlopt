@@ -227,6 +227,132 @@ class Alternate_SAM(torch.optim.Optimizer):
         super().load_state_dict(state_dict)
         self.base_optimizer.param_groups = self.param_groups
 
+class Alternate_SAM_v2(torch.optim.Optimizer):
+    def __init__(self, params, base_optimizer, alpha=0.7, rho=0.05, adaptive=False, train_stats=False, **kwargs):
+        assert rho >= 0.0, f"Invalid rho, should be non-negative: {rho}"
+
+        defaults = dict(rho=rho, adaptive=adaptive, **kwargs)
+        super(Alternate_SAM_v2, self).__init__(params, defaults)
+
+        self.lr = kwargs["lr"]
+        self.alpha = alpha
+        self.base_optimizer = base_optimizer(self.param_groups, **kwargs)
+        self.param_groups = self.base_optimizer.param_groups
+        self.replay_gradient = None
+        self.track_cos_descent_ascent = train_stats
+
+        self.defaults.update(self.base_optimizer.defaults)
+
+        for group in self.param_groups:
+            for p in group["params"]:
+                self.state[p]["orthogonal_grad"] = torch.zeros_like(p.data)
+
+    @torch.no_grad()
+    def odd_first_step(self, zero_grad=True):
+        shared_device = self.param_groups[0]["params"][0].device
+        grad_norm = self._grad_norm()
+        orthogonal_grad_norm = self._get_attr_norm("orthogonal_grad").to(shared_device)
+        for group in self.param_groups:
+            for p in group["params"]:
+                self.state[p]["grad"] = p.grad 
+                #self.state[p]["phantom_grad"] = p.grad + self.alpha * self.state[p]["orthogonal_grad"].to(shared_device) * grad_norm / (orthogonal_grad_norm + 1e-12)
+                #self.state[p]["phantom_p"] = p.data + group["rho"] * p.grad / (grad_norm + 1e-12)
+                #p.grad = self.state[p]["phantom_grad"]
+                p.grad = p.grad + self.alpha * self.state[p]["orthogonal_grad"].to(shared_device) * grad_norm / (orthogonal_grad_norm + 1e-12)
+        self.base_optimizer.step()
+        if zero_grad: self.zero_grad()
+
+    @torch.no_grad()
+    def odd_second_step(self, zero_grad=True):
+        shared_device = self.param_groups[0]["params"][0].device
+        grad_norm = self._grad_norm()
+        orthogonal_grad_norm = self._get_attr_norm("orthogonal_grad").to(shared_device)
+        for group in self.param_groups:
+            for p in group["params"]:
+                p.grad = p.grad + self.alpha * self.state[p]["orthogonal_grad"].to(shared_device) * grad_norm / (orthogonal_grad_norm + 1e-12)
+        self.base_optimizer.step()
+        if zero_grad: self.zero_grad()
+
+    @torch.no_grad()
+    def even_first_step(self, zero_grad=True):
+        grad_norm = self._get_attr_norm("grad")
+        for group in self.param_groups:
+            for p in group["params"]:
+                self.state[p]["old_p"] = p.data.clone()
+                #p.data = self.state[p]["phantom_p"] -self.lr * self.state[p]["phantom_grad"] - 2*group["rho"] * self.state[p]["grad"]  / (grad_norm + 1e-12)
+                p.data = p.data + group["rho"] * self.state[p]["grad"] / (grad_norm+1e-12)
+        if zero_grad: self.zero_grad()
+
+    @torch.no_grad()
+    def even_second_step(self, zero_grad=True):
+        scale = self._projection() / (self._get_attr_norm("grad")**2 + 1e-12)
+        for group in self.param_groups:
+            for p in group["params"]:
+                self.state[p]["orthogonal_grad"] = p.grad - scale * self.state[p]["grad"]
+                p.data = self.state[p]["old_p"]
+
+        self.base_optimizer.step()
+        if zero_grad: self.zero_grad()
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        assert closure is not None, "Sharpness Aware Minimization requires closure, but it was not provided"
+        closure = torch.enable_grad()(closure)  # the closure should do a full forward-backward pass
+
+        self.first_step(zero_grad=True)
+        closure()
+        self.second_step()
+
+    def _grad_norm(self):
+        shared_device = self.param_groups[0]["params"][0].device  # put everything on the same device, in case of model parallelism
+        norm = torch.norm(
+                    torch.stack([
+                        ((torch.abs(p) if group["adaptive"] else 1.0) * p.grad).norm(p=2).to(shared_device)
+                        for group in self.param_groups for p in group["params"]
+                        if p.grad is not None
+                    ]),
+                    p=2
+               )
+        return norm
+
+    def _replay_norm(self):
+        shared_device = self.param_groups[0]["params"][0].device  # put everything on the same device, in case of model parallelism
+        norm = torch.norm(
+                torch.stack([
+                    (self.state[p]["replay_gradient"]).norm(p=2).to(shared_device)
+                    for group in self.param_groups for p in group["params"]
+                    if "replay_gradient" in self.state[p]
+                ]),
+                p=2
+               )
+        return norm
+    
+    def _get_attr_norm(self, attr):
+        shared_device = self.param_groups[0]["params"][0].device  # put everything on the same device, in case of model parallelism
+        norm = torch.norm(
+                torch.stack([
+                    (self.state[p][attr]).norm(p=2).to(shared_device)
+                    for group in self.param_groups for p in group["params"]
+                    if attr in self.state[p]
+                ]),
+                p=2
+               )
+        return norm
+    
+    def _projection(self):
+        shared_device = self.param_groups[0]["params"][0].device  # put everything on the same device, in case of model parallelism
+        inner_product = torch.sum(
+            torch.stack([
+                (p.grad.reshape(-1) @ self.state[p]["grad"].reshape(-1))
+                for group in self.param_groups for p in group["params"]
+            ])
+        )
+        return inner_product
+
+    def load_state_dict(self, state_dict):
+        super().load_state_dict(state_dict)
+        self.base_optimizer.param_groups = self.param_groups
+
 
 class Replay_SAM(torch.optim.Optimizer):
     def __init__(self, params, base_optimizer, rho=0.05, adaptive=False, train_stats=False, **kwargs):

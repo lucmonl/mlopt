@@ -377,6 +377,24 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
                 optimizer.even_second_step(zero_grad=True)
                 opt_params["forward_backward"] = True
             enable_running_stats(model)
+        elif opt_name == "alternate_sam_v2":
+            disable_running_stats(model)
+            if opt_params["forward_backward"]: # in odd step
+                if opt_params["opt_first_step"]:
+                    optimizer.odd_first_step(zero_grad=True)
+                    opt_params["opt_first_step"] = False
+                else:
+                    optimizer.odd_second_step(zero_grad=True)
+                    opt_params["forward_backward"] = False
+                    opt_params["opt_first_step"] = True
+            else:
+                optimizer.even_first_step(zero_grad=True)
+                out = model(data)
+                loss = criterion(out, target).float()
+                loss.backward()
+                optimizer.even_second_step(zero_grad=True)
+                opt_params["forward_backward"] = True
+            enable_running_stats(model)
         elif opt_name == "goldstein":
             gold_iters = 0
             while gold_iters < 1:
@@ -491,7 +509,7 @@ if __name__ == "__main__":
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
-    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'federated','replay_sam', 'alternate_sam', 'look_sam', 'look_sam_v2']
+    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'look_sam', 'look_sam_v2']
     BASE_OPTIMIZERS = ['sgd','adam']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")
@@ -623,6 +641,7 @@ if __name__ == "__main__":
     opt_params["gold_delta"]          = args.gold_delta
     opt_params["train_stats"]         = args.train_stats
     opt_params["forward_backward"]    = opt_name not in ["replay_sam"]
+    opt_params["opt_first_step"]      = True
 
     # analysis hyperparameters
     analysis_params["adv_eta"]        = args.adv_eta
