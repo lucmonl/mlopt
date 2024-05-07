@@ -75,5 +75,7 @@ class graphs:
 
         self.cos_descent_ascent = []
         self.ascent_step_diff   = []
+        self.progress_dir       = []
         self.descent_step_diff  = []
         self.descent_norm       = []
+        self.ascent_semi_cos    = []

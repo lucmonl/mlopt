@@ -15,13 +15,15 @@ class SAM(torch.optim.Optimizer):
         self.track_ascent_step_diff = train_stats
         self.track_descent_step_diff = train_stats
         self.track_descent_norm = train_stats
+        self.track_progress_dir = train_stats
+        self.track_every_two_step = train_stats
         self.defaults.update(self.base_optimizer.defaults)
 
     @torch.no_grad()
     def first_step(self, zero_grad=False):
         grad_norm = self._grad_norm()
         #ascent_step_diff = 0
-        train_stats = {"ascent_step_diff": 0}
+        train_stats = {"ascent_step_diff": 0, "progress_dir": 0, "ascent_semi_cos": 0}
 
         for group in self.param_groups:
             scale = group["rho"] / (grad_norm + 1e-12)
@@ -33,7 +35,31 @@ class SAM(torch.optim.Optimizer):
                 p.add_(e_w)  # climb to the local maximum "w + e(w)"
 
                 if self.track_ascent_step_diff and "ascent_grad" in self.state[p]: # do not execute on the first iteration
-                    train_stats["ascent_step_diff"] += (torch.norm(p.grad.reshape(-1) / (grad_norm + 1e-12)  - self.state[p]["ascent_grad"].reshape(-1)) ** 2).item()
+                    #train_stats["ascent_step_diff"] += (torch.norm(p.grad.reshape(-1) / (grad_norm + 1e-12)  - self.state[p]["ascent_grad"].reshape(-1)) ** 2).item()
+                    train_stats["ascent_step_diff"] += (p.grad.reshape(-1) @ self.state[p]["ascent_grad"] / (grad_norm + 1e-12)).item()
+
+                if self.track_every_two_step:
+                    if "ascent_grad_prev" in self.state[p]:
+                        ascent_grad_prev_norm = self._get_attr_norm("ascent_grad_prev")
+                        train_stats["ascent_semi_cos"] += (p.grad.reshape(-1) @ self.state[p]["ascent_grad_prev"] / ((grad_norm + 1e-12)*(ascent_grad_prev_norm + 1e-12))).item()
+                        #ascent_grad_prev_norm = self._get_attr_norm("ascent_grad")
+                        #train_stats["ascent_semi_cos"] += (p.grad.reshape(-1) @ self.state[p]["ascent_grad"] / ((grad_norm + 1e-12)*(ascent_grad_prev_norm + 1e-12))).item()
+
+                    if "ascent_grad" in self.state[p]:
+                        self.state[p]["ascent_grad_prev"] = self.state[p]["ascent_grad"].clone()
+
+                if self.track_progress_dir:
+                    if "ascent_grad" in self.state[p]:
+                        #train_stats["progress_dir"] += (p.grad.reshape(-1) @ self.state[p]["ascent_grad"] / (grad_norm + 1e-12)).item()
+                        self.state[p]["avg_grad"] = (p.grad.reshape(-1) / (grad_norm + 1e-12) + self.state[p]["ascent_grad"]) / 2
+                    self.state[p]["ascent_grad"] = p.grad.clone().reshape(-1) / (grad_norm + 1e-12)
+
+                    if "avg_prev" in self.state[p]:
+                        avg_grad_norm, avg_prev_norm = self._get_attr_norm("avg_grad"), self._get_attr_norm("avg_prev")
+                        train_stats["progress_dir"] += (self.state[p]["avg_grad"] @ self.state[p]["avg_prev"] / ((avg_grad_norm + 1e-12)*(avg_prev_norm + 1e-12))).item()
+                    
+                    if "avg_grad" in self.state[p]:
+                        self.state[p]["avg_prev"] =  self.state[p]["avg_grad"].clone()
 
                 if self.track_cos_descent_ascent:
                     #cos_descent_ascent += self.state[p]["descent_grad"] @ (p.grad.clone() / (grad_norm + 1e-12))
@@ -88,6 +114,18 @@ class SAM(torch.optim.Optimizer):
                         if p.grad is not None
                     ]),
                     p=2
+               )
+        return norm
+
+    def _get_attr_norm(self, attr):
+        shared_device = self.param_groups[0]["params"][0].device  # put everything on the same device, in case of model parallelism
+        norm = torch.norm(
+                torch.stack([
+                    (self.state[p][attr]).norm(p=2).to(shared_device)
+                    for group in self.param_groups for p in group["params"]
+                    if attr in self.state[p]
+                ]),
+                p=2
                )
         return norm
 

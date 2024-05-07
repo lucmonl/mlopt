@@ -442,6 +442,10 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
     #deal with training track statistics
     if "cos_descent_ascent" in track_train_stats:
         train_graphs.cos_descent_ascent.append(track_train_stats["cos_descent_ascent"] / len(train_loader))
+    if "progress_dir" in track_train_stats:
+        train_graphs.progress_dir.append(track_train_stats["progress_dir"] / len(train_loader))
+    if "ascent_semi_cos" in track_train_stats:
+        train_graphs.ascent_semi_cos.append(track_train_stats["ascent_semi_cos"] / len(train_loader))
     if "descent_norm" in track_train_stats:
         train_graphs.descent_norm.append(track_train_stats["descent_norm"] / len(train_loader))
     if "ascent_step_diff" in track_train_stats:
@@ -778,7 +782,7 @@ if __name__ == "__main__":
         model_params = {"width": width, "init": wn_init_mode, "var": wn_basis_var, "scale": wn_scale} | model_params
     elif model_name == "weight_norm_v2":
         from arch.weight_norm import weight_norm_net_v2
-        model = weight_norm_net_v2(num_pixels, [width, width, width, width], wn_init_mode, wn_basis_var, wn_scale, C)
+        model = weight_norm_net_v2(num_pixels, [width, width], wn_init_mode, wn_basis_var, wn_scale, C)
         model_params = {"width": width, "init": wn_init_mode, "var": wn_basis_var, "scale": wn_scale} | model_params
     elif model_name == "weight_norm_width_scale":
         from arch.weight_norm import weight_norm_net_old

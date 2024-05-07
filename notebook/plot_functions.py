@@ -281,7 +281,9 @@ def plot_y(ax, yaxis, name):
     ax.set_title(name)
 
 def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
-    fig, axs = plt.subplots(1,len(attrs), figsize=(len(attrs)*2.5, 2))
+    rows, cols = len(attrs) // 6 + 1, min(len(attrs), 6)
+    fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
+    axs = axs.reshape(-1)
     for opt_name in opts:
         model_param = model_params[opt_name]
         directory = get_directory(opt_params[opt_name]['lr'], 
@@ -336,6 +338,20 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
 
         if 'test_eigs' in attrs:
             plot_test_eigs(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.eigs_test)
+            ax_ptr += 1
+
+        if 'progress_dir' in attrs:
+            if hasattr(train_graphs, 'progress_dir'):
+                plot_y(ax=axs[ax_ptr], yaxis=train_graphs.progress_dir, name="progress dir")
+            else:
+                plot_y(ax=axs[ax_ptr], yaxis=[], name="progress dir")
+            ax_ptr += 1
+
+        if "ascent_semi_cos" in attrs:
+            if hasattr(train_graphs, "ascent_semi_cos"):
+                plot_y(ax=axs[ax_ptr], yaxis=train_graphs.ascent_semi_cos, name="ascent_semi_cos")
+            else:
+                plot_y(ax=axs[ax_ptr], yaxis=[], name="ascent_semi_cos")
             ax_ptr += 1
 
         if 'ascent_diff' in attrs:
