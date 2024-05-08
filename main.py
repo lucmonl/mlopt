@@ -530,7 +530,7 @@ def hook(self, input, output):
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher"]
-    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT"]
+    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2']
@@ -776,7 +776,7 @@ if __name__ == "__main__":
                     module.track_running_stats = False
     elif model_name == "resnet_fixup":
         from arch.resnet_fixup import fixup_resnet
-        model = fixup_resnet(depth=depth)
+        model = fixup_resnet(depth=depth, num_classes=C, input_ch=input_ch)
         model_params = {"depth": depth}
     elif model_name == "resnet_gn":
         from arch.resnet_gn import resnet_gn
@@ -802,6 +802,9 @@ if __name__ == "__main__":
         #from arch.vit import ViT
         #model = ViT(in_c=input_ch, num_classes=C, img_size=int(np.sqrt(num_pixels/input_ch)),patch=8,dropout=0,num_layers=7,hidden=width,mlp_hidden=width,head=12,is_cls_token=True)
         model_params = {"width": width,  "depth":vit_params[width]["depth"], "heads":vit_params[width]["heads"]}
+    elif model_name == "emnistcnn":
+        from arch.conv import EMNISTCNN
+        model = EMNISTCNN(40, 160, 200, 0.4)
     elif model_name == "weight_norm":
         from arch.weight_norm import weight_norm_net
         model = weight_norm_net(num_pixels, [width, width], wn_init_mode, wn_basis_var, wn_scale, C)

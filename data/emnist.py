@@ -131,7 +131,6 @@ def load_emnist_federated(loss: str, batch_size: int, train_size = -1, client_nu
 
     train = EMNIST(root=DATASETS_FOLDER, split='byclass', download=True, train=True, transform=train_transform)
     test = EMNIST(root=DATASETS_FOLDER, split='byclass', download=True, train=False, transform=train_transform)
-    
     analysis_size = max(batch_size, 128)
     analysis = torch.utils.data.Subset(train, range(analysis_size))
     analysis_test = torch.utils.data.Subset(test, range(analysis_size))
@@ -156,3 +155,26 @@ def load_emnist_federated(loss: str, batch_size: int, train_size = -1, client_nu
         analysis_test,
         batch_size=analysis_size, shuffle=False)
     return train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params
+
+
+if __name__ == "__main__":
+    import torchvision
+    from torchvision.datasets.utils import download_url
+    import os
+
+    raw_folder = DATASETS_FOLDER + "EMNIST/raw"
+
+    url = 'https://biometrics.nist.gov/cs_links/EMNIST/gzip.zip'
+    md5 = "58c8d27c78d21e728a6bc7b3cc06412e"
+
+    version_numbers = list(map(int, torchvision.__version__.split('+')[0].split('.')))
+    if version_numbers[0] == 0 and version_numbers[1] < 10:
+        filename = "emnist.zip"
+    else:
+        filename = None
+
+    os.makedirs(raw_folder, exist_ok=True)
+
+    # download files
+    print('Downloading zip archive')
+    download_url(url, root=raw_folder, filename=filename, md5=md5)

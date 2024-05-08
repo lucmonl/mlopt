@@ -49,11 +49,11 @@ class FixupBasicBlock(nn.Module):
 
 class FixupResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=10):
+    def __init__(self, block, layers, input_ch=3, num_classes=10):
         super(FixupResNet, self).__init__()
         self.num_layers = sum(layers)
         self.inplanes = 16
-        self.conv1 = conv3x3(3, 16)
+        self.conv1 = conv3x3(input_ch, 16)
         self.bias1 = nn.Parameter(torch.zeros(1))
         self.relu = nn.ReLU(inplace=True)
         self.layer1 = self._make_layer(block, 16, layers[0])
