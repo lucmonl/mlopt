@@ -395,6 +395,26 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
                 optimizer.even_second_step(zero_grad=True)
                 opt_params["forward_backward"] = True
             enable_running_stats(model)
+        elif opt_name == "alternate_sam_v3":
+            disable_running_stats(model)
+            if epoch == 1 and batch_idx == 1:
+                optimizer.initial_first_step(zero_grad=True)
+                out = model(data)
+                loss = criterion(out, target).float()
+                loss.backward()
+                optimizer.even_second_step(zero_grad=True)
+            else:
+                if opt_params["forward_backward"]: # in odd step
+                    optimizer.odd_step(zero_grad=True)
+                    opt_params["forward_backward"] = False
+                else:
+                    optimizer.even_first_step(zero_grad=True)
+                    out = model(data)
+                    loss = criterion(out, target).float()
+                    loss.backward()
+                    optimizer.even_second_step(zero_grad=True)
+                    opt_params["forward_backward"] = True
+            enable_running_stats(model)
         elif opt_name == "goldstein":
             gold_iters = 0
             while gold_iters < 1:
@@ -509,11 +529,11 @@ def hook(self, input, output):
 
     
 if __name__ == "__main__":
-    DATASETS = ["spurious", "cifar", "mnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher"]
+    DATASETS = ["spurious", "cifar", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher"]
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
-    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'look_sam', 'look_sam_v2']
+    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2']
     BASE_OPTIMIZERS = ['sgd','adam']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")
@@ -687,6 +707,12 @@ if __name__ == "__main__":
     elif dataset_name == "mnist":
         from data.mnist import load_mnist
         train_loader, test_loader, analysis_loader, input_ch, C, transform_to_one_hot = load_mnist(loss_name, batch_size)
+    elif dataset_name == "emnist":
+        if opt_name == "federated":
+            from data.emnist import load_emnist_federated
+            train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_emnist_federated(loss_name, batch_size, client_num=opt_params["client_num"])
+        else:
+            raise NotImplementedError
     elif dataset_name == "mnist_cifar":
         from data.mnist_cifar import load_mnist_cifar
         train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_mnist_cifar(mnist_classes=(0,1), cifar_classes=(1,9), batch_size=batch_size, randomize_mnist=False, randomize_cifar=False)

@@ -49,6 +49,12 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
             base_optimizer = torch.optim.SGD
             optimizer = Alternate_SAM_v2(model.parameters(), base_optimizer, alpha=kwargs["look_alpha"], rho=kwargs["sam_rho"], adaptive=kwargs["sam_adaptive"], train_stats=kwargs["train_stats"], lr=lr, momentum=momentum, weight_decay=weight_decay)
         model_params = model_params | {"base_opt": kwargs["base_opt"], "sam_rho": kwargs["sam_rho"], "look_alpha": kwargs["look_alpha"]} 
+    elif opt_name == "alternate_sam_v3":
+        from optimizer.sam import Alternate_SAM_v3
+        if kwargs["base_opt"] == "sgd":
+            base_optimizer = torch.optim.SGD
+            optimizer = Alternate_SAM_v3(model.parameters(), base_optimizer, alpha=kwargs["look_alpha"], rho=kwargs["sam_rho"], adaptive=kwargs["sam_adaptive"], train_stats=kwargs["train_stats"], lr=lr, momentum=momentum, weight_decay=weight_decay)
+        model_params = model_params | {"base_opt": kwargs["base_opt"], "sam_rho": kwargs["sam_rho"], "look_alpha": kwargs["look_alpha"]} 
     elif opt_name == "replay_sam":
         from optimizer.sam import Replay_SAM
         if kwargs["base_opt"] == "sgd":
