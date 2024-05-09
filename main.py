@@ -780,8 +780,8 @@ if __name__ == "__main__":
         model_params = {"depth": depth}
     elif model_name == "resnet_gn":
         from arch.resnet_gn import resnet_gn
-        model = resnet_gn(depth=depth)
-        model_params = {"depth": depth}
+        model = resnet_gn(depth=depth, num_classes=C)
+        #model_params = {"depth": depth}
     elif model_name == "WideResNet":
         from arch.wide_resnet import WideResNet
         model = WideResNet(depth=16, width_factor=width_factor, dropout=0.0, in_channels=input_ch, labels=C)

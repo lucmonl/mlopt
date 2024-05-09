@@ -119,7 +119,7 @@ class ResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
 
-        x = self.avgpool(x)
+        #x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         x = self.fc(x)
 
@@ -135,5 +135,5 @@ def resnet101(**kwargs):
     return model
 
 def resnet_gn(depth, **kwargs):
-    model = ResNet(Bottleneck, [depth, depth, depth], **kwargs)
+    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
     return model

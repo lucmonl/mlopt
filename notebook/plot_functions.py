@@ -281,7 +281,7 @@ def plot_y(ax, yaxis, name):
     ax.set_title(name)
 
 def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
-    rows, cols = len(attrs) // 6 + 1, min(len(attrs), 6)
+    rows, cols = (len(attrs) - 1) // 6 + 1, min(len(attrs), 6)
     fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
     axs = axs.reshape(-1)
     for opt_name in opts:
