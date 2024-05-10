@@ -2,7 +2,7 @@ import torch
 import torch.optim as optim
 import warmup_scheduler
 
-def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, model_params, **kwargs):
+def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, warm_start, model_params, **kwargs):
     if opt_name == "federated":
         opt_name = kwargs["server_opt_name"]
         weight_decay = 0.0
@@ -126,7 +126,8 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
     else:
         lr_scheduler = None
     #self.scheduler = warmup_scheduler.GradualWarmupScheduler(self.optimizer, multiplier=1., total_epoch=self.hparams.warmup_epoch, after_scheduler=self.base_scheduler)
-    #lr_scheduler = warmup_scheduler.GradualWarmupScheduler(optimizer, multiplier=1., total_epoch=5, after_scheduler=lr_scheduler)
+    #if warm_start:
+    #    lr_scheduler = warmup_scheduler.GradualWarmupScheduler(optimizer, multiplier=1., total_epoch=5, after_scheduler=lr_scheduler)
     return optimizer, lr_scheduler, model_params
 
 

@@ -51,7 +51,7 @@ def federated_train_1(model, loss_name, criterion, device, num_classes, train_lo
     vector_m, vector_v = 0, 0
     import copy
     import math
-    
+    from utilities import vector_to_grads
     
     #from utilities import state_dict_to_vector, vector_to_state_dict
     # initialize client models, optimizers
@@ -180,13 +180,7 @@ def federated_train_1(model, loss_name, criterion, device, num_classes, train_lo
             print("sketch error:", torch.norm(vector_m - new_params_pad), torch.norm(new_params_pad))
             vector_m = vector_m[:p]
         new_params = old_params - lr * vector_m
-    #model = copy.deepcopy(client_model)
-    #server_state_dict = vector_to_state_dict(new_params.detach(), model.state_dict())
-    #model.load_state_dict(server_state_dict)
-    #model.load_state_dict(running_stats, strict=False)
     vector_to_parameters(new_params.detach(), model.parameters())
-
-    #del sketch_matrix_m, sketch_matrix_v
     return exp_avg, exp_avg_sq
 
 def federated_train(model, loss_name, criterion, device, num_classes, train_loaders, server_optimizer, server_lr_scheduler, opt_params, server_epoch):
@@ -225,7 +219,7 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
         client_model = copy.deepcopy(model)
 
         client_model.train()
-        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], weight_decay, lr_decay, epochs_lr_decay, model_params, **opt_params)
+        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], weight_decay, lr_decay, epochs_lr_decay, False, model_params, **opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
             train(client_model, loss_name, criterion, device, num_classes, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, opt_params)
@@ -529,7 +523,7 @@ def hook(self, input, output):
 
     
 if __name__ == "__main__":
-    DATASETS = ["spurious", "cifar", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher"]
+    DATASETS = ["spurious", "cifar", "cifar100", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher"]
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
@@ -570,7 +564,7 @@ if __name__ == "__main__":
     
     # data
     parser.add_argument("--mixup", type=str, choices=["cut","none","mix"], default="none", help="mixup strategy for data augmentation")
-    parser.add_argument("--sp_train_size", type=int, default=4096, help="training size for spurious dataset")
+    parser.add_argument("--sp_train_size", type=int, default=-1, help="training size for spurious dataset")
     parser.add_argument("--sp_feat_dim", type=int, default=20, help="dimension for spurious data")
     parser.add_argument("--sp_patch_dim", type=int, default=20, help="patch dimension for 2d spurious data")
 
@@ -600,6 +594,10 @@ if __name__ == "__main__":
     parser.add_argument("--client_momentum", type=float, default=0.0, help="momentum of clients")
     parser.add_argument("--client_epoch", type=int, default=200, help="total epochs of client training")
     parser.add_argument("--sketch_size", type=int, default=1000, help="sketch size in communication")
+
+    #llm hyperparameters
+    parser.add_argument("--task_name", type=str, default="mrpc", help="task name")
+    parser.add_argument("--max_seq_length", type=int, default=128, help="max_seq_length")
 
     args = parser.parse_args()
 
@@ -704,6 +702,10 @@ if __name__ == "__main__":
             train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar_federated(loss_name, batch_size, client_num=opt_params["client_num"])
         else:
             train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar(loss_name, batch_size, tiny_analysis=tiny_analysis)
+    elif dataset_name == "cifar100":
+        if opt_name == "federated":
+            from data.cifar import load_cifar100_federated
+            train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar100_federated(loss_name, batch_size, client_num=opt_params["client_num"])
     elif dataset_name == "mnist":
         from data.mnist import load_mnist
         train_loader, test_loader, analysis_loader, input_ch, C, transform_to_one_hot = load_mnist(loss_name, batch_size)
@@ -757,6 +759,12 @@ if __name__ == "__main__":
         train_loader, test_loader, analysis_loader, analysis_test_loader, num_pixels, C, transform_to_one_hot, data_params = load_weight_norm_teacher(sp_feat_dim, sp_train_size, batch_size)
         model_params = model_params | {"feat_dim": sp_feat_dim, "train_size": sp_train_size}
         analysis_params = analysis_params | data_params
+    elif dataset_name == "glue":
+        from data.glue import load_glue
+        model_params = {"task_name": args.task_name, "model": model_name, "seq_length": args.max_seq_length}
+        if args.sp_train_size != -1:
+            model_params = model_params | {"train_size": args.sp_train_size}
+        model, train_loader, test_loader, analysis_loader, analysis_test_loader, data_params = load_glue(batch_size, model_params)
     
     compute_acc = data_params["compute_acc"]
     if args.mixup == "cut":
@@ -781,7 +789,7 @@ if __name__ == "__main__":
     elif model_name == "resnet_gn":
         from arch.resnet_gn import resnet_gn
         model = resnet_gn(depth=depth, num_classes=C)
-        #model_params = {"depth": depth}
+        model_params = {"depth": depth}
     elif model_name == "WideResNet":
         from arch.wide_resnet import WideResNet
         model = WideResNet(depth=16, width_factor=width_factor, dropout=0.0, in_channels=input_ch, labels=C)
@@ -848,8 +856,7 @@ if __name__ == "__main__":
         assert C == 1
         model = scalarized_conv(width, sp_patch_dim)
         model_params = {"nfilters": width} | model_params
-    else:
-        raise NotImplementedError
+
     print("number of parameters:", len(parameters_to_vector(model.parameters())))
     # analysis parameters
     """
@@ -933,7 +940,7 @@ if __name__ == "__main__":
 
     if not no_train:
         train_graphs = graphs()
-        optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, model_params, **opt_params)
+        optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, model_params, **opt_params)
 
         load_from_epoch = 0
         if not run_from_scratch:
