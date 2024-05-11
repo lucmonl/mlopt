@@ -49,7 +49,7 @@ from transformers.utils.versions import require_version
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
-check_min_version("4.38.0.dev0")
+#check_min_version("4.38.0.dev0")
 
 require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/text-classification/requirements.txt")
 
@@ -764,6 +764,7 @@ def load_glue(batch_size, model_params):
     )
     model = AutoModelForSequenceClassification.from_pretrained(
         model_params["model"], #model_args.model_name_or_path,
+        #"xlnet/xlnet-base-cased",
         from_tf=bool(".ckpt" in model_params["model"]),
         config=config,
         cache_dir=DATASETS_FOLDER, #model_args.cache_dir,
@@ -825,7 +826,7 @@ def load_glue(batch_size, model_params):
 
     if model_params["seq_length"] > tokenizer.model_max_length:
         logger.warning(
-            f"The max_seq_length passed ({model_params["seq_length"]}) is larger than the maximum length for the "
+            f"The max_seq_length passed ({model_params['seq_length']}) is larger than the maximum length for the "
             f"model ({tokenizer.model_max_length}). Using max_seq_length={tokenizer.model_max_length}."
         )
     max_seq_length = min(model_params["seq_length"], tokenizer.model_max_length)
@@ -878,9 +879,8 @@ def load_glue(batch_size, model_params):
             predict_dataset = predict_dataset.select(range(max_predict_samples))
     """
     # Log a few random samples from the training set:
-    if training_args.do_train:
-        for index in random.sample(range(len(train_dataset)), 3):
-            logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
+    for index in random.sample(range(len(train_dataset)), 3):
+        logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
 
     # Get the metric function
     if model_params["task_name"] is not None:
@@ -912,7 +912,7 @@ def load_glue(batch_size, model_params):
     """
     data_collator = default_data_collator
     # Initialize our Trainer
-    training_args=TrainingArguments(output_dir=None, per_device_train_batch_size=batch_size, per_device_eval_batch_size=batch_size)
+    training_args=TrainingArguments(output_dir="output/", per_device_train_batch_size=batch_size, per_device_eval_batch_size=batch_size)
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -923,11 +923,11 @@ def load_glue(batch_size, model_params):
         data_collator=data_collator,
     )
 
-    data_params = {"compute_acc": False}
+    data_params = {"compute_acc": True}
     train_loader = trainer.get_train_dataloader()
     test_loader = trainer.get_eval_dataloader()
 
-    training_args=TrainingArguments(output_dir=None, per_device_train_batch_size=analysis_size, per_device_eval_batch_size=analysis_size)
+    training_args=TrainingArguments(output_dir="output/", per_device_train_batch_size=analysis_size, per_device_eval_batch_size=analysis_size)
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -939,9 +939,10 @@ def load_glue(batch_size, model_params):
     )
     analysis_loader = trainer.get_train_dataloader()
     analysis_test_loader = trainer.get_eval_dataloader()
+    transform_to_one_hot = True
+    C = 2
 
-
-    return model, train_loader, test_loader, analysis_loader, analysis_test_loader, data_params
+    return model, train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
 
 
 

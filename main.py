@@ -183,7 +183,7 @@ def federated_train_1(model, loss_name, criterion, device, num_classes, train_lo
     vector_to_parameters(new_params.detach(), model.parameters())
     return exp_avg, exp_avg_sq
 
-def federated_train(model, loss_name, criterion, device, num_classes, train_loaders, server_optimizer, server_lr_scheduler, opt_params, server_epoch):
+def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, opt_params, server_epoch):
     client_num, client_opt_name, client_lr, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_lr"], opt_params["client_epoch"]
     momentum, momentum_v = opt_params["server_momentum"], 0.999
     vector_m, vector_v = 0, 0
@@ -222,7 +222,7 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], weight_decay, lr_decay, epochs_lr_decay, False, model_params, **opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
-            train(client_model, loss_name, criterion, device, num_classes, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, opt_params)
+            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, opt_params)
         """
         for name in client_model.state_dict():
             if 'running_mean' in name or 'running_var' in name:
@@ -276,7 +276,7 @@ def federated_train(model, loss_name, criterion, device, num_classes, train_load
         print(group['lr'])
 
 
-def train(model, loss_name, criterion, device, num_classes, train_loader, optimizer, lr_scheduler, epoch, opt_params):
+def train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params):
     model.train()
     
     pbar = tqdm(total=len(train_loader), position=0, leave=True)
@@ -285,25 +285,33 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
     accuracy = 0
     loss = torch.FloatTensor([0])
     track_train_stats = {}
-    #cos_descent_ascent = 0
-    #ascent_step_diff_sum = 0
 
-    for batch_idx, (data, target) in enumerate(train_loader, start=1):
-        if data.shape[0] != batch_size:
-            continue
+    for batch_idx, input in enumerate(train_loader, start=1):
+        if not opt_params["hf_model"]:
+            data, target = input
+            if data.shape[0] != batch_size:
+                continue
 
-        data, target = data.to(device), target.to(device)
-        if opt_params["mixup"] == "cut":
-            data, target, rand_target, lambda_= cutmix((data, target))
-        optimizer.zero_grad()
-        out = model(data)
-        if opt_params["forward_backward"]:
+            data, target = data.to(device), target.to(device)
+            if opt_params["mixup"] == "cut":
+                data, target, rand_target, lambda_= cutmix((data, target))
+            optimizer.zero_grad()
+            out = model(data)
+
             if opt_params["mixup"] == "none":
                 loss = criterion(out, target)
             elif opt_params["mixup"] == "cut":
                 loss = criterion(out, target) * lambda_ + criterion(out, rand_target)*(1.-lambda_)
             else:
                 assert False
+        else:
+            #print(input)
+            target = input["labels"]
+            optimizer.zero_grad()
+            output = model(**input)
+            loss, out = output.loss, output.logits
+
+        if opt_params["forward_backward"]:
             loss.backward()
 
             if compute_acc:
@@ -469,10 +477,10 @@ def train(model, loss_name, criterion, device, num_classes, train_loader, optimi
     #print(train_graphs.ascent_step_diff)
     
 
-def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, analysis_params):    
+def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params):    
     if 'loss' in analysis_list:
         from analysis.loss import compute_loss
-        compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader, compute_acc, compute_model_output='output' in analysis_list)
+        compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader, opt_params, compute_acc, compute_model_output='output' in analysis_list)
 
     if 'eigs' in analysis_list:
         from analysis.eigs import compute_eigenvalues
@@ -523,8 +531,8 @@ def hook(self, input, output):
 
     
 if __name__ == "__main__":
-    DATASETS = ["spurious", "cifar", "cifar100", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher"]
-    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn"]
+    DATASETS = ["spurious", "cifar", "cifar100", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue"]
+    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", "google-bert/bert-base-cased"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2']
@@ -679,6 +687,7 @@ if __name__ == "__main__":
     opt_params["client_momentum"]  = args.client_momentum
     exp_avg, exp_avg_sq            = None, None
 
+    opt_params["hf_model"]         = args.dataset in ["glue"]
 
     if debug:
         torch.autograd.set_detect_anomaly(True)
@@ -764,7 +773,7 @@ if __name__ == "__main__":
         model_params = {"task_name": args.task_name, "model": model_name, "seq_length": args.max_seq_length}
         if args.sp_train_size != -1:
             model_params = model_params | {"train_size": args.sp_train_size}
-        model, train_loader, test_loader, analysis_loader, analysis_test_loader, data_params = load_glue(batch_size, model_params)
+        model, train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_glue(batch_size, model_params)
     
     compute_acc = data_params["compute_acc"]
     if args.mixup == "cut":
@@ -969,14 +978,14 @@ if __name__ == "__main__":
                 #exp_avg, exp_avg_sq = federated_train(model, loss_name, criterion, device, C, client_loaders, exp_avg, exp_avg_sq, opt_params, epoch)
                 federated_train(model, loss_name, criterion, device, C, client_loaders, optimizer, lr_scheduler, opt_params, epoch)
             else:
-                train(model, loss_name, criterion, device, C, train_loader, optimizer, lr_scheduler, epoch, opt_params)
+                train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params)
                 #lr_scheduler.step()
             
             if epoch in epoch_list:
                 #print("Epoch: ", epoch)
                 train_graphs.log_epochs.append(epoch)
                 #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
-                analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc,train_loader, test_loader, analysis_loader, analysis_test_loader, analysis_params)
+                analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc,train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
                 
                 pickle.dump(train_graphs, open(f"{directory}/train_graphs.pk", "wb"))
                 torch.save(model.state_dict(), f"{directory}/model.ckpt")
@@ -1002,7 +1011,7 @@ if __name__ == "__main__":
             model.load_state_dict(sdB)
             model = model.to(device)
 
-            analysis(eval_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, analysis_params)
+            analysis(eval_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
             
         os.makedirs(f"{running_directory}/avg_{model_average[0]}{model_average[1]}", exist_ok=True)
         pickle.dump(eval_graphs, open(f"{running_directory}/avg_{model_average[0]}{model_average[1]}/eval_graphs.pk", "wb"))

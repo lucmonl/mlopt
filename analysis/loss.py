@@ -5,23 +5,24 @@ import torch.nn.functional as F
 import sys
 import numpy as np
 
-def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, loader_abridged, test_loader, compute_acc=False, compute_model_output=False):
+def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, loader_abridged, test_loader, opt_params, compute_acc=False, compute_model_output=False):
     disable_running_stats(model)
     loss_sum = 0
     accuracy_sum = 0
     accuracy = 0
 
     model_output = []
-    for batch_idx, (data, target) in enumerate(loader_abridged, start=1):
-        data, target = data.to(device), target.to(device)
-        out = model(data)
-        loss = criterion_summed(out, target)
-        """
-        if loss_name == 'BCELoss':
-            accuracy = torch.sum(out*target > 0)
-        elif out.dim() > 1:
-            accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
-        """
+    for batch_idx, input in enumerate(loader_abridged, start=1):
+        if not opt_params["hf_model"]:
+            data, target = input
+            data, target = data.to(device), target.to(device)
+            out = model(data)
+            loss = criterion_summed(out, target)
+        else:
+            target = input["labels"]
+            output = model(**input)
+            loss, out = output.loss * output.logits.shape[0], output.logits
+
         if compute_acc:
             if out.dim() > 1:
                 accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
@@ -42,10 +43,20 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
     pbar = tqdm(total=len(test_loader), position=0, leave=True)
     loss_sum = 0
     accuracy_sum = 0
-    for batch_idx, (data, target) in enumerate(test_loader, start=1):
-        data, target = data.to(device), target.to(device)
-        out = model(data)
-        loss = criterion_summed(out, target)
+    for batch_idx, input in enumerate(test_loader, start=1):
+        if not opt_params["hf_model"]:
+            data, target = input
+            data, target = data.to(device), target.to(device)
+            out = model(data)
+            loss = criterion_summed(out, target)
+            physical_batch_size = data.shape[0]
+        else:
+            target = input["labels"]
+            output = model(**input)
+            physical_batch_size = output.logits.shape[0]
+            loss, out = output.loss * physical_batch_size, output.logits
+            
+
         if compute_acc:
             if out.dim() > 1:
                 accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
@@ -59,8 +70,8 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
                 batch_idx,
                 len(test_loader),
                 100. * batch_idx / len(test_loader),
-                (loss / data.shape[0]).item(),
-                accuracy / data.shape[0]))
+                (loss / physical_batch_size).item(),
+                accuracy / physical_batch_size))
         loss_sum += loss.item()
         accuracy_sum += accuracy
 
