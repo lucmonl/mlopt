@@ -769,11 +769,15 @@ if __name__ == "__main__":
         model_params = model_params | {"feat_dim": sp_feat_dim, "train_size": sp_train_size}
         analysis_params = analysis_params | data_params
     elif dataset_name == "glue":
-        from data.glue import load_glue
-        model_params = {"task_name": args.task_name, "model": model_name, "seq_length": args.max_seq_length}
+        model_params = {"task_name": args.task_name, "seq_length": args.max_seq_length}
         if args.sp_train_size != -1:
             model_params = model_params | {"train_size": args.sp_train_size}
-        model, train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_glue(batch_size, model_params)
+        if opt_name == "federated":
+            from data.glue import load_glue_federated
+            model, train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_glue_federated(model_name, batch_size, opt_params["client_num"], model_params)
+        else:
+            from data.glue import load_glue
+            model, train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_glue(model_name, batch_size, model_params)
     
     compute_acc = data_params["compute_acc"]
     if args.mixup == "cut":
@@ -976,7 +980,7 @@ if __name__ == "__main__":
         for epoch in range(load_from_epoch+1, epochs + 1):
             if opt_name == "federated":
                 #exp_avg, exp_avg_sq = federated_train(model, loss_name, criterion, device, C, client_loaders, exp_avg, exp_avg_sq, opt_params, epoch)
-                federated_train(model, loss_name, criterion, device, C, client_loaders, optimizer, lr_scheduler, opt_params, epoch)
+                federated_train(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params, epoch)
             else:
                 train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params)
                 #lr_scheduler.step()
