@@ -295,7 +295,9 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             data, target = data.to(device), target.to(device)
             if opt_params["mixup"] == "cut":
                 data, target, rand_target, lambda_= cutmix((data, target))
-            optimizer.zero_grad()
+
+            if opt_name != "gd":
+                optimizer.zero_grad()
             out = model(data)
 
             if opt_params["mixup"] == "none":
@@ -307,7 +309,8 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
         else:
             #print(input)
             target = input["labels"]
-            optimizer.zero_grad()
+            if opt_name != "gd":
+                optimizer.zero_grad()
             output = model(**input)
             loss, out = output.loss, output.logits
 
@@ -437,6 +440,8 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 optimizer.step(accuracy=accuracy)
             else:
                 raise NotImplementedError
+        elif opt_name == "gd":
+            pass
         else:
             optimizer.step()
                 
@@ -455,6 +460,11 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
         
         if debug and batch_idx > 20:
             break
+
+    if opt_name == "gd":
+        optimizer.step()
+        optimizer.zero_grad()
+    
     pbar.close()
 
     #if opt_params["scheduler_name"] != 'none':
@@ -704,9 +714,9 @@ if __name__ == "__main__":
 
     if dataset_name == "cifar":
         from data.cifar import load_cifar
-        if opt_name == 'gd':
-            train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot = load_cifar(loss_name, batch_size, sp_train_size)
-        elif opt_name == "federated":
+        #if opt_name == 'gd':
+        #    train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot = load_cifar(loss_name, batch_size, sp_train_size)
+        if opt_name == "federated":
             from data.cifar import load_cifar_federated
             train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar_federated(loss_name, batch_size, client_num=opt_params["client_num"])
         else:
