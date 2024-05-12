@@ -103,6 +103,9 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         from optimizer.goldstein import Goldstein
         optimizer = Goldstein(model.parameters(), base_optimizer, delta=kwargs["gold_delta"], lr=lr, momentum=momentum, weight_decay=weight_decay)
         model_params = model_params | {"gold_delta": kwargs["gold_delta"]}
+    elif opt_name == "adahessian":
+        from optimizer.adahessian import Adahessian
+        optimizer = Adahessian(model.parameters(), lr=lr, betas=(momentum, 0.999), eps=1e-4, weight_decay=weight_decay)
     elif opt_name == "federated":
         optimizer = optim.SGD(model.parameters(),
                             lr=lr,
