@@ -852,3 +852,31 @@ def vector_to_grads(vec: torch.Tensor, parameters: Iterable[torch.Tensor]) -> No
 
         # Increment the pointer
         pointer += num_param
+
+def vector_to_grads_sq(vec: torch.Tensor, parameters: Iterable[torch.Tensor]) -> None:
+    r"""Convert one vector to the parameters
+
+    Args:
+        vec (Tensor): a single vector represents the parameters of a model.
+        parameters (Iterable[Tensor]): an iterator of Tensors that are the
+            parameters of a model.
+    """
+    # Ensure vec of type Tensor
+    if not isinstance(vec, torch.Tensor):
+        raise TypeError(f'expected torch.Tensor, but got: {torch.typename(vec)}')
+    # Flag for the device where the parameter is located
+    param_device = None
+
+    # Pointer for slicing the vector for each parameter
+    pointer = 0
+    for param in parameters:
+        # Ensure the parameters are located in the same device
+        param_device = _check_param_device(param, param_device)
+
+        # The length of the parameter
+        num_param = param.numel()
+        # Slice the vector, reshape it, and replace the old data of the parameter
+        param.grad_sq = vec[pointer:pointer + num_param].view_as(param).data
+
+        # Increment the pointer
+        pointer += num_param

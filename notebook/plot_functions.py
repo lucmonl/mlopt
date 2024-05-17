@@ -280,7 +280,7 @@ def plot_y(ax, yaxis, name):
     ax.set_xlabel('Epoch')
     ax.set_title(name)
 
-def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
+def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, end=None):
     rows, cols = (len(attrs) - 1) // 6 + 1, min(len(attrs), 6)
     fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
     axs = axs.reshape(-1)
@@ -306,81 +306,81 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs):
         #    cur_epochs = train_graphs.log_epochs
         #else:
         #cur_epochs = np.arange(len(train_graphs.loss))
-        cur_epochs = train_graphs.log_epochs
+        cur_epochs = train_graphs.log_epochs[start:end]
         ax_ptr = 0
         if 'loss' in attrs:
-            plot_train_loss(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.loss)
+            plot_train_loss(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.loss[start:end])
             ax_ptr += 1
         
         if 'acc' in attrs:
-            plot_train_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.accuracy)
+            plot_train_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.accuracy[start:end])
             ax_ptr += 1
 
         if 'train_err' in attrs:
-            plot_xlogy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-np.array(train_graphs.accuracy), name="Train Error")
+            plot_xlogy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-np.array(train_graphs.accuracy[start:end]), name="Train Error")
             ax_ptr += 1
 
         if 'eigs' in attrs:
-            plot_train_eig(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.eigs)
+            plot_train_eig(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.eigs[start:end])
             ax_ptr += 1
 
         if 'test_loss' in attrs:
-            plot_test_loss(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_loss)
+            plot_test_loss(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_loss[start:end])
             ax_ptr += 1
 
         if 'test_acc' in attrs:
-            plot_test_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_accuracy)
+            plot_test_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_accuracy[start:end])
             ax_ptr += 1
 
         if 'test_err' in attrs:
-            plot_xlogy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-np.array(train_graphs.test_accuracy), name="Test Error")
+            plot_xlogy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-np.array(train_graphs.test_accuracy[start:end]), name="Test Error")
             ax_ptr += 1
 
         if 'test_eigs' in attrs:
-            plot_test_eigs(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.eigs_test)
+            plot_test_eigs(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.eigs_test[start:end])
             ax_ptr += 1
 
         if 'progress_dir' in attrs:
             if hasattr(train_graphs, 'progress_dir'):
-                plot_y(ax=axs[ax_ptr], yaxis=train_graphs.progress_dir, name="progress dir")
+                plot_y(ax=axs[ax_ptr], yaxis=train_graphs.progress_dir[start:end], name="progress dir")
             else:
                 plot_y(ax=axs[ax_ptr], yaxis=[], name="progress dir")
             ax_ptr += 1
 
         if "ascent_semi_cos" in attrs:
             if hasattr(train_graphs, "ascent_semi_cos"):
-                plot_y(ax=axs[ax_ptr], yaxis=train_graphs.ascent_semi_cos, name="ascent_semi_cos")
+                plot_y(ax=axs[ax_ptr], yaxis=train_graphs.ascent_semi_cos[start:end], name="ascent_semi_cos")
             else:
                 plot_y(ax=axs[ax_ptr], yaxis=[], name="ascent_semi_cos")
             ax_ptr += 1
 
         if 'ascent_diff' in attrs:
             if hasattr(train_graphs, 'ascent_step_diff'):
-                plot_ascent_step_diff(ax=axs[ax_ptr], yaxis=train_graphs.ascent_step_diff)
+                plot_ascent_step_diff(ax=axs[ax_ptr], yaxis=train_graphs.ascent_step_diff[start:end])
             else:
                 plot_ascent_step_diff(ax=axs[ax_ptr], yaxis=[])
             ax_ptr += 1
 
         if 'descent_diff' in attrs:
             if hasattr(train_graphs, 'descent_step_diff'):
-                plot_y(ax=axs[ax_ptr], yaxis=train_graphs.descent_step_diff, name="descent diff")
+                plot_y(ax=axs[ax_ptr], yaxis=train_graphs.descent_step_diff[start:end], name="descent diff")
             else:
                 plot_y(ax=axs[ax_ptr], yaxis=[], name="descent diff")
             ax_ptr += 1
 
         if 'descent_norm' in attrs:
             if hasattr(train_graphs, 'descent_norm'):
-                plot_y(ax=axs[ax_ptr], yaxis=train_graphs.descent_norm, name="descent_norm")
+                plot_y(ax=axs[ax_ptr], yaxis=train_graphs.descent_norm[start:end], name="descent_norm")
             else:
                 plot_y(ax=axs[ax_ptr], yaxis=[], name="descent_norm")
             ax_ptr += 1
 
         if 'grad_loss_ratio' in attrs:
-            plot_y(ax=axs[ax_ptr], yaxis=train_graphs.wn_grad_loss_ratio, name="grad_loss_ratio")
+            plot_y(ax=axs[ax_ptr], yaxis=train_graphs.wn_grad_loss_ratio[start:end], name="grad_loss_ratio")
             ax_ptr += 1
 
         if 'wn_norm_min' in attrs:
-            plot_y(ax=axs[ax_ptr], yaxis=train_graphs.wn_norm_min, name="wn_norm_min")
+            plot_y(ax=axs[ax_ptr], yaxis=train_graphs.wn_norm_min[start:end], name="wn_norm_min")
             ax_ptr += 1
         """
         plt.subplot(2,6,3)

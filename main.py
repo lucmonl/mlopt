@@ -189,7 +189,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     vector_m, vector_v = 0, 0
     import copy
     import math
-    from utilities import vector_to_grads
+    from utilities import vector_to_grads, vector_to_grads_sq
 
     #from utilities import state_dict_to_vector, vector_to_state_dict
     # initialize client models, optimizers
@@ -249,8 +249,10 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             hadamard_params_pad = hadamard_transform(D*new_params_pad)
             vector_m += sub_sample_row @ hadamard_params_pad
 
-            hadamard_params_pad = hadamard_transform(D_sq*(new_params_pad ** 2))
-            vector_v += sub_sample_row_sq @ hadamard_params_pad
+            #hadamard_params_pad = hadamard_transform(D_sq*(new_params_pad ** 2))
+            #vector_v += sub_sample_row_sq @ hadamard_params_pad
+            hadamard_params_pad = hadamard_transform(D*(new_params_pad ** 2))
+            vector_v += sub_sample_row @ hadamard_params_pad
 
     vector_m = vector_m / client_num
     vector_v = vector_v / client_num
@@ -260,13 +262,16 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         print("sketch error:", torch.norm(vector_m - new_params_pad), torch.norm(new_params_pad))
         vector_m = vector_m[:p]
 
-        vector_v = sub_sample_row_sq.T @ vector_v
-        vector_v = hadamard_transform(vector_v) * D_sq
+        #vector_v = sub_sample_row_sq.T @ vector_v
+        #vector_v = hadamard_transform(vector_v) * D_sq
+        vector_v = sub_sample_row.T @ vector_v
+        vector_v = hadamard_transform(vector_v) * D
         print("sketch error:", torch.norm(vector_v - new_params_pad**2), torch.norm(new_params_pad**2))
         vector_v = vector_v[:p]
 
     server_optimizer.zero_grad()
     vector_to_grads(vector_m, model.parameters())
+    vector_to_grads_sq(vector_v, model.parameters())
     server_optimizer.step()
 
     if server_lr_scheduler is not None:
@@ -461,8 +466,9 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 loss.item(),
                 accuracy))
         
-        if debug and batch_idx > 20:
-            break
+        #if debug and batch_idx > 20:
+        #if batch_idx > 2:
+        #    break
 
     if opt_name == "gd":
         optimizer.step()
@@ -535,6 +541,11 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
         from analysis.diagonal import get_diagonal_coef, get_diagonal_invariate
         get_diagonal_coef(graphs, model, device, train_loader)
         get_diagonal_invariate(graphs, model, device, train_loader)
+    """
+    for i in range(2):
+        print(model.module_list[i].weight)
+    print(model.output_layer.weight)
+    """
 
 class features:
     pass
@@ -548,7 +559,7 @@ if __name__ == "__main__":
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", "google-bert/bert-base-cased"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
-    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian']
+    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
     BASE_OPTIMIZERS = ['sgd','adam']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")

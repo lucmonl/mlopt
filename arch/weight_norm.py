@@ -34,7 +34,7 @@ class weight_norm_net(nn.Module):
             else:
                 assert False
         nn.init.normal_(self.output_layer.weight, mean=0, std=1/np.sqrt(widths[-1]))
-        self.output_layer.weight.data = torch.nn.functional.normalize(self.output_layer.weight, dim=-1)
+        #self.output_layer.weight.data = torch.nn.functional.normalize(self.output_layer.weight, dim=-1)
 
     def forward(self, x):
         x = self.flatten(x)
@@ -66,14 +66,18 @@ class weight_norm_net_v2(nn.Module):
             prev_width = widths[l-1] if l > 0 else self.num_pixels
             if init_mode == "O(1/sqrt{m})":
                 #nn.init.normal_(self.module_list[l].weight, mean=0, std=self.basis_std/np.sqrt(prev_width))
-                nn.init.uniform_(self.module_list[l].weight, a=-self.basis_std/np.sqrt(prev_width), b=self.basis_std/np.sqrt(prev_width))
+                #nn.init.uniform_(self.module_list[l].weight, a=-self.basis_std/np.sqrt(prev_width), b=self.basis_std/np.sqrt(prev_width))
+                nn.init.uniform_(self.module_list[l].weight, a=-self.basis_std/np.sqrt(widths[l]), b=self.basis_std/np.sqrt(widths[l]))
+                print(self.basis_std/np.sqrt(prev_width))
+                print(self.module_list[l].weight.shape, self.module_list[l].weight)
             elif init_mode == "O(1)":
                 #nn.init.normal_(self.module_list[l].weight, mean=0, std=self.basis_std)
                 nn.init.uniform_(self.module_list[l].weight, a = -self.basis_std, b=self.basis_std)
             else:
                 assert False
         nn.init.normal_(self.output_layer.weight, mean=0, std=1/np.sqrt(widths[-1]))
-        #self.output_layer.weight.data = torch.nn.functional.normalize(self.output_layer.weight, dim=-1)
+        self.output_layer.weight.data = torch.nn.functional.normalize(self.output_layer.weight, dim=-1)
+        print(self.output_layer.weight.shape, self.output_layer.weight)
 
     def forward(self, x):
         x = self.flatten(x)
@@ -121,13 +125,13 @@ class weight_norm_net_old(nn.Module):
             x = linear(x) / torch.norm(linear.weight, dim=-1)
             #for i in range(x.shape[0]):
             #    x[i] = x[i] / torch.norm(temp_x[i])
-            x = self.scale * x / np.sqrt(width)
+            x = self.scale * x #/ np.sqrt(width)
             #x = linear(x)
             x = torch.tanh(x)
         width = x.shape[-1]
         #print(torch.norm(self.output_layer.weight))
         x = self.output_layer(x)# / torch.norm(self.output_layer.weight)
-        x = self.scale * x / np.sqrt(width)
+        x = self.scale * x #/ np.sqrt(width)
         return x.squeeze()
 
 class weight_norm_torch(nn.Module):
