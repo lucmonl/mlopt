@@ -808,6 +808,11 @@ def map_update(map1, map2, reduction="sum"):
                 map1[key] += map2[key]
             else:
                 map1[key] = map2[key]
+        elif reduction == "append":
+            if key in map1:
+                map1[key].append(map2[key])
+            else:
+                map1[key] = [map2[key]]
         else:
             raise NotImplementedError
         

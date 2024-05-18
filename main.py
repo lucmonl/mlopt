@@ -451,6 +451,10 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
         elif opt_name == "gd":
             pass
         else:
+            if opt_params["train_stats"]:
+                from analysis.grad_norm import get_grad_norm
+                grad_norm = get_grad_norm(model)
+                map_update(track_train_stats, grad_norm, reduction = "append")
             optimizer.step()
                 
         pbar.update(1)
@@ -493,6 +497,8 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
         train_graphs.ascent_step_diff.append(track_train_stats["ascent_step_diff"] / len(train_loader))
     if "descent_step_diff" in track_train_stats:
         train_graphs.descent_step_diff.append(track_train_stats["descent_step_diff"] / len(train_loader))
+    if "grad_norm" in track_train_stats:
+        train_graphs.grad_norm.append(track_train_stats["grad_norm"])
     #print(train_graphs.ascent_step_diff)
     
 
