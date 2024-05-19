@@ -117,7 +117,7 @@ def load_cifar(loss: str, batch_size: int, train_size = -1, tiny_analysis=False)
         batch_size=analysis_size, shuffle=False)
     return train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params
 
-def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num=1):
+def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num=1, alpha=0.0):
     data_params = {"compute_acc": True}
     input_ch = 3
     num_pixels = 32 * 32 * 3
@@ -148,13 +148,38 @@ def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num
     analysis = torch.utils.data.Subset(train, range(analysis_size))
     analysis_test = torch.utils.data.Subset(test, range(analysis_size))
     client_loaders = []
-    randperm = np.random.permutation(len(train))
-    for i in range(client_num):
-        data_index = randperm[i:-1:client_num]
-        client_train = torch.utils.data.Subset(train, data_index)
-        client_loaders.append(torch.utils.data.DataLoader(
-                        client_train,
-                        batch_size=batch_size, shuffle=True))
+
+    if alpha == 0:
+        randperm = np.random.permutation(len(train))
+        for i in range(client_num):
+            data_index = randperm[i:-1:client_num]
+            client_train = torch.utils.data.Subset(train, data_index)
+            client_loaders.append(torch.utils.data.DataLoader(
+                            client_train,
+                            batch_size=batch_size, shuffle=True))
+    else:
+        majority_index, minority_index = [], []
+        class_randperm = np.random.permutation(C)
+        for i in range(C):
+            class_index = np.where(np.array(train.targets) == i)[0].tolist()
+            majority_index.append(class_index[:int(alpha * len(class_index))])
+            minority_index = minority_index + class_index[int(alpha * len(class_index)):]
+        minority_randperm = np.random.permutation(len(minority_index))
+        minority_index = np.array(minority_index)
+
+        for i in range(client_num):
+            data_index = minority_index[minority_randperm[i::client_num]].tolist()
+
+            majority_classes = class_randperm[i::client_num]
+            for class_id in majority_classes:
+                data_index += majority_index[class_id]
+                
+            client_train = torch.utils.data.Subset(train, data_index)
+            client_loaders.append(torch.utils.data.DataLoader(
+                            client_train,
+                            batch_size=batch_size, shuffle=True))
+        
+    
     train_loader = torch.utils.data.DataLoader(
         train,
         batch_size=batch_size, shuffle=True)
@@ -210,6 +235,80 @@ def load_cifar100_federated(loss: str, batch_size: int, train_size = -1, client_
         client_loaders.append(torch.utils.data.DataLoader(
                         client_train,
                         batch_size=batch_size, shuffle=True))
+    train_loader = torch.utils.data.DataLoader(
+        train,
+        batch_size=batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(
+        test,
+        batch_size=batch_size, shuffle=False)
+    analysis_loader = torch.utils.data.DataLoader(
+        analysis,
+        batch_size=analysis_size, shuffle=False)
+    analysis_test_loader = torch.utils.data.DataLoader(
+        analysis_test,
+        batch_size=analysis_size, shuffle=False)
+    return train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params
+
+
+
+def load_cifar100_federated_non_iid(loss: str, batch_size: int, train_size = -1, client_num=1, alpha=0):
+    assert alpha < 1
+    data_params = {"compute_acc": True}
+    input_ch = 3
+    num_pixels = 32 * 32 * 3
+    C = 100
+    transform_to_one_hot = True
+
+    CIFAR100_TRAIN_MEAN = (0.5070751592371323, 0.48654887331495095, 0.4409178433670343)
+    CIFAR100_TRAIN_STD = (0.2673342858792401, 0.2564384629170883, 0.27615047132568404)
+
+    train_transform = transforms.Compose([
+        #transforms.ToPILImage(),
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(15),
+        transforms.ToTensor(),
+        transforms.Normalize(CIFAR100_TRAIN_MEAN, CIFAR100_TRAIN_STD)
+    ])
+
+    test_transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(CIFAR100_TRAIN_MEAN, CIFAR100_TRAIN_STD)
+    ])
+
+    train = CIFAR100(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
+    test = CIFAR100(root=DATASETS_FOLDER, download=True, train=False, transform=test_transform)
+
+    if train_size != -1:
+        train = take_first(train, batch_size)
+    analysis_size = max(batch_size, 128)
+    analysis = torch.utils.data.Subset(train, range(analysis_size))
+    analysis_test = torch.utils.data.Subset(test, range(analysis_size))
+    client_loaders = []
+    #randperm = np.random.permutation(len(train))
+
+    majority_index, minority_index = [], []
+    class_randperm = np.random.permutation(C)
+    for i in range(C):
+        class_index = np.where(np.array(train.targets) == i)[0].tolist()
+        majority_index.append(class_index[:int(alpha * len(class_index))])
+        minority_index = minority_index + class_index[int(alpha * len(class_index)):]
+    minority_randperm = np.random.permutation(len(minority_index))
+    minority_index = np.array(minority_index)
+
+    for i in range(client_num):
+        data_index = minority_index[minority_randperm[i::client_num]].tolist()
+
+        majority_classes = class_randperm[i::client_num]
+        for class_id in majority_classes:
+            data_index += majority_index[class_id]
+            
+        client_train = torch.utils.data.Subset(train, data_index)
+        client_loaders.append(torch.utils.data.DataLoader(
+                        client_train,
+                        batch_size=batch_size, shuffle=True))
+        #from collections import Counter
+        #print(Counter(np.array(train.targets)[data_index]))
     train_loader = torch.utils.data.DataLoader(
         train,
         batch_size=batch_size, shuffle=True)

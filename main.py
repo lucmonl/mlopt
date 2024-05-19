@@ -632,6 +632,7 @@ if __name__ == "__main__":
     parser.add_argument("--client_momentum", type=float, default=0.0, help="momentum of clients")
     parser.add_argument("--client_epoch", type=int, default=200, help="total epochs of client training")
     parser.add_argument("--sketch_size", type=int, default=1000, help="sketch size in communication")
+    parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
 
     #llm hyperparameters
     parser.add_argument("--task_name", type=str, default="mrpc", help="task name")
@@ -715,6 +716,8 @@ if __name__ == "__main__":
     opt_params["sketch_size"]      = args.sketch_size
     opt_params["server_momentum"]  = args.momentum
     opt_params["client_momentum"]  = args.client_momentum
+    opt_params["non_iid"]          = args.non_iid_alpha
+    
     exp_avg, exp_avg_sq            = None, None
 
     opt_params["hf_model"]         = args.dataset in ["glue"]
@@ -738,13 +741,20 @@ if __name__ == "__main__":
         #    train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot = load_cifar(loss_name, batch_size, sp_train_size)
         if opt_name == "federated":
             from data.cifar import load_cifar_federated
-            train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar_federated(loss_name, batch_size, client_num=opt_params["client_num"])
+            train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar_federated(loss_name, batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
+            if opt_params["non_iid"] != 0:
+                model_params = model_params | {"non_iid": opt_params["non_iid"]}
         else:
             train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar(loss_name, batch_size, tiny_analysis=tiny_analysis)
     elif dataset_name == "cifar100":
         if opt_name == "federated":
-            from data.cifar import load_cifar100_federated
-            train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar100_federated(loss_name, batch_size, client_num=opt_params["client_num"])
+            if opt_params["non_iid"] == 0:
+                from data.cifar import load_cifar100_federated
+                train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar100_federated(loss_name, batch_size, client_num=opt_params["client_num"])
+            else:
+                from data.cifar import load_cifar100_federated_non_iid
+                train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar100_federated_non_iid(loss_name, batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
+                model_params = model_params | {"non_iid": opt_params["non_iid"]}
     elif dataset_name == "mnist":
         from data.mnist import load_mnist
         train_loader, test_loader, analysis_loader, input_ch, C, transform_to_one_hot = load_mnist(loss_name, batch_size)
@@ -828,15 +838,15 @@ if __name__ == "__main__":
     elif model_name == "resnet_fixup":
         from arch.resnet_fixup import fixup_resnet
         model = fixup_resnet(depth=depth, num_classes=C, input_ch=input_ch)
-        model_params = {"depth": depth}
+        model_params = {"depth": depth} | model_params
     elif model_name == "resnet_gn":
         from arch.resnet_gn import resnet_gn
         model = resnet_gn(depth=depth, num_classes=C)
-        model_params = {"depth": depth}
+        model_params = {"depth": depth} | model_params
     elif model_name == "WideResNet":
         from arch.wide_resnet import WideResNet
         model = WideResNet(depth=16, width_factor=width_factor, dropout=0.0, in_channels=input_ch, labels=C)
-        model_params = {"width": width_factor}
+        model_params = {"width": width_factor} | model_params
     elif model_name == "ViT":
         #from torchvision.models.vision_transformer import VisionTransformer
         vit_params = {768: {"depth": 12, "heads": 12}, 1024: {"depth": 24, "heads": 16}, 1280: {"depth": 32, "heads": 16}}
@@ -852,7 +862,7 @@ if __name__ == "__main__":
         model = ViT(image_size=int(np.sqrt(num_pixels/input_ch)), patch_size=8, num_classes=C, dim=width, depth=vit_params[width]["depth"], heads=vit_params[width]["heads"], mlp_dim=4*width) #depth=6, heads=8
         #from arch.vit import ViT
         #model = ViT(in_c=input_ch, num_classes=C, img_size=int(np.sqrt(num_pixels/input_ch)),patch=8,dropout=0,num_layers=7,hidden=width,mlp_hidden=width,head=12,is_cls_token=True)
-        model_params = {"width": width,  "depth":vit_params[width]["depth"], "heads":vit_params[width]["heads"]}
+        model_params = {"width": width,  "depth":vit_params[width]["depth"], "heads":vit_params[width]["heads"]} | model_params
     elif model_name == "emnistcnn":
         from arch.conv import EMNISTCNN
         model = EMNISTCNN(40, 160, 200, 0.4)
