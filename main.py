@@ -187,6 +187,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     client_num, client_opt_name, client_lr, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_lr"], opt_params["client_epoch"]
     momentum, momentum_v = opt_params["server_momentum"], 0.999
     vector_m, vector_v = 0, 0
+    vector_m_norm = []
     import copy
     import math
     from utilities import vector_to_grads, vector_to_grads_sq
@@ -243,6 +244,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         if sketch_size == -1:
             vector_m += (old_params - new_params).detach()
             vector_v += ((old_params - new_params) ** 2).detach()
+            vector_m_norm.append(torch.norm(vector_m).item())
         else:
             new_params_pad = pad_to_power_of_2((old_params - new_params).detach())
 
@@ -270,8 +272,15 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         vector_v = vector_v[:p]
 
     server_optimizer.zero_grad()
-    vector_to_grads(vector_m, model.parameters())
-    vector_to_grads_sq(vector_v, model.parameters())
+    if opt_params["server_opt_name"] == "clip_sgd":
+        vector_to_grads(vector_m * min(1, opt_params["clip_tau"] / np.mean(vector_m_norm).item()), model.parameters())
+        if opt_params["clip_tau"] / np.mean(vector_m_norm).item() < 1:
+            print("clipped")
+        else:
+            print("no clip")
+    else:
+        vector_to_grads(vector_m, model.parameters())
+        vector_to_grads_sq(vector_v, model.parameters())
     server_optimizer.step()
 
     if server_lr_scheduler is not None:
@@ -279,6 +288,8 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
 
     for group in server_optimizer.param_groups:
         print(group['lr'])
+
+    train_graphs.grad_norm.append(vector_m_norm)
 
 
 def train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params):
@@ -625,7 +636,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_average", nargs='+', type=int, default=[0,1], help="index of runs to be averaged")
 
     #federated learning hyperparameters
-    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS, help="optimizer of server")
+    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd"], help="optimizer of server")
     parser.add_argument("--client_num", type=int, default=1, help="number of clients")
     parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd", "adam"], help="optimizer of clients")
     parser.add_argument("--client_lr", type=float, default=0.01, help="lr of clients")
@@ -633,6 +644,7 @@ if __name__ == "__main__":
     parser.add_argument("--client_epoch", type=int, default=200, help="total epochs of client training")
     parser.add_argument("--sketch_size", type=int, default=1000, help="sketch size in communication")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
+    parser.add_argument("--clip_tau", type=float, default=1.0, help="clip tau in clipping method")
 
     #llm hyperparameters
     parser.add_argument("--task_name", type=str, default="mrpc", help="task name")
@@ -717,6 +729,7 @@ if __name__ == "__main__":
     opt_params["server_momentum"]  = args.momentum
     opt_params["client_momentum"]  = args.client_momentum
     opt_params["non_iid"]          = args.non_iid_alpha
+    opt_params["clip_tau"]         = args.clip_tau
     
     exp_avg, exp_avg_sq            = None, None
 

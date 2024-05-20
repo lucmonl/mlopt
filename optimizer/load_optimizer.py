@@ -4,7 +4,12 @@ import warmup_scheduler
 
 def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, warm_start, model_params, **kwargs):
     if opt_name == "federated":
-        opt_name = kwargs["server_opt_name"]
+        if kwargs["server_opt_name"] == "clip_sgd":
+            opt_name = "sgd"
+            model_params = model_params | {'clip': kwargs['clip_tau']}
+        else:
+            opt_name = kwargs["server_opt_name"]
+        #opt_name = "sgd" if kwargs["server_opt_name"] == "clip_sgd" else kwargs["server_opt_name"] 
         weight_decay = 0.0
         model_params = model_params | {'server_opt': kwargs['server_opt_name'], 'client_opt': kwargs['client_opt_name'], 'client_lr': kwargs['client_lr'], 'client_momentum': kwargs['client_momentum'],
                                        "client_num": kwargs['client_num'], 'client_epoch': kwargs['client_epoch'], 'sketch_size': kwargs['sketch_size']}
