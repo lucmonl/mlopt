@@ -9,7 +9,7 @@ import os
 
 from path_manage import get_directory
 
-print(graphs)
+#print(graphs)
 
 def plot_figures_opts(opts, model_params, opt_params):
     plt.figure(figsize=(15,5))
@@ -280,6 +280,20 @@ def plot_y(ax, yaxis, name):
     ax.set_xlabel('Epoch')
     ax.set_title(name)
 
+def plot_attr(ax, xaxis, train_graphs, attr, start=None, end=None):
+    if attr in ['loss', 'train_err', 'test_loss', 'test_err']:
+        yaxis = getattr(train_graphs, attr)[start:end]
+        plot_xlogy(ax, xaxis, yaxis, name=attr)
+    elif attr in ['acc', 'eigs', 'test_acc', 'test_eigs']:
+        yaxis = getattr(train_graphs, attr)[start:end]
+        plot_xy(ax, xaxis, yaxis, name=attr)
+    else:
+        if hasattr(train_graphs, attr):
+            plot_y(ax=ax, yaxis=getattr(train_graphs, attr)[start:end], name=attr)
+        else:
+            plot_y(ax=ax, yaxis=[], name=attr)
+
+
 def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, end=None):
     rows, cols = (len(attrs) - 1) // 6 + 1, min(len(attrs), 6)
     fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
@@ -308,6 +322,10 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, e
         #cur_epochs = np.arange(len(train_graphs.loss))
         cur_epochs = train_graphs.log_epochs[start:end]
         ax_ptr = 0
+        for attr in attrs:
+            plot_attr(ax=axs[ax_ptr], xaxis=cur_epochs, train_graphs=train_graphs, attr=attr, start=start, end=end)
+            ax_ptr += 1
+        """
         if 'loss' in attrs:
             plot_train_loss(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.loss[start:end])
             ax_ptr += 1
@@ -382,20 +400,7 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, e
         if 'wn_norm_min' in attrs:
             plot_y(ax=axs[ax_ptr], yaxis=train_graphs.wn_norm_min[start:end], name="wn_norm_min")
             ax_ptr += 1
-        """
-        plt.subplot(2,6,3)
-        plt.semilogy(cur_epochs, train_graphs.test_loss)
-        #.legend(['Loss + Weight Decay'])
-        plt.xlabel('Epoch')
-        plt.ylabel('Value')
-        plt.title('Testing Loss')
-
-        plt.subplot(2,6,4)
-        plt.plot(cur_epochs, train_graphs.test_accuracy)
-        #.legend(['Loss + Weight Decay'])
-        plt.xlabel('Epoch')
-        plt.ylabel('Value')
-        plt.title('Testing Accuracy')
+        
         """
 
     axs[0].legend(opts)
