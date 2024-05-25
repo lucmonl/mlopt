@@ -76,7 +76,7 @@ def load_cifar(loss: str, batch_size: int, train_size = -1, tiny_analysis=False)
     num_pixels = 32 * 32 * 3
     C = 10
     transform_to_one_hot = True
-    """
+    
     train_transform = transforms.Compose([transforms.RandomCrop(32, padding=4),
                                           transforms.RandomHorizontalFlip()])
     cifar10_train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
@@ -92,12 +92,12 @@ def load_cifar(loss: str, batch_size: int, train_size = -1, tiny_analysis=False)
     if train_size != -1:
         train = take_first(train, batch_size)
     test = TensorDataset(torch.from_numpy(unflatten(standardized_X_test, (32, 32, 3)).transpose((0, 3, 1, 2))).float(), y_test)
-    """
     
+    """
     train_transform, test_transform = get_transform()
     train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
     test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False, transform=test_transform)
-    
+    """
 
     #analysis_size = max(batch_size, 128)
     analysis_size = 32 if tiny_analysis else max(batch_size, 128)
@@ -126,10 +126,10 @@ def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num
 
     train_transform = transforms.Compose([transforms.RandomCrop(32, padding=4),
                                           transforms.RandomHorizontalFlip()])
-    """
+    
     cifar10_train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
     cifar10_test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False)
-    
+    """
     #X_train = train_transform(cifar10_train.data)
     X_train, X_test = flatten(cifar10_train.data / 255), flatten(cifar10_test.data / 255)
     #y_train, y_test = make_labels(torch.tensor(cifar10_train.targets), loss), \
@@ -146,7 +146,7 @@ def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num
     train_transform, test_transform = get_transform()
     train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
     test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False, transform=test_transform)
-
+    
     analysis_size = max(batch_size, 128)
     analysis = torch.utils.data.Subset(train, range(analysis_size))
     analysis_test = torch.utils.data.Subset(test, range(analysis_size))
@@ -161,8 +161,14 @@ def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num
                             client_train,
                             batch_size=batch_size, shuffle=True))
     else:
+        import random
+        num_chunks = 4
         majority_index, minority_index = [], []
         class_randperm = np.random.permutation(C)
+        class_chunk_perm = [(i,j) for i in range(C) for j in range(int(client_num*num_chunks/C))]
+        random.seed(42)
+        random.shuffle(class_chunk_perm)
+
         for i in range(C):
             class_index = np.where(np.array(train.targets) == i)[0].tolist()
             majority_index.append(class_index[:int(alpha * len(class_index))])
@@ -173,15 +179,21 @@ def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num
         for i in range(client_num):
             data_index = minority_index[minority_randperm[i::client_num]].tolist()
 
+            """
             majority_classes = class_randperm[i::client_num]
             for class_id in majority_classes:
                 data_index += majority_index[class_id]
+            """
+            for (class_id, chunk_id) in class_chunk_perm[i*num_chunks:(i+1)*num_chunks]:
+                data_index += majority_index[class_id][chunk_id::int(client_num*num_chunks/C)]
                 
             client_train = torch.utils.data.Subset(train, data_index)
             client_loaders.append(torch.utils.data.DataLoader(
                             client_train,
                             batch_size=batch_size, shuffle=True))
-        
+            #from collections import Counter
+            #print(Counter(np.array(train.targets)[data_index]))
+        #sys.exit()
     
     train_loader = torch.utils.data.DataLoader(
         train,

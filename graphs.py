@@ -81,3 +81,4 @@ class graphs:
         self.ascent_semi_cos    = []
 
         self.grad_norm      = []
+        self.pseudo_grad_norm      = []

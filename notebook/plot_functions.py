@@ -265,8 +265,8 @@ def plot_ascent_step_diff(ax, yaxis):
     ax.set_xlabel('Epoch')
     ax.set_title('Ascent_step_diff')
 
-def plot_xy(ax, xaxis, yaxis, name):
-    ax.plot(xaxis, yaxis)
+def plot_xy(ax, xaxis, yaxis, name, alpha=1.0):
+    ax.plot(xaxis, yaxis, alpha=alpha)
     ax.set_xlabel('Epoch')
     ax.set_title(name)
 
@@ -401,6 +401,64 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, e
     axs[0].legend(opts)
     plt.tight_layout()
     plt.show()
+
+def plot_figures_opts_attr(opts_list, model_params, opt_params, attr, start=None, end=None, alpha=1.0, legends=[], titles=[], save_dir=None):
+    #rows, cols = (len(attrs) - 1) // 6 + 1, min(len(attrs), 6)
+    rows, cols = 1, len(opts_list)
+    fig, axs = plt.subplots(rows,cols, figsize=(cols*4, rows*3))
+    axs = axs.reshape(-1)
+    ax_ptr = 0
+    for opts, legend, title in zip(opts_list, legends, titles):
+        for opt_name in opts:
+            model_param = model_params[opt_name]
+            directory = get_directory(opt_params[opt_name]['lr'], 
+                                    opt_params[opt_name]['dataset_name'],
+                                    opt_params[opt_name]['loss'],
+                                    opt_params[opt_name]['opt'], 
+                                    opt_params[opt_name]['model_name'], 
+                                    opt_params[opt_name]['momentum'], 
+                                    opt_params[opt_name]['weight_decay'], 
+                                    opt_params[opt_name]['batch_size'], 
+                                    opt_params[opt_name]['epochs'], 
+                                    multi_run = False,
+                                    **model_param
+                                    )
+            print(directory)
+            with open(f'../{directory}train_graphs.pk', 'rb') as f:
+                train_graphs = pickle.load(f)
+
+            #if len(train_graphs.log_epochs) != 0:
+            #    cur_epochs = train_graphs.log_epochs
+            #else:
+            #cur_epochs = np.arange(len(train_graphs.loss))
+            cur_epochs = train_graphs.log_epochs[start:end]
+            
+            if 'loss' == attr:
+                plot_train_loss(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.loss[start:end])
+            
+            if 'acc' == attr:
+                plot_train_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.accuracy[start:end])
+
+            if 'train_err' == attr:
+                plot_xlogy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-np.array(train_graphs.accuracy[start:end]), name="Train Error")
+
+            if 'test_loss' == attr:
+                plot_test_loss(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_loss[start:end])
+
+            if 'test_acc' == attr:
+                plot_test_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_accuracy[start:end])
+
+            if 'test_err' == attr:
+                import matplotlib.ticker as mtick
+                axs[ax_ptr].yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1, decimals=0))
+                plot_xy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-1*np.array(train_graphs.test_accuracy[start:end]), name=title, alpha=alpha)
+
+        axs[ax_ptr].legend(legend)
+        ax_ptr += 1
+    axs[0].set_ylabel("Test Err")
+    plt.tight_layout()
+    if save_dir:
+        plt.savefig(save_dir)
 
 def plot_figure_cos_descent_ascent(opts, model_params, opt_params):
     for opt_name in opts:

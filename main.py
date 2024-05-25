@@ -187,6 +187,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     client_num, client_opt_name, client_lr, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_lr"], opt_params["client_epoch"]
     momentum, momentum_v = opt_params["server_momentum"], 0.999
     vector_m, vector_v = 0, 0
+    vector_m_true = 0
     vector_m_norm = []
     import copy
     import math
@@ -224,28 +225,19 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
             train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, opt_params)
-        """
-        for name in client_model.state_dict():
-            if 'running_mean' in name or 'running_var' in name:
-                #print(client_model.state_dict()[name])
-                if name not in running_stats:
-                    running_stats[name] = client_model.state_dict()[name] / client_num
-                else:
-                    running_stats[name] += client_model.state_dict()[name] / client_num
-        """
-        """
-        sketch_updates = models[client_id].state_dict().copy()
-        if sketch_size:
-            for name, param in models[]
-                sketch_updates[name] = rand_dict[name] @ param
-        """
+            
         new_params = parameters_to_vector(client_model.parameters())
+        if opt_params["server_opt_name"] == "clip_sgd":
+            vector_m_norm.append(torch.norm(old_params - new_params).item())
 
         if sketch_size == -1:
-            vector_m += (old_params - new_params).detach()
+            #param_norm = torch.norm(old_params - new_params).detach()
+            vector_m += (old_params - new_params).detach() #* min(1, opt_params["clip_tau"] / param_norm.item())
+            #if opt_params["clip_tau"] / param_norm.item() < 1: print("clip")
             vector_v += ((old_params - new_params) ** 2).detach()
-            vector_m_norm.append(torch.norm(vector_m).item())
+            #vector_m_norm.append(torch.norm(old_params - new_params).item())
         else:
+            vector_m_true += (old_params - new_params).detach()
             new_params_pad = pad_to_power_of_2((old_params - new_params).detach())
 
             hadamard_params_pad = hadamard_transform(D*new_params_pad)
@@ -274,10 +266,19 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     server_optimizer.zero_grad()
     if opt_params["server_opt_name"] == "clip_sgd":
         vector_to_grads(vector_m * min(1, opt_params["clip_tau"] / np.mean(vector_m_norm).item()), model.parameters())
+        print(np.mean(vector_m_norm).item())
         if opt_params["clip_tau"] / np.mean(vector_m_norm).item() < 1:
             print("clipped")
         else:
             print("no clip")
+        """
+        if opt_params["clip_tau"] < np.max(vector_m_norm).item():
+            print("clipped")
+            vector_to_grads(vector_m * min(1, opt_params["clip_tau"] / np.max(vector_m_norm).item()), model.parameters())
+        else:
+            print("no clip")
+        """
+        #vector_to_grads(vector_m, model.parameters())
     else:
         vector_to_grads(vector_m, model.parameters())
         vector_to_grads_sq(vector_v, model.parameters())
@@ -289,10 +290,11 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     for group in server_optimizer.param_groups:
         print(group['lr'])
 
-    train_graphs.grad_norm.append(vector_m_norm)
+    train_graphs.pseudo_grad_norm.append(vector_m_norm)
 
 
 def train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params):
+    #old_params = parameters_to_vector(model.parameters())
     model.train()
     
     pbar = tqdm(total=len(train_loader), position=0, leave=True)
@@ -510,8 +512,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
         train_graphs.descent_step_diff.append(track_train_stats["descent_step_diff"] / len(train_loader))
     if "grad_norm" in track_train_stats:
         train_graphs.grad_norm.append(track_train_stats["grad_norm"])
-    #print(train_graphs.ascent_step_diff)
-    
+        #return torch.norm(old_params - parameters_to_vector(model.parameters())).item()
 
 def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params):    
     if 'loss' in analysis_list:
