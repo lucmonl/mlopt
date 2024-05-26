@@ -209,38 +209,51 @@ def lanczos(matrix_vector, dim: int, neigs: int):
            #torch.from_numpy(np.ascontiguousarray(np.flip(s_evecs, -1)).copy()).float()
 
 def compute_hvp_weight_decay(network: nn.Module, loss_fn: nn.Module, weight_decay: float,
-                data_loader: torch.utils.data.DataLoader, vector: Tensor, num_classes: int, device: torch.device):
+                data_loader: torch.utils.data.DataLoader, vector: Tensor, num_classes: int, device: torch.device, use_hf_model: bool=False):
     """Compute a Hessian-vector product."""
     p = len(parameters_to_vector(network.parameters()))
     n = len(data_loader.dataset)
     hvp = torch.zeros(p, dtype=torch.float, device=device)
     vector = vector.to(device)
     #for (X, y) in iterate_dataset(dataset, physical_batch_size):
-    for batch_idx, (data, target) in enumerate(data_loader):
-        #print("hvp:", hvp)
-        #print(loss_fn(network(data.to(device)), torch.nn.functional.one_hot(target.to(device), num_classes=num_classes).float()))
-        #print(network(data.to(device))[0], torch.nn.functional.one_hot(target.to(device), num_classes=num_classes)[0])
-        #loss = loss_fn(network(data.to(device)), torch.nn.functional.one_hot(target.to(device), num_classes=num_classes).float()) / n
-        loss = loss_fn(network(data.to(device)), target.to(device)) / n
-        #print("loss at analysis:", loss)
-        grads = torch.autograd.grad(loss, inputs=network.parameters(), create_graph=True)
-        dot = parameters_to_vector(grads).mul(vector).sum()
-        #print("dot:", dot)
-        grads = [g.contiguous() for g in torch.autograd.grad(dot, network.parameters(), retain_graph=True)]
-        #print("grads:", parameters_to_vector(grads) )
-        hvp +=  parameters_to_vector(grads) 
+    if not use_hf_model:
+        for batch_idx, (data, target) in enumerate(data_loader):
+            #print("hvp:", hvp)
+            #print(loss_fn(network(data.to(device)), torch.nn.functional.one_hot(target.to(device), num_classes=num_classes).float()))
+            #print(network(data.to(device))[0], torch.nn.functional.one_hot(target.to(device), num_classes=num_classes)[0])
+            #loss = loss_fn(network(data.to(device)), torch.nn.functional.one_hot(target.to(device), num_classes=num_classes).float()) / n
+            loss = loss_fn(network(data.to(device)), target.to(device)) / n
+            #print("loss at analysis:", loss)
+            grads = torch.autograd.grad(loss, inputs=network.parameters(), create_graph=True)
+            dot = parameters_to_vector(grads).mul(vector).sum()
+            #print("dot:", dot)
+            grads = [g.contiguous() for g in torch.autograd.grad(dot, network.parameters(), retain_graph=True)]
+            #print("grads:", parameters_to_vector(grads) )
+            hvp +=  parameters_to_vector(grads) 
+    else:
+        assert len(data_loader) == 1
+        for batch_idx, input in enumerate(data_loader):
+            output = network(**input)
+            loss = output.loss
+            grads = torch.autograd.grad(loss, inputs=network.parameters(), create_graph=True)
+            dot = parameters_to_vector(grads).mul(vector).sum()
+            #print("dot:", dot)
+            grads = [g.contiguous() for g in torch.autograd.grad(dot, network.parameters(), retain_graph=True)]
+            #print("grads:", parameters_to_vector(grads) )
+            hvp +=  parameters_to_vector(grads) 
+
     hvp += weight_decay * vector
     #print(hvp)
     return hvp
 
 def get_hessian_eigenvalues_weight_decay(network: nn.Module, loss_fn: nn.Module, weight_decay: float, loader: torch.utils.data.DataLoader,
-                            neigs=5, num_classes=10, device=torch.device('cpu')):
+                            neigs=5, num_classes=10, device=torch.device('cpu'), use_hf_model=False):
     #vector_test = torch.ones(200)
     #print(compute_hvp(network, loss_fn, dataset, vector_test, physical_batch_size=physical_batch_size))
     #sys.exit()
     """ Compute the leading Hessian eigenvalues. """
     hvp_delta = lambda delta: compute_hvp_weight_decay(network, loss_fn, weight_decay, loader,
-                                          delta, num_classes, device).detach().cpu()
+                                          delta, num_classes, device, use_hf_model).detach().cpu()
     nparams = len(parameters_to_vector((network.parameters())))
     #print("lanczos starts")
     l_evals, l_evecs = lanczos(hvp_delta, nparams, neigs=neigs)

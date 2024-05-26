@@ -351,12 +351,18 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 map_update(track_train_stats, train_stats, reduction="sum")
             # second forward-backward step
             disable_running_stats(model)
-            out = model(data)
-            #loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
-            loss = criterion(out, target).float()
-            loss.backward()
+            if not opt_params["hf_model"]:
+                out = model(data)
+                #loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
+                loss = criterion(out, target).float()
+                loss.backward()
+                train_stats = optimizer.second_step(zero_grad=True)
+            else:
+                output = model(**input)
+                loss, out = output.loss, output.logits
+                loss.backward()
+                train_stats = optimizer.second_step(zero_grad=True)
 
-            train_stats = optimizer.second_step(zero_grad=True)
             map_update(track_train_stats, train_stats, reduction="sum")
             #cos_descent_ascent += optimizer.second_step(zero_grad=True)
             enable_running_stats(model)
@@ -521,7 +527,7 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
 
     if 'eigs' in analysis_list:
         from analysis.eigs import compute_eigenvalues
-        compute_eigenvalues(graphs, model, criterion_summed, weight_decay, analysis_loader, analysis_test_loader, num_classes, device)
+        compute_eigenvalues(graphs, model, criterion_summed, weight_decay, analysis_loader, analysis_test_loader, num_classes, device, use_hf_model=opt_params["hf_model"])
 
     if 'gn_eigs' in analysis_list:
         from analysis.eigs import compute_gn_eigenvalues
