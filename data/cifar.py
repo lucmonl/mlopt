@@ -76,7 +76,7 @@ def load_cifar(loss: str, batch_size: int, train_size = -1, tiny_analysis=False)
     num_pixels = 32 * 32 * 3
     C = 10
     transform_to_one_hot = True
-    
+    """
     train_transform = transforms.Compose([transforms.RandomCrop(32, padding=4),
                                           transforms.RandomHorizontalFlip()])
     cifar10_train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
@@ -97,7 +97,7 @@ def load_cifar(loss: str, batch_size: int, train_size = -1, tiny_analysis=False)
     train_transform, test_transform = get_transform()
     train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
     test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False, transform=test_transform)
-    """
+    
 
     #analysis_size = max(batch_size, 128)
     analysis_size = 32 if tiny_analysis else max(batch_size, 128)

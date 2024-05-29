@@ -37,7 +37,7 @@ def continue_training(lr, dataset_name, loss_name, opt_name, model_name, momentu
         if trained_epoch == epochs:
             print(lookup_dir)
             yes_or_no = input("The path already exists. Are you sure to overwrite? [y/n]")
-            if yes_or_no == 'n':
+            if yes_or_no != 'y':
                 sys.exit()
         if trained_epoch < epochs:
             load_from_epoch = trained_epoch

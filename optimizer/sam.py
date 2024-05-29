@@ -23,7 +23,7 @@ class SAM(torch.optim.Optimizer):
     def first_step(self, zero_grad=False):
         grad_norm = self._grad_norm()
         #ascent_step_diff = 0
-        train_stats = {"ascent_step_diff": 0, "progress_dir": 0, "ascent_semi_cos": 0}
+        train_stats = {"ascent_step_diff": 0, "progress_dir": 0, "ascent_semi_cos": 0, "ascent_step_cos":0}
 
         for group in self.param_groups:
             scale = group["rho"] / (grad_norm + 1e-12)

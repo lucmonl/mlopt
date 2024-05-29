@@ -101,7 +101,7 @@ def get_attr(opt_name, model_params, opt_params, attr):
                             multi_run = False,
                             **model_param
                             )
-    print(directory)
+    #print(directory)
     with open(f'../{directory}train_graphs.pk', 'rb') as f:
         train_graphs = pickle.load(f)
     return getattr(train_graphs, attr)
@@ -281,10 +281,13 @@ def plot_y(ax, yaxis, name):
     ax.set_title(name)
 
 def plot_attr(ax, xaxis, train_graphs, attr, start=None, end=None):
-    if attr in ['loss', 'train_err', 'test_loss', 'test_err']:
+    if attr in ['test_err']:
+        yaxis = 1- np.array(getattr(train_graphs, "test_accuracy")[start:end])
+        plot_xlogy(ax, xaxis, yaxis, name=attr)
+    elif attr in ['loss', 'train_err', 'test_loss']:
         yaxis = getattr(train_graphs, attr)[start:end]
         plot_xlogy(ax, xaxis, yaxis, name=attr)
-    elif attr in ['acc', 'eigs', 'test_acc', 'test_eigs']:
+    elif attr in ['accuracy', 'eigs', 'test_accuracy', 'eigs_test']:
         yaxis = getattr(train_graphs, attr)[start:end]
         plot_xy(ax, xaxis, yaxis, name=attr)
     else:
@@ -402,6 +405,39 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, e
             ax_ptr += 1
         
         """
+
+    axs[0].legend(opts)
+    plt.tight_layout()
+    plt.show()
+
+def plot_figures_opts_hists(opts, model_params, opt_params, attr, epochs):
+    rows, cols = (len(epochs) - 1) // 6 + 1, min(len(epochs), 6)
+    fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
+    axs = axs.reshape(-1)
+    for opt_name in opts:
+        model_param = model_params[opt_name]
+        directory = get_directory(opt_params[opt_name]['lr'], 
+                                opt_params[opt_name]['dataset_name'],
+                                opt_params[opt_name]['loss'],
+                                opt_params[opt_name]['opt'], 
+                                opt_params[opt_name]['model_name'], 
+                                opt_params[opt_name]['momentum'], 
+                                opt_params[opt_name]['weight_decay'], 
+                                opt_params[opt_name]['batch_size'], 
+                                opt_params[opt_name]['epochs'], 
+                                multi_run = False,
+                                **model_param
+                                )
+        #print(directory)
+        with open(f'../{directory}train_graphs.pk', 'rb') as f:
+            train_graphs = pickle.load(f)
+
+        ax_ptr = 0
+        for epoch in epochs:
+            grad_norm = get_attr(opt_name, model_params, opt_params, attr)
+            axs[ax_ptr].hist(np.array(grad_norm[epoch]).reshape(-1), bins=20, density=True, alpha=0.7)
+            axs[ax_ptr].set_title(epoch)
+            ax_ptr += 1
 
     axs[0].legend(opts)
     plt.tight_layout()

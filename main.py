@@ -355,13 +355,17 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 out = model(data)
                 #loss = criterion(out, F.one_hot(target, num_classes=num_classes).float()) * num_classes
                 loss = criterion(out, target).float()
-                loss.backward()
-                train_stats = optimizer.second_step(zero_grad=True)
+                #loss.backward()
+                #train_stats = optimizer.second_step(zero_grad=True)
             else:
                 output = model(**input)
                 loss, out = output.loss, output.logits
-                loss.backward()
-                train_stats = optimizer.second_step(zero_grad=True)
+            loss.backward()
+            if opt_params["train_stats"]:
+                from analysis.grad_norm import get_grad_norm
+                grad_norm = get_grad_norm(model)
+                map_update(track_train_stats, grad_norm, reduction = "append")
+            train_stats = optimizer.second_step(zero_grad=True)
 
             map_update(track_train_stats, train_stats, reduction="sum")
             #cos_descent_ascent += optimizer.second_step(zero_grad=True)
