@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-from path_manage import get_directory
+from path_manage import get_directory, get_running_directory
 
 #print(graphs)
 
@@ -266,35 +266,73 @@ def plot_ascent_step_diff(ax, yaxis):
     ax.set_title('Ascent_step_diff')
 
 def plot_xy(ax, xaxis, yaxis, name, alpha=1.0):
-    ax.plot(xaxis, yaxis, alpha=alpha)
+    line = ax.plot(xaxis, yaxis, alpha=alpha)[0]
     ax.set_xlabel('Epoch')
     ax.set_title(name)
+    return line
 
 def plot_xlogy(ax, xaxis, yaxis, name):
-    ax.semilogy(xaxis, yaxis)
+    line = ax.semilogy(xaxis, yaxis)[0]
     ax.set_xlabel('Epoch')
     ax.set_title(name)
+    return line
 
 def plot_y(ax, yaxis, name):
-    ax.plot(yaxis)
+    line = ax.plot(yaxis)[0]
     ax.set_xlabel('Epoch')
     ax.set_title(name)
+    return line
 
-def plot_attr(ax, xaxis, train_graphs, attr, start=None, end=None):
-    if attr in ['test_err']:
-        yaxis = 1- np.array(getattr(train_graphs, "test_accuracy")[start:end])
-        plot_xlogy(ax, xaxis, yaxis, name=attr)
-    elif attr in ['loss', 'train_err', 'test_loss']:
-        yaxis = getattr(train_graphs, attr)[start:end]
-        plot_xlogy(ax, xaxis, yaxis, name=attr)
-    elif attr in ['accuracy', 'eigs', 'test_accuracy', 'eigs_test']:
-        yaxis = getattr(train_graphs, attr)[start:end]
-        plot_xy(ax, xaxis, yaxis, name=attr)
+def get_attr_from_graph(train_graph, attr):
+    if attr == "test_err":
+        return 1- np.array(getattr(train_graph, "test_accuracy"))
     else:
-        if hasattr(train_graphs, attr):
-            plot_y(ax=ax, yaxis=getattr(train_graphs, attr)[start:end], name=attr)
+        return getattr(train_graph, attr)
+
+def plot_attr(ax, train_graphs, attr, start=None, end=None):
+    data = []
+    xaxis = None
+    for train_graph in train_graphs:
+        cur_epochs = train_graph.log_epochs
+        if xaxis and len(cur_epochs) == len(xaxis):
+            data.append(get_attr_from_graph(train_graph, attr)[start: end])
+        elif xaxis is None:
+            xaxis = train_graph.log_epochs
+            data.append(get_attr_from_graph(train_graph, attr)[start: end])
         else:
-            plot_y(ax=ax, yaxis=[], name=attr)
+            # still running
+            continue
+    xaxis = xaxis[start: end]
+    yaxis = np.mean(np.array(data), axis=0)
+    stds = np.std(np.array(data), axis=0)
+    #plt.plot(x, means, label="Estimated Mean")
+
+    if attr in ['test_err']:
+        #yaxis = 1- np.array(getattr(train_graphs, "test_accuracy")[start:end])
+        line = plot_xlogy(ax, xaxis, yaxis, name=attr)
+        ax.fill_between(xaxis, yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
+    elif attr in ['loss', 'train_err', 'test_loss']:
+        #yaxis = getattr(train_graphs, attr)[start:end]
+        line = plot_xlogy(ax, xaxis, yaxis, name=attr)
+        ax.fill_between(xaxis, yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
+    elif attr in ['accuracy', 'eigs', 'test_accuracy', 'eigs_test']:
+        #yaxis = getattr(train_graphs, attr)[start:end]
+        line = plot_xy(ax, xaxis, yaxis, name=attr)
+        ax.fill_between(xaxis, yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
+    elif attr in ['cos_descent_ascent', 'progress_dir', 'ascent_semi_cos', 'ascent_step_diff', 'descent_step_diff', 'descent_norm']:
+        if hasattr(train_graph, attr):
+            #yaxis = getattr(train_graphs, attr)[start:end]
+            line = plot_y(ax=ax, yaxis=yaxis, name=attr)
+            ax.fill_between(range(len(yaxis)), yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
+        else:
+            line = plot_y(ax=ax, yaxis=[], name=attr)
+    else:
+        if hasattr(train_graph, attr):
+            line = plot_y(ax=ax, yaxis=yaxis, name=attr)
+            ax.fill_between(range(len(yaxis)), yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
+        else:
+            line = plot_y(ax=ax, yaxis=[], name=attr)
+    return line
 
 
 def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, end=None):
@@ -303,6 +341,7 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, e
     axs = axs.reshape(-1)
     for opt_name in opts:
         model_param = model_params[opt_name]
+        """
         directory = get_directory(opt_params[opt_name]['lr'], 
                                 opt_params[opt_name]['dataset_name'],
                                 opt_params[opt_name]['loss'],
@@ -318,15 +357,30 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, e
         print(directory)
         with open(f'../{directory}train_graphs.pk', 'rb') as f:
             train_graphs = pickle.load(f)
-
+        """
+        directory = get_running_directory(opt_params[opt_name]['lr'], 
+                                        opt_params[opt_name]['dataset_name'],
+                                        opt_params[opt_name]['loss'],
+                                        opt_params[opt_name]['opt'], 
+                                        opt_params[opt_name]['model_name'], 
+                                        opt_params[opt_name]['momentum'], 
+                                        opt_params[opt_name]['weight_decay'], 
+                                        opt_params[opt_name]['batch_size'], 
+                                        opt_params[opt_name]['epochs'], **model_param)
+        run_dir = os.listdir("../" + directory)
+        train_graphs = []
+        for run_id in run_dir[::-1]:
+            with open(f'../{directory}/{run_id}/train_graphs.pk', 'rb') as f:
+                train_graphs.append(pickle.load(f))
         #if len(train_graphs.log_epochs) != 0:
         #    cur_epochs = train_graphs.log_epochs
         #else:
         #cur_epochs = np.arange(len(train_graphs.loss))
-        cur_epochs = train_graphs.log_epochs[start:end]
+        #cur_epochs = train_graphs.log_epochs[start:end]
         ax_ptr = 0
+        lines = []
         for attr in attrs:
-            plot_attr(ax=axs[ax_ptr], xaxis=cur_epochs, train_graphs=train_graphs, attr=attr, start=start, end=end)
+            lines.append(plot_attr(ax=axs[ax_ptr], train_graphs=train_graphs, attr=attr, start=start, end=end))
             ax_ptr += 1
         """
         if 'loss' in attrs:
@@ -406,7 +460,7 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, e
         
         """
 
-    axs[0].legend(opts)
+    axs[0].legend(lines, opts)
     plt.tight_layout()
     plt.show()
 

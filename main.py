@@ -627,6 +627,7 @@ if __name__ == "__main__":
     parser.add_argument("--sp_train_size", type=int, default=-1, help="training size for spurious dataset")
     parser.add_argument("--sp_feat_dim", type=int, default=20, help="dimension for spurious data")
     parser.add_argument("--sp_patch_dim", type=int, default=20, help="patch dimension for 2d spurious data")
+    parser.add_argument("--augment", type=int, default=0, help="augment pattern")
 
     # optimizer hyperparameters
     parser.add_argument("--base_opt", type=str, default="sgd", choices=BASE_OPTIMIZERS, help="base optimizer for sam/norm-sgd optimizer")
@@ -769,7 +770,9 @@ if __name__ == "__main__":
             if opt_params["non_iid"] != 0:
                 model_params = model_params | {"non_iid": opt_params["non_iid"]}
         else:
-            train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar(loss_name, batch_size, tiny_analysis=tiny_analysis)
+            train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar(loss_name, batch_size, augment=args.augment, tiny_analysis=tiny_analysis)
+            if args.augment != 0:
+                model_params = model_params | {"augment": args.augment}
     elif dataset_name == "cifar100":
         if opt_name == "federated":
             if opt_params["non_iid"] == 0:

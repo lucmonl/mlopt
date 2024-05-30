@@ -70,34 +70,36 @@ def get_transform():
     return train_transform, test_transform
 
 
-def load_cifar(loss: str, batch_size: int, train_size = -1, tiny_analysis=False):
+def load_cifar(loss: str, batch_size: int, train_size = -1, augment: int = 0, tiny_analysis=False):
     data_params = {"compute_acc": True}
     input_ch = 3
     num_pixels = 32 * 32 * 3
     C = 10
     transform_to_one_hot = True
-    """
-    train_transform = transforms.Compose([transforms.RandomCrop(32, padding=4),
-                                          transforms.RandomHorizontalFlip()])
-    cifar10_train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
-    cifar10_test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False)
-    X_train, X_test = flatten(cifar10_train.data / 255), flatten(cifar10_test.data / 255)
-    #y_train, y_test = make_labels(torch.tensor(cifar10_train.targets), loss), \
-    #    make_labels(torch.tensor(cifar10_test.targets), loss)
-    y_train, y_test = torch.LongTensor(cifar10_train.targets), \
-                        torch.LongTensor(cifar10_test.targets)
-    center_X_train, center_X_test = center(X_train, X_test)
-    standardized_X_train, standardized_X_test = standardize(center_X_train, center_X_test)
-    train = TensorDataset(torch.from_numpy(unflatten(standardized_X_train, (32, 32, 3)).transpose((0, 3, 1, 2))).float(), y_train)
-    if train_size != -1:
-        train = take_first(train, batch_size)
-    test = TensorDataset(torch.from_numpy(unflatten(standardized_X_test, (32, 32, 3)).transpose((0, 3, 1, 2))).float(), y_test)
     
-    """
-    train_transform, test_transform = get_transform()
-    train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
-    test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False, transform=test_transform)
-    
+    if augment == 0:
+        train_transform, test_transform = get_transform()
+        train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
+        test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False, transform=test_transform)
+    elif augment == 1:
+        train_transform = transforms.Compose([transforms.RandomCrop(32, padding=4),
+                                            transforms.RandomHorizontalFlip()])
+        cifar10_train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
+        cifar10_test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False)
+        X_train, X_test = flatten(cifar10_train.data / 255), flatten(cifar10_test.data / 255)
+        #y_train, y_test = make_labels(torch.tensor(cifar10_train.targets), loss), \
+        #    make_labels(torch.tensor(cifar10_test.targets), loss)
+        y_train, y_test = torch.LongTensor(cifar10_train.targets), \
+                            torch.LongTensor(cifar10_test.targets)
+        center_X_train, center_X_test = center(X_train, X_test)
+        standardized_X_train, standardized_X_test = standardize(center_X_train, center_X_test)
+        train = TensorDataset(torch.from_numpy(unflatten(standardized_X_train, (32, 32, 3)).transpose((0, 3, 1, 2))).float(), y_train)
+        if train_size != -1:
+            train = take_first(train, batch_size)
+        test = TensorDataset(torch.from_numpy(unflatten(standardized_X_test, (32, 32, 3)).transpose((0, 3, 1, 2))).float(), y_test)
+    else:
+        raise NotImplementedError
+   
 
     #analysis_size = max(batch_size, 128)
     analysis_size = 32 if tiny_analysis else max(batch_size, 128)
