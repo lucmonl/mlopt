@@ -10,9 +10,9 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         else:
             opt_name = kwargs["server_opt_name"]
         #opt_name = "sgd" if kwargs["server_opt_name"] == "clip_sgd" else kwargs["server_opt_name"] 
-        weight_decay = 0.0
+        #weight_decay = 0.0
         model_params = model_params | {'server_opt': kwargs['server_opt_name'], 'client_opt': kwargs['client_opt_name'], 'client_lr': kwargs['client_lr'], 'client_momentum': kwargs['client_momentum'],
-                                       "client_num": kwargs['client_num'], 'client_epoch': kwargs['client_epoch'], 'sketch_size': kwargs['sketch_size']}
+                                       "client_weight_decay": kwargs['client_weight_decay'], "client_num": kwargs['client_num'], 'client_epoch': kwargs['client_epoch'], 'sketch_size': kwargs['sketch_size']}
     if opt_name == "sgd" or opt_name == "gd":
         optimizer = optim.SGD(model.parameters(),
                             lr=lr,
@@ -21,6 +21,9 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
     elif opt_name == "adam":
         from torch.optim import Adam
         optimizer = Adam(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
+    elif opt_name == "adamw":
+        from torch.optim import AdamW
+        optimizer = AdamW(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
     elif opt_name == "sketch_adam":
         from optimizer.sketch_adam import Adam
         optimizer = Adam(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)

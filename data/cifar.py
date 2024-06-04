@@ -119,6 +119,67 @@ def load_cifar(loss: str, batch_size: int, train_size = -1, augment: int = 0, ti
         batch_size=analysis_size, shuffle=False)
     return train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params
 
+def load_cifar_vit(model_name):
+    from datasets import load_dataset
+    from transformers import ViTImageProcessor
+
+    train_ds, test_ds = load_dataset('cifar10', split=['train', 'test'])
+    id2label = {id:label for id, label in enumerate(train_ds.features['label'].names)}
+    label2id = {label:id for id,label in id2label.items()}
+
+    processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224-in21k")
+
+    from torchvision.transforms import (CenterCrop, 
+                                    Compose, 
+                                    Normalize, 
+                                    RandomHorizontalFlip,
+                                    RandomResizedCrop, 
+                                    Resize, 
+                                    ToTensor)
+
+    image_mean, image_std = processor.image_mean, processor.image_std
+    size = processor.size["height"]
+
+    normalize = Normalize(mean=image_mean, std=image_std)
+    _train_transforms = Compose(
+            [
+                RandomResizedCrop(size),
+                RandomHorizontalFlip(),
+                ToTensor(),
+                normalize,
+            ]
+        )
+
+    _val_transforms = Compose(
+            [
+                Resize(size),
+                CenterCrop(size),
+                ToTensor(),
+                normalize,
+            ]
+        )
+
+    def train_transforms(examples):
+        examples['pixel_values'] = [_train_transforms(image.convert("RGB")) for image in examples['img']]
+        return examples
+
+    def val_transforms(examples):
+        examples['pixel_values'] = [_val_transforms(image.convert("RGB")) for image in examples['img']]
+        return examples
+    
+    train_ds.set_transform(train_transforms)
+    test_ds.set_transform(val_transforms)
+
+    def collate_fn(examples):
+        pixel_values = torch.stack([example["pixel_values"] for example in examples])
+        labels = torch.tensor([example["label"] for example in examples])
+        return {"pixel_values": pixel_values, "labels": labels}
+
+    train_dataloader = DataLoader(train_ds, collate_fn=collate_fn, batch_size=4)
+
+    return id2label, label2id
+
+
 def load_cifar100(loss: str, batch_size: int, train_size = -1):
     data_params = {"compute_acc": True}
     input_ch = 3

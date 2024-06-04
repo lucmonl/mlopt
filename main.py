@@ -222,7 +222,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         client_model = copy.deepcopy(model)
 
         client_model.train()
-        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], weight_decay, lr_decay, epochs_lr_decay, False, model_params, **opt_params)
+        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], lr_decay, epochs_lr_decay, False, model_params, **opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
             train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, opt_params)
@@ -589,7 +589,7 @@ if __name__ == "__main__":
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", "google-bert/bert-base-cased"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
-    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
+    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'adamw', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
     BASE_OPTIMIZERS = ['sgd','adam']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")
@@ -655,6 +655,7 @@ if __name__ == "__main__":
     parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd", "adam"], help="optimizer of clients")
     parser.add_argument("--client_lr", type=float, default=0.01, help="lr of clients")
     parser.add_argument("--client_momentum", type=float, default=0.0, help="momentum of clients")
+    parser.add_argument("--client_weight_decay", type=float, default=0.0, help="momentum of clients")
     parser.add_argument("--client_epoch", type=int, default=200, help="total epochs of client training")
     parser.add_argument("--sketch_size", type=int, default=1000, help="sketch size in communication")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
@@ -742,6 +743,7 @@ if __name__ == "__main__":
     opt_params["sketch_size"]      = args.sketch_size
     opt_params["server_momentum"]  = args.momentum
     opt_params["client_momentum"]  = args.client_momentum
+    opt_params["client_weight_decay"]  = args.client_weight_decay
     opt_params["non_iid"]          = args.non_iid_alpha
     opt_params["clip_tau"]         = args.clip_tau
     
@@ -941,6 +943,11 @@ if __name__ == "__main__":
         assert C == 1
         model = scalarized_conv(width, sp_patch_dim)
         model_params = {"nfilters": width} | model_params
+    elif model_name == "google/vit-base-patch16-224-in21k":
+        from transformers import ViTForImageClassification
+        model = ViTForImageClassification.from_pretrained('google/vit-base-patch16-224-in21k',
+                                                        id2label=id2label,
+                                                        label2id=label2id)
 
     print("number of parameters:", len(parameters_to_vector(model.parameters())))
     # analysis parameters
