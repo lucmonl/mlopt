@@ -305,17 +305,19 @@ def plot_attr(ax, train_graphs, attr, start=None, end=None):
     xaxis = xaxis[start: end]
     yaxis = np.mean(np.array(data), axis=0)
     stds = np.std(np.array(data), axis=0)
+    #if attr == "loss":
+    #    print(data)
     #plt.plot(x, means, label="Estimated Mean")
 
     if attr in ['test_err']:
         #yaxis = 1- np.array(getattr(train_graphs, "test_accuracy")[start:end])
         line = plot_xlogy(ax, xaxis, yaxis, name=attr)
         ax.fill_between(xaxis, yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
-    elif attr in ['loss', 'train_err', 'test_loss']:
+    elif attr in ['loss', 'train_err', 'test_loss', 'eigs',  'eigs_test']:
         #yaxis = getattr(train_graphs, attr)[start:end]
         line = plot_xlogy(ax, xaxis, yaxis, name=attr)
         ax.fill_between(xaxis, yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
-    elif attr in ['accuracy', 'eigs', 'test_accuracy', 'eigs_test']:
+    elif attr in ['accuracy',  'test_accuracy']:
         #yaxis = getattr(train_graphs, attr)[start:end]
         line = plot_xy(ax, xaxis, yaxis, name=attr)
         ax.fill_between(xaxis, yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
@@ -339,6 +341,7 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, e
     rows, cols = (len(attrs) - 1) // 6 + 1, min(len(attrs), 6)
     fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
     axs = axs.reshape(-1)
+    lines = []
     for opt_name in opts:
         model_param = model_params[opt_name]
         """
@@ -367,6 +370,7 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, e
                                         opt_params[opt_name]['weight_decay'], 
                                         opt_params[opt_name]['batch_size'], 
                                         opt_params[opt_name]['epochs'], **model_param)
+        print(directory)
         run_dir = os.listdir("../" + directory)
         train_graphs = []
         for run_id in run_dir[::-1]:
@@ -378,10 +382,12 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, e
         #cur_epochs = np.arange(len(train_graphs.loss))
         #cur_epochs = train_graphs.log_epochs[start:end]
         ax_ptr = 0
-        lines = []
+        #print(opt_name)
         for attr in attrs:
-            lines.append(plot_attr(ax=axs[ax_ptr], train_graphs=train_graphs, attr=attr, start=start, end=end))
+            line = plot_attr(ax=axs[ax_ptr], train_graphs=train_graphs, attr=attr, start=start, end=end)
             ax_ptr += 1
+            if attr == attrs[0]:
+                lines.append(line)
         """
         if 'loss' in attrs:
             plot_train_loss(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.loss[start:end])

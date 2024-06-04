@@ -183,8 +183,9 @@ def federated_train_1(model, loss_name, criterion, device, num_classes, train_lo
     vector_to_parameters(new_params.detach(), model.parameters())
     return exp_avg, exp_avg_sq
 
-def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, opt_params, server_epoch):
-    client_num, client_opt_name, client_lr, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_lr"], opt_params["client_epoch"]
+def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
+    client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
+    #client_num, client_opt_name, client_lr, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_lr"], opt_params["client_epoch"]
     momentum, momentum_v = opt_params["server_momentum"], 0.999
     vector_m, vector_v = 0, 0
     vector_m_true = 0
@@ -287,10 +288,11 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     if server_lr_scheduler is not None:
         server_lr_scheduler.step()
 
-    for group in server_optimizer.param_groups:
-        print(group['lr'])
+    #for group in server_optimizer.param_groups:
+    #    print(group['lr'])
 
     train_graphs.pseudo_grad_norm.append(vector_m_norm)
+
 
 
 def train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params):
@@ -782,6 +784,9 @@ if __name__ == "__main__":
                 from data.cifar import load_cifar100_federated_non_iid
                 train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar100_federated_non_iid(loss_name, batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
                 model_params = model_params | {"non_iid": opt_params["non_iid"]}
+        else:
+            from data.cifar import load_cifar100
+            train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar100(loss_name, batch_size)
     elif dataset_name == "mnist":
         from data.mnist import load_mnist
         train_loader, test_loader, analysis_loader, input_ch, C, transform_to_one_hot = load_mnist(loss_name, batch_size)
@@ -1021,6 +1026,9 @@ if __name__ == "__main__":
     if not no_train:
         train_graphs = graphs()
         optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, model_params, **opt_params)
+        if opt_name == "federated":
+            from optimizer.load_optimizer import load_fake_scheduler
+            client_lr_scheduler = load_fake_scheduler(opt_params["client_lr"], **opt_params)
 
         load_from_epoch = 0
         if not run_from_scratch:
@@ -1047,7 +1055,10 @@ if __name__ == "__main__":
         for epoch in range(load_from_epoch+1, epochs + 1):
             if opt_name == "federated":
                 #exp_avg, exp_avg_sq = federated_train(model, loss_name, criterion, device, C, client_loaders, exp_avg, exp_avg_sq, opt_params, epoch)
-                federated_train(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params, epoch)
+                client_lr = client_lr_scheduler.get_last_lr()[0]
+                federated_train(model, loss_name, criterion, device, client_loaders, optimizer, None, client_lr, opt_params, epoch)
+                client_lr_scheduler.step()
+                print(client_lr)
             else:
                 train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params)
                 #lr_scheduler.step()

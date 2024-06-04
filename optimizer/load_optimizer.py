@@ -141,6 +141,17 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
     #    lr_scheduler = warmup_scheduler.GradualWarmupScheduler(optimizer, multiplier=1., total_epoch=5, after_scheduler=lr_scheduler)
     return optimizer, lr_scheduler, model_params
 
+def load_fake_scheduler(lr, **kwargs):
+    from torch.nn.parameter import Parameter
+    optimizer = optim.SGD([Parameter(torch.tensor(0.0))], lr=lr)
+    if kwargs["scheduler_name"] == "cosine":
+        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=kwargs["epoch"], eta_min=kwargs["lr_min"])
+        #model_params = model_params | {"scheduler": "cosine", "lr_min": kwargs["lr_min"]} 
+    else:
+        lr_scheduler = None
+    return lr_scheduler
+
+
 
 def load_optimizer_from_args(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, model_params, kwargs):
     if opt_name == "sgd" or opt_name == "gd":
