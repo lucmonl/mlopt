@@ -4,6 +4,7 @@ from tqdm import tqdm
 import torch.nn.functional as F
 import sys
 import numpy as np
+from utilities import dict_to_
 
 def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, loader_abridged, test_loader, opt_params, compute_acc=False, compute_model_output=False):
     disable_running_stats(model)
@@ -19,6 +20,7 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
             out = model(data)
             loss = criterion_summed(out, target)
         else:
+            dict_to_(input, device)
             target = input["labels"]
             output = model(**input)
             loss, out = output.loss * output.logits.shape[0], output.logits
@@ -51,6 +53,7 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
             loss = criterion_summed(out, target)
             physical_batch_size = data.shape[0]
         else:
+            dict_to_(input, device)
             target = input["labels"]
             output = model(**input)
             physical_batch_size = output.logits.shape[0]

@@ -29,7 +29,7 @@ from torch.nn.utils import parameters_to_vector, vector_to_parameters
 from optimizer.load_optimizer import load_optimizer
 
 
-from utilities import map_update
+from utilities import map_update, dict_to_
 # setting path
 #current_dir = os.path.dirname(os.path.abspath(__file__))
 #parent_dir = os.path.dirname(current_dir)
@@ -328,7 +328,8 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 assert False
         else:
             #print(input)
-            target = input["labels"]
+            dict_to_(input, device)
+            target = input["labels"].to(device)
             if opt_name != "gd":
                 optimizer.zero_grad()
             output = model(**input)
@@ -497,7 +498,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
         
         #if debug and batch_idx > 20:
         #if batch_idx > 2:
-        #    break
+        #   break
 
     if opt_name == "gd":
         optimizer.step()
@@ -586,7 +587,7 @@ def hook(self, input, output):
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "cifar100", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue"]
-    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", "google-bert/bert-base-cased"]
+    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'adamw', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
@@ -749,7 +750,7 @@ if __name__ == "__main__":
     
     exp_avg, exp_avg_sq            = None, None
 
-    opt_params["hf_model"]         = args.dataset in ["glue"]
+    opt_params["hf_model"]         = args.dataset in ["glue"] or model_name in ["google/vit-base-patch16-224-in21k"]
 
     if debug:
         torch.autograd.set_detect_anomaly(True)
@@ -769,10 +770,17 @@ if __name__ == "__main__":
         #if opt_name == 'gd':
         #    train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot = load_cifar(loss_name, batch_size, sp_train_size)
         if opt_name == "federated":
-            from data.cifar import load_cifar_federated
-            train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar_federated(loss_name, batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
+            if not opt_params["hf_model"]:
+                from data.cifar import load_cifar_federated
+                train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar_federated(loss_name, batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
+            else:
+                from data.cifar import load_cifar_vit_federated
+                train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params = load_cifar_vit_federated(model_name =model_name, batch_size= batch_size, client_num=opt_params["client_num"], alpha=0.0)
             if opt_params["non_iid"] != 0:
                 model_params = model_params | {"non_iid": opt_params["non_iid"]}
+        elif opt_params["hf_model"]:
+            from data.cifar import load_cifar_vit
+            train_loader, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params = load_cifar_vit(model_name, batch_size)
         else:
             train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar(loss_name, batch_size, augment=args.augment, tiny_analysis=tiny_analysis)
             if args.augment != 0:
@@ -944,6 +952,7 @@ if __name__ == "__main__":
         model = scalarized_conv(width, sp_patch_dim)
         model_params = {"nfilters": width} | model_params
     elif model_name == "google/vit-base-patch16-224-in21k":
+        #reference "https://colab.research.google.com/github/NielsRogge/Transformers-Tutorials/blob/master/VisionTransformer/Fine_tuning_the_Vision_Transformer_on_CIFAR_10_with_the_%F0%9F%A4%97_Trainer.ipynb#scrollTo=fZpqx7giniv8"
         from transformers import ViTForImageClassification
         model = ViTForImageClassification.from_pretrained('google/vit-base-patch16-224-in21k',
                                                         id2label=id2label,

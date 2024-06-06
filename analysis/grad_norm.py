@@ -12,4 +12,13 @@ def get_grad_norm(model):
             ]),
             p=2
         )
-    return {"grad_norm": norm.item()}
+    l1_norm = torch.norm(
+            torch.stack([
+                (p.grad).norm(p=1)  #.to(shared_device)
+                #for group in model.param_groups for p in group["params"]
+                for p in model.parameters()
+                if p.grad is not None
+            ]),
+            p=1
+        )
+    return {"grad_norm": norm.item(), "grad_l1_norm": l1_norm.item()}

@@ -898,3 +898,9 @@ def vector_to_grads_sq(vec: torch.Tensor, parameters: Iterable[torch.Tensor]) ->
 
         # Increment the pointer
         pointer += num_param
+
+def dict_to_(sample_dict, device):
+    for key in sample_dict:
+        value = sample_dict[key]
+        if isinstance(value, torch.Tensor):
+            sample_dict[key] = value.to(device)
