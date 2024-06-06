@@ -29,7 +29,7 @@ from torch.nn.utils import parameters_to_vector, vector_to_parameters
 from optimizer.load_optimizer import load_optimizer
 
 
-from utilities import map_update, dict_to_
+from utilities import map_update, dict_to_, graph_update
 # setting path
 #current_dir = os.path.dirname(os.path.abspath(__file__))
 #parent_dir = os.path.dirname(current_dir)
@@ -501,8 +501,8 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 accuracy))
         
         #if debug and batch_idx > 20:
-        #if batch_idx > 2:
-        #   break
+        if debug and batch_idx > 10:
+           break
 
     if opt_name == "gd":
         optimizer.step()
@@ -515,6 +515,10 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
         lr_scheduler.step()
 
     #deal with training track statistics
+
+    if opt_params["train_stats"]:
+        graph_update(train_graphs, track_train_stats, normalizer=len(train_loader))
+    """
     if "cos_descent_ascent" in track_train_stats:
         train_graphs.cos_descent_ascent.append(track_train_stats["cos_descent_ascent"] / len(train_loader))
     if "progress_dir" in track_train_stats:
@@ -528,8 +532,10 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
     if "descent_step_diff" in track_train_stats:
         train_graphs.descent_step_diff.append(track_train_stats["descent_step_diff"] / len(train_loader))
     if "grad_norm" in track_train_stats:
+        print(len(track_train_stats["grad_norm"]))
         train_graphs.grad_norm.append(track_train_stats["grad_norm"])
         #return torch.norm(old_params - parameters_to_vector(model.parameters())).item()
+    """
 
 def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params):    
     if 'loss' in analysis_list:
@@ -673,7 +679,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
 
-    debug = args.debug # Only runs 20 batches per epoch for debugging
+    debug               = args.debug # Only runs 10 batches per epoch for debugging
     no_train            = args.no_train
     do_eval             = args.do_eval
     multi_run           = args.multiple_run
@@ -1087,7 +1093,7 @@ if __name__ == "__main__":
                 #print("Epoch: ", epoch)
                 train_graphs.log_epochs.append(epoch)
                 #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
-                analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc,train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
+                #analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc,train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
                 
                 pickle.dump(train_graphs, open(f"{directory}/train_graphs.pk", "wb"))
                 torch.save(model.state_dict(), f"{directory}/model.ckpt")

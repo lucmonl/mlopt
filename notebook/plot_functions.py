@@ -496,7 +496,7 @@ def plot_figures_opts_hists(opts, model_params, opt_params, attr, epochs):
         for epoch in epochs:
             grad_norm = get_attr(opt_name, model_params, opt_params, attr)
             print(opt_name)
-            print(len(grad_norm))
+            print(len(grad_norm[epoch]))
             axs[ax_ptr].hist(np.array(grad_norm[epoch]).reshape(-1), bins=20, density=True, alpha=0.7)
             axs[ax_ptr].set_title(epoch)
             ax_ptr += 1

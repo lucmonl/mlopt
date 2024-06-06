@@ -829,6 +829,13 @@ def map_update(map1, map2, reduction="sum"):
         else:
             raise NotImplementedError
         
+def graph_update(graph, map,  normalizer):
+    for key in map:
+        if key in ["grad_norm", "grad_l1_norm", "ascent_grad_norm", "ascent_grad_l1_norm"]:
+            getattr(graph, key).append(map[key])
+        else:
+            getattr(graph, key).append(map[key] / normalizer)
+
 def optimizer_to(optim, device):
     for param in optim.state.values():
         # Not sure there are any global tensors in the state dict
