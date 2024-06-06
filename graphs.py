@@ -80,5 +80,8 @@ class graphs:
         self.descent_norm       = []
         self.ascent_semi_cos    = []
 
-        self.grad_norm      = []
-        self.pseudo_grad_norm      = []
+        self.grad_norm          = []
+        self.grad_l1_norm       = []
+        self.ascent_grad_norm   = []
+        self.ascent_grad_l1_norm= []
+        self.pseudo_grad_norm   = []

@@ -1,7 +1,7 @@
 import torch
 
 
-def get_grad_norm(model):
+def get_grad_norm(model, ascent=False):
     #shared_device = model.param_groups[0]["params"][0].device  # put everything on the same device, in case of model parallelism
     norm = torch.norm(
             torch.stack([
@@ -21,4 +21,6 @@ def get_grad_norm(model):
             ]),
             p=1
         )
+    if ascent:
+       return {"ascent_grad_norm": norm.item(), "ascent_grad_l1_norm": l1_norm.item()} 
     return {"grad_norm": norm.item(), "grad_l1_norm": l1_norm.item()}
