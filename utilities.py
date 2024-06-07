@@ -834,6 +834,8 @@ def graph_update(graph, map,  normalizer):
         if key in ["grad_norm", "grad_l1_norm", "ascent_grad_norm", "ascent_grad_l1_norm"]:
             getattr(graph, key).append(map[key])
         else:
+            if key == 'ascent_step_cos':
+                print(map[key])
             getattr(graph, key).append(map[key] / normalizer)
 
 def optimizer_to(optim, device):

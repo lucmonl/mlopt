@@ -505,6 +505,41 @@ def plot_figures_opts_hists(opts, model_params, opt_params, attr, epochs):
     plt.tight_layout()
     plt.show()
 
+
+def plot_figures_attrs_hists(opt, model_params, opt_params, attrs, epochs):
+    rows, cols = (len(epochs) - 1) // 6 + 1, min(len(epochs), 6)
+    fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
+    axs = axs.reshape(-1)
+    opt_name = opt
+    for attr in attrs:
+        model_param = model_params[opt_name]
+        directory = get_directory(opt_params[opt_name]['lr'], 
+                                opt_params[opt_name]['dataset_name'],
+                                opt_params[opt_name]['loss'],
+                                opt_params[opt_name]['opt'], 
+                                opt_params[opt_name]['model_name'], 
+                                opt_params[opt_name]['momentum'], 
+                                opt_params[opt_name]['weight_decay'], 
+                                opt_params[opt_name]['batch_size'], 
+                                opt_params[opt_name]['epochs'], 
+                                multi_run = False,
+                                **model_param
+                                )
+        #print(directory)
+        with open(f'../{directory}train_graphs.pk', 'rb') as f:
+            train_graphs = pickle.load(f)
+
+        ax_ptr = 0
+        for epoch in epochs:
+            grad_norm = get_attr(opt_name, model_params, opt_params, attr)
+            axs[ax_ptr].hist(np.array(grad_norm[epoch]).reshape(-1), bins=20, density=True, alpha=0.7)
+            axs[ax_ptr].set_title(epoch)
+            ax_ptr += 1
+
+    axs[0].legend(attrs)
+    plt.tight_layout()
+    plt.show()
+
 def plot_figures_opts_attr(opts_list, model_params, opt_params, attr, start=None, end=None, alpha=1.0, legends=[], titles=[], save_dir=None):
     #rows, cols = (len(attrs) - 1) // 6 + 1, min(len(attrs), 6)
     rows, cols = 1, len(opts_list)

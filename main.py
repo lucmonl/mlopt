@@ -354,6 +354,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 grad_norm = get_grad_norm(model, ascent=True)
                 map_update(track_train_stats, grad_norm, reduction = "append")
             train_stats = optimizer.first_step(zero_grad=True)
+            print(train_stats['ascent_step_cos'])
             if not (epoch == 1 and batch_idx==1):
                 map_update(track_train_stats, train_stats, reduction="sum")
             # second forward-backward step
@@ -1093,7 +1094,7 @@ if __name__ == "__main__":
                 #print("Epoch: ", epoch)
                 train_graphs.log_epochs.append(epoch)
                 #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
-                #analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc,train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
+                analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc,train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
                 
                 pickle.dump(train_graphs, open(f"{directory}/train_graphs.pk", "wb"))
                 torch.save(model.state_dict(), f"{directory}/model.ckpt")

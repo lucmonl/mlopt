@@ -1,4 +1,5 @@
 import torch
+import math
 
 
 class SAM(torch.optim.Optimizer):
@@ -24,7 +25,7 @@ class SAM(torch.optim.Optimizer):
         grad_norm = self._grad_norm()
         #ascent_step_diff = 0
         train_stats = {"ascent_step_diff": 0, "progress_dir": 0, "ascent_semi_cos": 0, "ascent_step_cos":0}
-
+        
         for group in self.param_groups:
             scale = group["rho"] / (grad_norm + 1e-12)
 
@@ -35,9 +36,10 @@ class SAM(torch.optim.Optimizer):
                 p.add_(e_w)  # climb to the local maximum "w + e(w)"
 
                 if self.track_ascent_step_diff and "ascent_grad" in self.state[p]: # do not execute on the first iteration
-                    train_stats["ascent_step_cos"] += (torch.norm(p.grad.reshape(-1) / (grad_norm + 1e-12)  - self.state[p]["ascent_grad"].reshape(-1))).item()
+                    ascent_grad_norm = self._get_attr_norm('ascent_grad')
+                    train_stats["ascent_step_cos"] += (torch.norm(p.grad.reshape(-1) / (grad_norm + 1e-12)  - self.state[p]["ascent_grad"].reshape(-1))**2).item()
                     train_stats["ascent_step_diff"] += (p.grad.reshape(-1) @ self.state[p]["ascent_grad"] / (grad_norm + 1e-12)).item()
-
+                
                 if self.track_every_two_step:
                     if "ascent_grad_prev" in self.state[p]:
                         ascent_grad_prev_norm = self._get_attr_norm("ascent_grad_prev")
@@ -64,9 +66,10 @@ class SAM(torch.optim.Optimizer):
                 if self.track_cos_descent_ascent:
                     #cos_descent_ascent += self.state[p]["descent_grad"] @ (p.grad.clone() / (grad_norm + 1e-12))
                     self.state[p]["ascent_grad"] = p.grad.clone().reshape(-1) / (grad_norm + 1e-12)
+        print('in loop', self._get_attr_norm('ascent_grad'))
 
         if zero_grad: self.zero_grad()
-
+        train_stats["ascent_step_cos"] = math.sqrt(train_stats["ascent_step_cos"])
         return train_stats
 
 
