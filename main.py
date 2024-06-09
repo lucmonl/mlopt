@@ -583,6 +583,10 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
         from analysis.diagonal import get_diagonal_coef, get_diagonal_invariate
         get_diagonal_coef(graphs, model, device, train_loader)
         get_diagonal_invariate(graphs, model, device, train_loader)
+
+    if 'attention_map' in analysis_list:
+        from analysis.attention_map import get_attention_map
+        get_attention_map(graphs, model, device, vit_patch_size)
     """
     for i in range(2):
         print(model.module_list[i].weight)
@@ -598,7 +602,7 @@ def hook(self, input, output):
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "cifar100", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue"]
-    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k"]
+    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'adamw', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
@@ -618,7 +622,7 @@ if __name__ == "__main__":
     parser.add_argument("--wn_scale", type=float, default=10, help="scaling coef for weight_norm model")
 
     #parser.add_argument("--vit_patch_size", type=int, default=8, help="patch size for ViT")
-    #parser.add_argument("--vit_patch_size", type=int, default=8, help="patch size for ViT")
+    parser.add_argument("--vit_patch_size", type=int, default=8, help="patch size for ViT")
 
     parser.add_argument("--loss",  type=str, choices=LOSSES, help="Training Loss")
     parser.add_argument("--opt",  type=str, choices=OPTIMIZERS, help="Training Optimizer")
@@ -705,7 +709,7 @@ if __name__ == "__main__":
     wn_scale            = args.wn_scale
     width_factor        = args.width_factor
 
-    #vit_patch_size      = args.vit_patch_size
+    vit_patch_size      = args.vit_patch_size
     #vit_head_num        = args.vit_head_num
     #vit_depth           = args.vit_depth
 
@@ -968,6 +972,17 @@ if __name__ == "__main__":
         model = ViTForImageClassification.from_pretrained('google/vit-base-patch16-224-in21k',
                                                         id2label=id2label,
                                                         label2id=label2id)
+    elif model_name == "dino_vit_small":
+        from arch.dino_vit import vit_small
+        model = vit_small(patch_size=vit_patch_size, num_classes=0).to(device)
+        if vit_patch_size == 8:
+            url = "dino_deitsmall8_300ep_pretrain/dino_deitsmall8_300ep_pretrain.pth"
+        elif vit_patch_size == 16:
+            url = "dino_deitsmall16_pretrain/dino_deitsmall16_pretrain.pth"
+        state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dino/" + url)
+        model.load_state_dict(state_dict, strict=True)
+
+        model_params = {"patch_size": vit_patch_size}
 
     print("number of parameters:", len(parameters_to_vector(model.parameters())))
     # analysis parameters
@@ -1106,24 +1121,30 @@ if __name__ == "__main__":
 
     if do_eval:
         eval_graphs = graphs()
-        running_directory = get_running_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, **model_params)
-        epoch_list = np.arange(1, epochs+1, analysis_interval).tolist()
-        for epoch in epoch_list:
-            eval_graphs.log_epochs.append(epoch)
+        if 'model_average' in analysis_list:
+            running_directory = get_running_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, **model_params)
+            epoch_list = np.arange(1, epochs+1, analysis_interval).tolist()
+            for epoch in epoch_list:
+                eval_graphs.log_epochs.append(epoch)
 
-            sdA = torch.load(os.path.join(running_directory, f"run_{model_average[0]}", f"checkpoint_{epoch}", "model.ckpt"))
-            sdB = torch.load(os.path.join(running_directory, f"run_{model_average[1]}", f"checkpoint_{epoch}", "model.ckpt"))
+                sdA = torch.load(os.path.join(running_directory, f"run_{model_average[0]}", f"checkpoint_{epoch}", "model.ckpt"))
+                sdB = torch.load(os.path.join(running_directory, f"run_{model_average[1]}", f"checkpoint_{epoch}", "model.ckpt"))
 
-            for key in sdA:
-                sdB[key] = (sdA[key] + sdB[key]) / 2
+                for key in sdA:
+                    sdB[key] = (sdA[key] + sdB[key]) / 2
 
-            model.load_state_dict(sdB)
-            model = model.to(device)
+                model.load_state_dict(sdB)
+                model = model.to(device)
 
+                analysis(eval_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
+                
+            os.makedirs(f"{running_directory}/avg_{model_average[0]}{model_average[1]}", exist_ok=True)
+            pickle.dump(eval_graphs, open(f"{running_directory}/avg_{model_average[0]}{model_average[1]}/eval_graphs.pk", "wb"))
+        elif 'attention_map' in analysis_list:
             analysis(eval_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
-            
-        os.makedirs(f"{running_directory}/avg_{model_average[0]}{model_average[1]}", exist_ok=True)
-        pickle.dump(eval_graphs, open(f"{running_directory}/avg_{model_average[0]}{model_average[1]}/eval_graphs.pk", "wb"))
 
-
+            directory = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
+            print(directory)
+            os.makedirs(directory, exist_ok=True)
+            pickle.dump(eval_graphs, open(f"{directory}/eval_graphs.pk", "wb"))
         

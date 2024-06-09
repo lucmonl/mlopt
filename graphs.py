@@ -86,3 +86,6 @@ class graphs:
         self.ascent_grad_norm   = []
         self.ascent_grad_l1_norm= []
         self.pseudo_grad_norm   = []
+
+        self.test_img           = []
+        self.attention_map      = []

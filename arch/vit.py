@@ -91,3 +91,8 @@ class ViT(nn.Module):
         out = x.unfold(2, self.patch_size, self.patch_size).unfold(3, self.patch_size, self.patch_size).permute(0,2,3,4,5,1)
         out = out.reshape(x.size(0), self.patch**2 ,-1)
         return out
+
+
+
+
+
