@@ -244,13 +244,11 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             hadamard_params_pad = hadamard_transform(D*new_params_pad)
             vector_m += sub_sample_row @ hadamard_params_pad
 
-            #hadamard_params_pad = hadamard_transform(D_sq*(new_params_pad ** 2))
-            #vector_v += sub_sample_row_sq @ hadamard_params_pad
-            hadamard_params_pad = hadamard_transform(D*(new_params_pad ** 2))
-            vector_v += sub_sample_row @ hadamard_params_pad
+            #hadamard_params_pad = hadamard_transform(D*(new_params_pad ** 2)) #deprecated
+            #vector_v += sub_sample_row @ hadamard_params_pad
 
     vector_m = vector_m / client_num
-    vector_v = vector_v / client_num
+    #vector_v = vector_v / client_num #deprecated
     if sketch_size != -1:
         vector_m = sub_sample_row.T @ vector_m
         vector_m = hadamard_transform(vector_m) * D
@@ -259,10 +257,12 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
 
         #vector_v = sub_sample_row_sq.T @ vector_v
         #vector_v = hadamard_transform(vector_v) * D_sq
+        """ #deprecated
         vector_v = sub_sample_row.T @ vector_v
         vector_v = hadamard_transform(vector_v) * D
         print("sketch error:", torch.norm(vector_v - new_params_pad**2), torch.norm(new_params_pad**2))
         vector_v = vector_v[:p]
+        """
 
     server_optimizer.zero_grad()
     if opt_params["server_opt_name"] == "clip_sgd":
@@ -282,7 +282,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         #vector_to_grads(vector_m, model.parameters())
     else:
         vector_to_grads(vector_m, model.parameters())
-        vector_to_grads_sq(vector_v, model.parameters())
+        #vector_to_grads_sq(vector_v, model.parameters()) #deprecated
     server_optimizer.step()
 
     if server_lr_scheduler is not None:
@@ -602,7 +602,7 @@ def hook(self, input, output):
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "cifar100", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue"]
-    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small"]
+    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small", "dino_vit_base", "dinov2_vit_base"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'adamw', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
@@ -972,18 +972,36 @@ if __name__ == "__main__":
         model = ViTForImageClassification.from_pretrained('google/vit-base-patch16-224-in21k',
                                                         id2label=id2label,
                                                         label2id=label2id)
+        model.init_weights()
     elif model_name == "dino_vit_small":
         from arch.dino_vit import vit_small
-        model = vit_small(patch_size=vit_patch_size, num_classes=0).to(device)
+        model = vit_small(patch_size=vit_patch_size, num_classes=C).to(device)
         if vit_patch_size == 8:
             url = "dino_deitsmall8_300ep_pretrain/dino_deitsmall8_300ep_pretrain.pth"
         elif vit_patch_size == 16:
             url = "dino_deitsmall16_pretrain/dino_deitsmall16_pretrain.pth"
         state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dino/" + url)
-        model.load_state_dict(state_dict, strict=True)
-
+        model.load_state_dict(state_dict, strict=False)
         model_params = {"patch_size": vit_patch_size}
-
+    elif model_name == "dino_vit_base":
+        from arch.dino_vit import vit_base
+        model = vit_base(patch_size=vit_patch_size, num_classes=C).to(device)
+        if vit_patch_size == 8:
+            url = "dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth"
+        elif vit_patch_size == 16:
+            url = "dino_vitbase16_pretrain/dino_vitbase16_pretrain.pth"
+        state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dino/" + url)
+        model.load_state_dict(state_dict, strict=False)
+        model_params = {"patch_size": vit_patch_size}
+    elif model_name == "dinov2_vit_base":
+        #dinov2_vitb14 = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14')
+        from arch.dinov2_vit import vit_base
+        model = vit_base(patch_size=vit_patch_size).to(device)
+        if vit_patch_size == 14:
+            url = "dinov2_vitb14/dinov2_vitb14_pretrain.pth"
+        state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dinov2/" + url)
+        model.load_state_dict(state_dict, strict=False)
+        model_params = {"patch_size": vit_patch_size}
     print("number of parameters:", len(parameters_to_vector(model.parameters())))
     # analysis parameters
     """

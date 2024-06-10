@@ -15,6 +15,7 @@ from PIL import Image
 import sys
 
 def load_image(image_path):
+    image_path = "plots/indoor.png"
     if image_path is None:
         # user has not specified any image - we use our own image
         print("Please use the `--image_path` argument to indicate the path of the image you wish to visualize.")
@@ -35,7 +36,7 @@ def load_image(image_path):
 
 def get_attention_map(graphs, model, device, patch_size, image_path=None):
     img = load_image(image_path)
-    image_size = (480, 480)
+    image_size = (360, 361)
     threshold = None
     transform = pth_transforms.Compose([
         pth_transforms.Resize(image_size),
