@@ -15,7 +15,7 @@ from PIL import Image
 import sys
 
 def load_image(image_path):
-    image_path = "plots/indoor.png"
+    image_path = "plots/leopard.png"
     if image_path is None:
         # user has not specified any image - we use our own image
         print("Please use the `--image_path` argument to indicate the path of the image you wish to visualize.")
@@ -36,7 +36,7 @@ def load_image(image_path):
 
 def get_attention_map(graphs, model, device, patch_size, image_path=None):
     img = load_image(image_path)
-    image_size = (360, 361)
+    image_size = (600, 600)
     threshold = None
     transform = pth_transforms.Compose([
         pth_transforms.Resize(image_size),
@@ -58,6 +58,7 @@ def get_attention_map(graphs, model, device, patch_size, image_path=None):
 
     # we keep only the output patch attention
     attentions = attentions[0, :, 0, 1:].reshape(nh, -1)
+    print(torch.sum(attentions, dim=-1), torch.max(attentions))
 
     if threshold is not None:
         # we keep only a certain percentage of the mass
@@ -82,6 +83,10 @@ def get_attention_map(graphs, model, device, patch_size, image_path=None):
     attentions = nn.functional.interpolate(attentions.unsqueeze(0), scale_factor=patch_size, mode="nearest")[0].cpu().numpy()
     graphs.test_img.append(raw_image)
     graphs.attention_map.append(attentions)
+
+    output_norm = model.get_intermediate_layers(img.to(device), n=1, reshape=True, norm=True)[-1].detach().cpu()
+    output_norm = torch.norm(output_norm, dim=1).tolist()
+    graphs.output_norm.append(output_norm)
 
     # save attentions heatmaps
     """

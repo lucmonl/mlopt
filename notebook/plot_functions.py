@@ -639,7 +639,7 @@ def plot_attention_map(model_param, opt_param):
         eval_graphs = pickle.load(f)
     
     attention_maps = eval_graphs.attention_map[0]
-    rows, cols = (len(attention_maps)) // 6 + 1, min(len(attention_maps)+1, 6)
+    rows, cols = (len(attention_maps)+1) // 6 + 1, min(len(attention_maps)+2, 6)
     #rows, cols = (len(epochs) - 1) // 6 + 1, min(len(epochs), 6)
     ax_itr = 0
     fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
@@ -652,4 +652,8 @@ def plot_attention_map(model_param, opt_param):
         ax_itr+=1
         attention_map = np.array(attention_maps[i])
         axs[ax_itr].imshow(attention_map)
-    return raw_image, attention_maps
+
+    output_norm = eval_graphs.output_norm[0]
+    ax_itr+=1
+    axs[ax_itr].imshow(output_norm[0])
+    return raw_image, attention_maps, output_norm

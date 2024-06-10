@@ -182,6 +182,7 @@ class VisionTransformer(nn.Module):
                  drop_path_rate=0., norm_layer=nn.LayerNorm, **kwargs):
         super().__init__()
         self.num_features = self.embed_dim = embed_dim
+        self.patch_size = patch_size
 
         self.patch_embed = PatchEmbed(
             img_size=img_size[0], patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim)
@@ -266,14 +267,24 @@ class VisionTransformer(nn.Module):
                 # return attention of the last block
                 return blk(x, return_attention=True)
 
-    def get_intermediate_layers(self, x, n=1):
+    def get_intermediate_layers(self, x, n=1, reshape=False, norm=True):
+        B, _, w, h = x.shape
         x = self.prepare_tokens(x)
         # we return the output tokens from the `n` last blocks
         output = []
         for i, blk in enumerate(self.blocks):
             x = blk(x)
             if len(self.blocks) - i <= n:
-                output.append(self.norm(x))
+                if norm:
+                    output.append(self.norm(x))
+                else:
+                    output.append(x)
+                #output.append(torch.norm(x, dim=-1))
+        if reshape:
+            output = [
+                out[:, 1:].reshape(B, w // self.patch_size, h // self.patch_size, -1).permute(0, 3, 1, 2).contiguous()
+                for out in output
+            ]
         return output
 
 
