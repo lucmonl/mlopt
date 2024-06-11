@@ -519,6 +519,127 @@ def load_cifar100_federated(loss: str, batch_size: int, train_size = -1, client_
         batch_size=analysis_size, shuffle=False)
     return train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params
 
+def load_cifar100_vit_federated(model_name: str, batch_size: int, train_size = -1, client_num=1, alpha=0.0):
+    data_params = {"compute_acc": True}
+    transform_to_one_hot = True
+    C = 100
+    from datasets import load_dataset
+    from transformers import ViTImageProcessor
+
+    train, test = load_dataset('cifar100', split=['train', 'test'])
+    id2label = {id:label for id, label in enumerate(train.features['fine_label'].names)}
+    label2id = {label:id for id,label in id2label.items()}
+
+    processor = ViTImageProcessor.from_pretrained(model_name)
+
+    from torchvision.transforms import (CenterCrop, 
+                                    Compose, 
+                                    Normalize, 
+                                    RandomHorizontalFlip,
+                                    RandomResizedCrop, 
+                                    Resize, 
+                                    ToTensor)
+
+    image_mean, image_std = processor.image_mean, processor.image_std
+    size = processor.size["height"]
+
+    normalize = Normalize(mean=image_mean, std=image_std)
+    _train_transforms = Compose(
+            [
+                RandomResizedCrop(size),
+                RandomHorizontalFlip(),
+                ToTensor(),
+                normalize,
+            ]
+        )
+
+    _val_transforms = Compose(
+            [
+                Resize(size),
+                CenterCrop(size),
+                ToTensor(),
+                normalize,
+            ]
+        )
+
+    def train_transforms(examples):
+        examples['pixel_values'] = [_train_transforms(image.convert("RGB")) for image in examples['img']]
+        return examples
+
+    def val_transforms(examples):
+        examples['pixel_values'] = [_val_transforms(image.convert("RGB")) for image in examples['img']]
+        return examples
+    
+    train.set_transform(train_transforms)
+    test.set_transform(val_transforms)
+
+    def collate_fn(examples):
+        pixel_values = torch.stack([example["pixel_values"] for example in examples])
+        labels = torch.tensor([example["fine_label"] for example in examples])
+        return {"pixel_values": pixel_values, "labels": labels}
+
+    analysis_size = max(batch_size, 128)
+    analysis = torch.utils.data.Subset(train, range(analysis_size))
+    analysis_test = torch.utils.data.Subset(test, range(analysis_size))
+    client_loaders = []
+
+    if alpha == 0:
+        randperm = np.random.permutation(len(train))
+        for i in range(client_num):
+            data_index = randperm[i:-1:client_num]
+            client_train = torch.utils.data.Subset(train, data_index)
+            client_loaders.append(torch.utils.data.DataLoader(
+                            client_train,
+                            collate_fn=collate_fn, 
+                            batch_size=batch_size, shuffle=True))
+    else:
+        import random
+        num_chunks = 4
+        majority_index, minority_index = [], []
+        class_randperm = np.random.permutation(C)
+        class_chunk_perm = [(i,j) for i in range(C) for j in range(int(client_num*num_chunks/C))]
+        random.seed(42)
+        random.shuffle(class_chunk_perm)
+
+        for i in range(C):
+            class_index = np.where(np.array(train.targets) == i)[0].tolist()
+            majority_index.append(class_index[:int(alpha * len(class_index))])
+            minority_index = minority_index + class_index[int(alpha * len(class_index)):]
+        minority_randperm = np.random.permutation(len(minority_index))
+        minority_index = np.array(minority_index)
+
+        for i in range(client_num):
+            data_index = minority_index[minority_randperm[i::client_num]].tolist()
+
+            for (class_id, chunk_id) in class_chunk_perm[i*num_chunks:(i+1)*num_chunks]:
+                data_index += majority_index[class_id][chunk_id::int(client_num*num_chunks/C)]
+                
+            client_train = torch.utils.data.Subset(train, data_index)
+            client_loaders.append(torch.utils.data.DataLoader(
+                            client_train,
+                            collate_fn=collate_fn, 
+                            batch_size=batch_size, shuffle=True))
+            #from collections import Counter
+            #print(Counter(np.array(train.targets)[data_index]))
+        #sys.exit()
+
+    train_loader = torch.utils.data.DataLoader(
+        train,
+        collate_fn=collate_fn, 
+        batch_size=batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(
+        test,
+        collate_fn=collate_fn, 
+        batch_size=batch_size, shuffle=False)
+    analysis_loader = torch.utils.data.DataLoader(
+        analysis,
+        collate_fn=collate_fn, 
+        batch_size=analysis_size, shuffle=False)
+    analysis_test_loader = torch.utils.data.DataLoader(
+        analysis_test,
+        collate_fn=collate_fn, 
+        batch_size=analysis_size, shuffle=False)
+    return train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params
 
 
 def load_cifar100_federated_non_iid(loss: str, batch_size: int, train_size = -1, client_num=1, alpha=0):

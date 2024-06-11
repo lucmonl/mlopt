@@ -14,7 +14,12 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
 
     model_output = []
     for batch_idx, input in enumerate(loader_abridged, start=1):
-        if not opt_params["hf_model"]:
+        if opt_params["cub_data"]:
+            data, target, group = input
+            data, target, group = data.to(device), target.to(device), group.to(device)
+            out = model(data)
+            loss = criterion_summed(out, target, group, False)
+        elif not opt_params["hf_model"]:
             data, target = input
             data, target = data.to(device), target.to(device)
             out = model(data)
@@ -46,7 +51,13 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
     loss_sum = 0
     accuracy_sum = 0
     for batch_idx, input in enumerate(test_loader, start=1):
-        if not opt_params["hf_model"]:
+        if opt_params["cub_data"]:
+            data, target, group = input
+            data, target, group = data.to(device), target.to(device), group.to(device)
+            out = model(data)
+            loss = criterion_summed(out, target, group, False)
+            physical_batch_size = data.shape[0]
+        elif not opt_params["hf_model"]:
             data, target = input
             data, target = data.to(device), target.to(device)
             out = model(data)

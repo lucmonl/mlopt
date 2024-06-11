@@ -882,8 +882,8 @@ def vit_base(patch_size=16, num_register_tokens=0, **kwargs):
         depth=12,
         num_heads=12,
         mlp_ratio=4,
-        #block_fn=partial(NestedTensorBlock, attn_class=MemEffAttention),
-        block_fn=partial(Block, attn_class=Attention),
+        block_fn=partial(NestedTensorBlock, attn_class=MemEffAttention),
+        #block_fn=partial(Block, attn_class=Attention),
         num_register_tokens=num_register_tokens,
         **kwargs,
     )

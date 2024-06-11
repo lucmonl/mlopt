@@ -307,7 +307,12 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
     track_train_stats = {}
 
     for batch_idx, input in enumerate(train_loader, start=1):
-        if not opt_params["hf_model"]:
+        if opt_params["cub_data"]:
+            data, target, group = input
+            data, target, group = data.to(device), target.to(device), group.to(device)
+            out = model(data)
+            loss = criterion(out, target, group, True)
+        elif not opt_params["hf_model"]:
             data, target = input
             if data.shape[0] != batch_size:
                 continue
@@ -601,8 +606,8 @@ def hook(self, input, output):
 
     
 if __name__ == "__main__":
-    DATASETS = ["spurious", "cifar", "cifar100", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue"]
-    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small", "dino_vit_base", "dinov2_vit_base"]
+    DATASETS = ["spurious", "cifar", "cifar100", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub"]
+    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small", "dino_vit_base", "dinov2_vit_base", "dinov2_vit_small"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'adamw', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
@@ -646,6 +651,8 @@ if __name__ == "__main__":
     parser.add_argument("--sp_feat_dim", type=int, default=20, help="dimension for spurious data")
     parser.add_argument("--sp_patch_dim", type=int, default=20, help="patch dimension for 2d spurious data")
     parser.add_argument("--augment", type=int, default=0, help="augment pattern")
+    parser.add_argument("--target_name", type=str, choices=["waterbird_complete95","none"], default="none", help="target name for dro")
+    parser.add_argument("--confounder_names", type=str, nargs='+', default="none", help="confounder name for dro")
 
     # optimizer hyperparameters
     parser.add_argument("--base_opt", type=str, default="sgd", choices=BASE_OPTIMIZERS, help="base optimizer for sam/norm-sgd optimizer")
@@ -766,6 +773,7 @@ if __name__ == "__main__":
     exp_avg, exp_avg_sq            = None, None
 
     opt_params["hf_model"]         = args.dataset in ["glue"] or model_name in ["google/vit-base-patch16-224-in21k"]
+    opt_params["cub_data"]         = args.dataset in ["cub"]
 
     if debug:
         torch.autograd.set_detect_anomaly(True)
@@ -803,8 +811,12 @@ if __name__ == "__main__":
     elif dataset_name == "cifar100":
         if opt_name == "federated":
             if opt_params["non_iid"] == 0:
-                from data.cifar import load_cifar100_federated
-                train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar100_federated(loss_name, batch_size, client_num=opt_params["client_num"])
+                if opt_params["hf_model"]:
+                    from data.cifar import load_cifar100_vit_federated
+                    train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params = load_cifar100_vit_federated(model_name =model_name, batch_size= batch_size, client_num=opt_params["client_num"], alpha=0.0)
+                else:
+                    from data.cifar import load_cifar100_federated
+                    train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar100_federated(loss_name, batch_size, client_num=opt_params["client_num"])
             else:
                 from data.cifar import load_cifar100_federated_non_iid
                 train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar100_federated_non_iid(loss_name, batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
@@ -875,7 +887,11 @@ if __name__ == "__main__":
         else:
             from data.glue import load_glue
             model, train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_glue(model_name, batch_size, model_params)
-    
+    elif dataset_name == "cub":
+        from data.dro import load_dro
+        train_loader, test_loader, analysis_loader, analysis_test_loader, n_groups, group_counts, group_str, C, transform_to_one_hot, data_params = load_dro(batch_size, dataset="CUB", target_name=args.target_name, confounder_names=args.confounder_names, model_name=model_name)
+        model_params = model_params | {"target": args.target_name, "confounder": args.confounder_names}
+
     compute_acc = data_params["compute_acc"]
     if args.mixup == "cut":
         from data.data_process import CutMix
@@ -993,6 +1009,15 @@ if __name__ == "__main__":
         state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dino/" + url)
         model.load_state_dict(state_dict, strict=False)
         model_params = {"patch_size": vit_patch_size}
+    elif model_name == "dinov2_vit_small":
+        #dinov2_vitb14 = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14')
+        from arch.dinov2_vit import vit_small
+        model = vit_small(patch_size=vit_patch_size).to(device)
+        if vit_patch_size == 14:
+            url = "dinov2_vits14/dinov2_vits14_pretrain.pth"
+        state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dinov2/" + url)
+        model.load_state_dict(state_dict, strict=False)
+        model_params = {"patch_size": vit_patch_size}
     elif model_name == "dinov2_vit_base":
         #dinov2_vitb14 = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14')
         from arch.dinov2_vit import vit_base
@@ -1050,10 +1075,36 @@ if __name__ == "__main__":
             return torch.sum(torch.sum(-true_dist * pred, dim=self.dim))    
     """
     if loss_name == 'CrossEntropyLoss':
-        
         assert transform_to_one_hot # assert target is index vector
-        criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
-        criterion_summed = nn.CrossEntropyLoss(label_smoothing=label_smoothing, reduction='sum')
+        if dataset_name == "cub":
+            from data.group_dro.loss import LossComputer
+            generalization_adjustment = "0.0"
+            adjustments = [float(c) for c in generalization_adjustment.split(',')]
+            assert len(adjustments) in (1, n_groups)
+            if len(adjustments)==1:
+                adjustments = np.array(adjustments* n_groups)
+            else:
+                adjustments = np.array(adjustments)
+
+            loss_computer = LossComputer(
+                criterion=nn.CrossEntropyLoss(label_smoothing=label_smoothing, reduction='none'),
+                is_robust=True,
+                n_groups = n_groups, 
+                group_counts = group_counts, 
+                group_str = group_str, 
+                alpha=0.2,
+                gamma=0.1,
+                adj=adjustments,
+                step_size=0.01,
+                normalize_loss=False,
+                btl=False,
+                min_var_weight=0)
+            criterion = loss_computer.loss
+            def criterion_summed(x, y, g, is_training):
+                return criterion(x, y, g, is_training) * y.shape[0]
+        else:
+            criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+            criterion_summed = nn.CrossEntropyLoss(label_smoothing=label_smoothing, reduction='sum')
         
         #criterion = LabelSmoothingCrossEntropyLoss(classes=C, smoothing=label_smoothing)
         #criterion_summed = LabelSmoothingCrossEntropyLoss_summed(classes=C, smoothing=label_smoothing)
