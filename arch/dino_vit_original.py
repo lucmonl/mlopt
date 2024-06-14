@@ -124,8 +124,10 @@ class Attention(nn.Module):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
-        attn = (q @ k.transpose(-2, -1)) * self.scale #[B, heads, patch_num, patch_num]
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        print(attn.shape)
         attn = attn.softmax(dim=-1)
+        #print(torch.sum(attn, dim=-1))
         attn = self.attn_drop(attn)
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
@@ -264,22 +266,23 @@ class VisionTransformer(nn.Module):
         return x[:, 0]
     
     def get_all_selfattention(self, x):
-        attns = []
         x = self.prepare_tokens(x)
         for i, blk in enumerate(self.blocks):
-            x, attn_layer = blk(x)
-            attns.append(attn_layer.detach().cpu())
-        return attns
+            if i < len(self.blocks) - 1:
+                x = blk(x)
+                return blk(x, return_attention=True)
+            else:
+                # return attention of the last block
+                return blk(x, return_attention=True)
 
     def get_last_selfattention(self, x):
         x = self.prepare_tokens(x)
         for i, blk in enumerate(self.blocks):
             if i < len(self.blocks) - 1:
-                x, _ = blk(x)
+                x = blk(x)
             else:
                 # return attention of the last block
-                _, attn = blk(x, return_attention=True)
-                return [attn.detach().cpu()]
+                return blk(x, return_attention=True)
 
     def get_intermediate_layers(self, x, n=1, reshape=False, norm=True):
         B, _, w, h = x.shape
@@ -287,7 +290,7 @@ class VisionTransformer(nn.Module):
         # we return the output tokens from the `n` last blocks
         output = []
         for i, blk in enumerate(self.blocks):
-            x, _ = blk(x)
+            x = blk(x)
             if len(self.blocks) - i <= n:
                 if norm:
                     output.append(self.norm(x))

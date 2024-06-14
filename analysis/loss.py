@@ -6,12 +6,13 @@ import sys
 import numpy as np
 from utilities import dict_to_
 
+@torch.no_grad
 def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, loader_abridged, test_loader, opt_params, compute_acc=False, compute_model_output=False):
     disable_running_stats(model)
     loss_sum = 0
     accuracy_sum = 0
     accuracy = 0
-
+    
     model_output = []
     for batch_idx, input in enumerate(loader_abridged, start=1):
         if opt_params["cub_data"]:
@@ -51,7 +52,12 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
     loss_sum = 0
     accuracy_sum = 0
     for batch_idx, input in enumerate(test_loader, start=1):
-        if opt_params["cub_data"]:
+        if opt_params["wild_data"]:
+            data, target, metadata = input
+            data, target = data.to(device), target.to(device)
+            out = model(data)
+            loss = criterion(out, target)
+        elif opt_params["cub_data"]:
             data, target, group = input
             data, target, group = data.to(device), target.to(device), group.to(device)
             out = model(data)

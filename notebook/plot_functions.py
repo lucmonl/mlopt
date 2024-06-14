@@ -621,7 +621,7 @@ def plot_figure_cos_descent_ascent(opts, model_params, opt_params):
         plt.ylabel('Value')
         plt.title('cos_descent_ascent')
 
-def plot_attention_map(model_param, opt_param):
+def plot_attention_map(model_param, opt_param, depths=None):
     directory = get_directory(opt_param['lr'], 
                             opt_param['dataset_name'],
                             opt_param['loss'],
@@ -637,23 +637,26 @@ def plot_attention_map(model_param, opt_param):
     print(directory)
     with open(f'../{directory}eval_graphs.pk', 'rb') as f:
         eval_graphs = pickle.load(f)
-    
-    attention_maps = eval_graphs.attention_map[0]
-    rows, cols = (len(attention_maps)+1) // 6 + 1, min(len(attention_maps)+2, 6)
-    #rows, cols = (len(epochs) - 1) // 6 + 1, min(len(epochs), 6)
-    ax_itr = 0
-    fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
-    axs = axs.reshape(-1)
-    ax = axs[ax_itr]
-    raw_image = np.array(eval_graphs.test_img[0])
-    ax.imshow(raw_image)
+    if depths is None:
+        depths = np.arange(len(eval_graphs.attention_map))
+    print(depths)
+    for depth in depths:
+        attention_maps = eval_graphs.attention_map[depth]
+        rows, cols = (len(attention_maps)+1) // 6 + 1, min(len(attention_maps)+2, 6)
+        #rows, cols = (len(epochs) - 1) // 6 + 1, min(len(epochs), 6)
+        ax_itr = 0
+        fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
+        axs = axs.reshape(-1)
+        ax = axs[ax_itr]
+        raw_image = np.array(eval_graphs.test_img[0])
+        ax.imshow(raw_image)
 
-    for i in range(len(attention_maps)):
+        for i in range(len(attention_maps)):
+            ax_itr+=1
+            attention_map = np.array(attention_maps[i])
+            axs[ax_itr].imshow(attention_map)
+
+        output_norm = eval_graphs.output_norm[0]
         ax_itr+=1
-        attention_map = np.array(attention_maps[i])
-        axs[ax_itr].imshow(attention_map)
-
-    output_norm = eval_graphs.output_norm[0]
-    ax_itr+=1
-    axs[ax_itr].imshow(output_norm[0])
+        axs[ax_itr].imshow(output_norm[0])
     return raw_image, attention_maps, output_norm

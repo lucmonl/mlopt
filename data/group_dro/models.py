@@ -32,7 +32,17 @@ model_attributes = {
         'target_resolution': (224, 224),
         'flatten': False,
     },
+    'dinov2_vit_small': {
+        'feature_type': 'image',
+        'target_resolution': (224, 224),
+        'flatten': False,
+    },
     'dinov2_vit_base': {
+        'feature_type': 'image',
+        'target_resolution': (224, 224),
+        'flatten': False,
+    },
+    'google/vit-base-patch16-224-in21k': {
         'feature_type': 'image',
         'target_resolution': (224, 224),
         'flatten': False,

@@ -307,7 +307,12 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
     track_train_stats = {}
 
     for batch_idx, input in enumerate(train_loader, start=1):
-        if opt_params["cub_data"]:
+        if opt_params["wild_data"]:
+            data, target, metadata = input
+            data, target = data.to(device), target.to(device)
+            out = model(data)
+            loss = criterion(out, target)
+        elif opt_params["cub_data"]:
             data, target, group = input
             data, target, group = data.to(device), target.to(device), group.to(device)
             out = model(data)
@@ -606,7 +611,7 @@ def hook(self, input, output):
 
     
 if __name__ == "__main__":
-    DATASETS = ["spurious", "cifar", "cifar100", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub"]
+    DATASETS = ["spurious", "cifar", "cifar100", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds"]
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small", "dino_vit_base", "dinov2_vit_base", "dinov2_vit_small"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
@@ -774,6 +779,7 @@ if __name__ == "__main__":
 
     opt_params["hf_model"]         = args.dataset in ["glue"] or model_name in ["google/vit-base-patch16-224-in21k"]
     opt_params["cub_data"]         = args.dataset in ["cub"]
+    opt_params["wild_data"]        = args.dataset in ["wilds"]
 
     if debug:
         torch.autograd.set_detect_anomaly(True)
@@ -891,6 +897,14 @@ if __name__ == "__main__":
         from data.dro import load_dro
         train_loader, test_loader, analysis_loader, analysis_test_loader, n_groups, group_counts, group_str, C, transform_to_one_hot, data_params = load_dro(batch_size, dataset="CUB", target_name=args.target_name, confounder_names=args.confounder_names, model_name=model_name)
         model_params = model_params | {"target": args.target_name, "confounder": args.confounder_names}
+    elif dataset_name == "wilds":
+        model_params = model_params | {"task_name": args.task_name} 
+        if opt_name == "federated":
+            from data.wilds import load_wilds_federated
+            train_loader, test_loader, analysis_loader, analysis_test_loader, client_loaders, C, transform_to_one_hot, data_params = load_wilds_federated(batch_size, args.task_name, client_num=opt_params["client_num"])
+        else:
+            from data.wilds import load_wilds
+            train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_wilds(batch_size, args.task_name)
 
     compute_acc = data_params["compute_acc"]
     if args.mixup == "cut":
@@ -1013,6 +1027,7 @@ if __name__ == "__main__":
         #dinov2_vitb14 = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14')
         from arch.dinov2_vit import vit_small
         model = vit_small(patch_size=vit_patch_size).to(device)
+        print(len(parameters_to_vector(model.parameters())))
         if vit_patch_size == 14:
             url = "dinov2_vits14/dinov2_vits14_pretrain.pth"
         state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dinov2/" + url)

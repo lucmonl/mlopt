@@ -355,7 +355,7 @@ class Block(nn.Module):
     def forward(self, x: Tensor, return_attention: bool=False) -> Tensor:
         if return_attention:
             attn = self.attn(self.norm1(x), return_attention)
-            return attn
+            return attn.detach()
 
         def attn_residual_func(x: Tensor) -> Tensor:
             return self.ls1(self.attn(self.norm1(x)))
@@ -773,7 +773,7 @@ class DinoVisionTransformer(nn.Module):
                 x = blk(x)
             else:
                 # return attention of the last block
-                return blk(x, return_attention=True)
+                return [blk(x, return_attention=True)]
 
     def forward_features(self, x, masks=None):
         if isinstance(x, list):
@@ -868,7 +868,8 @@ def vit_small(patch_size=16, num_register_tokens=0, **kwargs):
         depth=12,
         num_heads=6,
         mlp_ratio=4,
-        block_fn=partial(NestedTensorBlock, attn_class=MemEffAttention),
+        #block_fn=partial(NestedTensorBlock, attn_class=MemEffAttention),
+        block_fn=partial(Block, attn_class=Attention),
         num_register_tokens=num_register_tokens,
         **kwargs,
     )

@@ -15,7 +15,7 @@ from PIL import Image
 import sys
 
 def load_image(image_path):
-    image_path = "plots/leopard.png"
+    image_path = "plots/dog.png"
     if image_path is None:
         # user has not specified any image - we use our own image
         print("Please use the `--image_path` argument to indicate the path of the image you wish to visualize.")
@@ -53,36 +53,32 @@ def get_attention_map(graphs, model, device, patch_size, image_path=None):
     w_featmap = img.shape[-2] // patch_size
     h_featmap = img.shape[-1] // patch_size
 
-    attentions = model.get_last_selfattention(img.to(device)).detach().cpu() #[1,6,2601,3601]
-    nh = attentions.shape[1] # number of head
+    attentions = model.get_last_selfattention(img.to(device))#.detach().cpu() #[1,6,2601,3601]
+    nh = attentions[0].shape[1] # number of head
 
     # we keep only the output patch attention
-    attentions = attentions[0, :, 0, 1:].reshape(nh, -1)
-    print(torch.sum(attentions, dim=-1), torch.max(attentions))
+    for i in range(len(attentions)):
+        attentions[i] = attentions[i][0, :, 0, 1:].reshape(nh, -1)
+    #print(torch.sum(attentions, dim=-1), torch.max(attentions))
 
-    if threshold is not None:
-        # we keep only a certain percentage of the mass
-        val, idx = torch.sort(attentions)
-        val /= torch.sum(val, dim=1, keepdim=True)
-        cumval = torch.cumsum(val, dim=1)
-        th_attn = cumval > (1 - threshold)
-        idx2 = torch.argsort(idx)
-        for head in range(nh):
-            th_attn[head] = th_attn[head][idx2[head]]
-        th_attn = th_attn.reshape(nh, w_featmap, h_featmap).float()
-        # interpolate
-        th_attn = nn.functional.interpolate(th_attn.unsqueeze(0), scale_factor=patch_size, mode="nearest")[0].cpu().numpy()
+        if threshold is not None:
+            # we keep only a certain percentage of the mass
+            val, idx = torch.sort(attentions)
+            val /= torch.sum(val, dim=1, keepdim=True)
+            cumval = torch.cumsum(val, dim=1)
+            th_attn = cumval > (1 - threshold)
+            idx2 = torch.argsort(idx)
+            for head in range(nh):
+                th_attn[head] = th_attn[head][idx2[head]]
+            th_attn = th_attn.reshape(nh, w_featmap, h_featmap).float()
+            # interpolate
+            th_attn = nn.functional.interpolate(th_attn.unsqueeze(0), scale_factor=patch_size, mode="nearest")[0].cpu().numpy()
 
-    attentions = attentions.reshape(nh, w_featmap, h_featmap)
-    """
-    print(attentions)
-    print(torch.max(attentions), torch.min(attentions))
-    print(torch.sum(attentions, dim=(1,2)))
-    print(attentions.shape)
-    """
-    attentions = nn.functional.interpolate(attentions.unsqueeze(0), scale_factor=patch_size, mode="nearest")[0].cpu().numpy()
+        attentions[i] = attentions[i].reshape(nh, w_featmap, h_featmap)
+        attentions[i] = nn.functional.interpolate(attentions[i].unsqueeze(0), scale_factor=patch_size, mode="nearest")[0].cpu().numpy()
     graphs.test_img.append(raw_image)
-    graphs.attention_map.append(attentions)
+    #graphs.attention_map.append([1,2,3])
+    graphs.attention_map = attentions
 
     output_norm = model.get_intermediate_layers(img.to(device), n=1, reshape=True, norm=True)[-1].detach().cpu()
     output_norm = torch.norm(output_norm, dim=1).tolist()
