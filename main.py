@@ -1036,11 +1036,11 @@ if __name__ == "__main__":
     elif model_name == "dinov2_vit_base":
         #dinov2_vitb14 = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14')
         from arch.dinov2_vit import vit_base
-        model = vit_base(patch_size=vit_patch_size).to(device)
+        model = vit_base(patch_size=vit_patch_size, img_size=518, init_values=1.0, block_chunks=0).to(device)
         if vit_patch_size == 14:
             url = "dinov2_vitb14/dinov2_vitb14_pretrain.pth"
         state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dinov2/" + url)
-        model.load_state_dict(state_dict, strict=False)
+        model.load_state_dict(state_dict, strict=True)
         model_params = {"patch_size": vit_patch_size}
     print("number of parameters:", len(parameters_to_vector(model.parameters())))
     # analysis parameters

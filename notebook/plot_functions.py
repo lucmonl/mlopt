@@ -286,6 +286,9 @@ def plot_y(ax, yaxis, name):
 def get_attr_from_graph(train_graph, attr):
     if attr == "test_err":
         return 1- np.array(getattr(train_graph, "test_accuracy"))
+    elif attr == "loss_ratio":
+        loss = np.array(getattr(train_graph, "loss"))
+        return loss[1:] / loss[:-1]
     else:
         return getattr(train_graph, attr)
 
@@ -317,10 +320,13 @@ def plot_attr(ax, train_graphs, attr, start=None, end=None):
         #yaxis = getattr(train_graphs, attr)[start:end]
         line = plot_xlogy(ax, xaxis, yaxis, name=attr)
         ax.fill_between(xaxis, yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
-    elif attr in ['accuracy',  'test_accuracy']:
+    elif attr in ['accuracy',  'test_accuracy', 'wn_grad_loss_ratio', 'wn_norm_min']:
         #yaxis = getattr(train_graphs, attr)[start:end]
         line = plot_xy(ax, xaxis, yaxis, name=attr)
         ax.fill_between(xaxis, yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
+    elif attr in ['loss_ratio']:
+        line = plot_xy(ax, xaxis[:-1], yaxis, name=attr)
+        ax.fill_between(xaxis[:-1], yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
     elif attr in ['cos_descent_ascent', 'progress_dir', 'ascent_semi_cos', 'ascent_step_diff', 'descent_step_diff', 'descent_norm']:
         if hasattr(train_graph, attr):
             #yaxis = getattr(train_graphs, attr)[start:end]
@@ -660,3 +666,49 @@ def plot_attention_map(model_param, opt_param, depths=None):
         ax_itr+=1
         axs[ax_itr].imshow(output_norm[0])
     return raw_image, attention_maps, output_norm
+
+def plot_loss_ratio_vs_grad(opts, model_params, opt_params):
+    fig, ax1 = plt.subplots(figsize=[6, 5])
+    ax2 = ax1.twinx()
+
+    lines = []
+    for opt_name in opts:
+        model_param = model_params[opt_name]
+        directory = get_running_directory(opt_params[opt_name]['lr'], 
+                                        opt_params[opt_name]['dataset_name'],
+                                        opt_params[opt_name]['loss'],
+                                        opt_params[opt_name]['opt'], 
+                                        opt_params[opt_name]['model_name'], 
+                                        opt_params[opt_name]['momentum'], 
+                                        opt_params[opt_name]['weight_decay'], 
+                                        opt_params[opt_name]['batch_size'], 
+                                        opt_params[opt_name]['epochs'], **model_param)
+        run_dir = os.listdir(f'../{directory}')
+        prev_runs = [int(x.split("_")[-1]) for x in run_dir if x.startswith("run")]
+        loss_list, acc_list, grad_loss_ratio_list, test_acc_list, wn_norm_list = [], [], [],[],[]
+        
+        for run in prev_runs:
+            with open(f'../{directory}run_{run}/train_graphs.pk', 'rb') as f:
+                train_graphs = pickle.load(f)
+                loss_list.append(train_graphs.loss)
+                acc_list.append(train_graphs.accuracy)
+                grad_loss_ratio_list.append(train_graphs.wn_grad_loss_ratio)
+                test_acc_list.append(train_graphs.test_accuracy)
+                wn_norm_list.append(train_graphs.wn_norm_min)
+                cur_epochs = train_graphs.log_epochs
+        
+        #print(np.array(loss_list).shape)
+        print(loss_list[0][-1])
+        loss_list = np.array(loss_list)[:,:50]
+        loss_ratio = loss_list[:,1:]/loss_list[:,:-1]
+        print(len(cur_epochs))
+        print(loss_ratio.shape)
+        ax1.semilogy(np.arange(loss_ratio.shape[1]), loss_ratio[0])
+        
+        #plt.legend(['Loss + Weight Decay'])
+        ax1.set_ylabel('Loss ratio')
+
+        #print(train_graphs.wn_grad_loss_ratio)
+        means = np.mean(np.array(grad_loss_ratio_list), axis=0)[:50]
+        ax2.semilogy(np.arange(means.shape[0]), means)
+        ax2.set_ylabel('Grad Loss Ratio')

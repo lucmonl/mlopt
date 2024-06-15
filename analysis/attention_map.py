@@ -15,7 +15,7 @@ from PIL import Image
 import sys
 
 def load_image(image_path):
-    image_path = "plots/dog.png"
+    image_path = "plots/leopard.png"
     if image_path is None:
         # user has not specified any image - we use our own image
         print("Please use the `--image_path` argument to indicate the path of the image you wish to visualize.")
