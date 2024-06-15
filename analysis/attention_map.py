@@ -15,7 +15,7 @@ from PIL import Image
 import sys
 
 def load_image(image_path):
-    image_path = "plots/leopard.png"
+    image_path = "plots/dog.png"
     if image_path is None:
         # user has not specified any image - we use our own image
         print("Please use the `--image_path` argument to indicate the path of the image you wish to visualize.")
@@ -34,7 +34,7 @@ def load_image(image_path):
     return img
 
 
-def get_attention_map(graphs, model, device, patch_size, image_path=None):
+def get_attention_map(graphs, model, device, patch_size, image_path=None, num_register=0):
     img = load_image(image_path)
     image_size = (600, 600)
     threshold = None
@@ -58,7 +58,7 @@ def get_attention_map(graphs, model, device, patch_size, image_path=None):
 
     # we keep only the output patch attention
     for i in range(len(attentions)):
-        attentions[i] = attentions[i][0, :, 0, 1:].reshape(nh, -1)
+        attentions[i] = attentions[i][0, :, 0, 1+num_register:].reshape(nh, -1)
     #print(torch.sum(attentions, dim=-1), torch.max(attentions))
 
         if threshold is not None:

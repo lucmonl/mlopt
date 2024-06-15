@@ -596,7 +596,7 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
 
     if 'attention_map' in analysis_list:
         from analysis.attention_map import get_attention_map
-        get_attention_map(graphs, model, device, vit_patch_size)
+        get_attention_map(graphs, model, device, vit_patch_size, num_register=analysis_params["num_register"])
     """
     for i in range(2):
         print(model.module_list[i].weight)
@@ -692,6 +692,7 @@ if __name__ == "__main__":
     #llm hyperparameters
     parser.add_argument("--task_name", type=str, default="mrpc", help="task name")
     parser.add_argument("--max_seq_length", type=int, default=128, help="max_seq_length")
+    parser.add_argument("--num_register", type=int, default=0, help="number of registers in context")
 
     args = parser.parse_args()
 
@@ -1036,12 +1037,19 @@ if __name__ == "__main__":
     elif model_name == "dinov2_vit_base":
         #dinov2_vitb14 = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14')
         from arch.dinov2_vit import vit_base
-        model = vit_base(patch_size=vit_patch_size, img_size=518, init_values=1.0, block_chunks=0).to(device)
+        model = vit_base(patch_size=vit_patch_size, img_size=518, init_values=1.0, block_chunks=0, num_register_tokens=args.num_register).to(device)
         if vit_patch_size == 14:
-            url = "dinov2_vitb14/dinov2_vitb14_pretrain.pth"
+            if args.num_register == 0:
+                url = "dinov2_vitb14/dinov2_vitb14_pretrain.pth"
+            elif args.num_register == 4:
+                url = "dinov2_vitb14/dinov2_vitb14_reg4_pretrain.pth"
+            else:
+                raise NotImplementedError
         state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dinov2/" + url)
         model.load_state_dict(state_dict, strict=True)
-        model_params = {"patch_size": vit_patch_size}
+        model_params = {"patch_size": vit_patch_size, "register": args.num_register}
+        analysis_params = analysis_params | {"num_register": args.num_register}
+    
     print("number of parameters:", len(parameters_to_vector(model.parameters())))
     # analysis parameters
     """
