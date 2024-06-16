@@ -612,7 +612,7 @@ def hook(self, input, output):
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "cifar100", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds"]
-    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small", "dino_vit_base", "dinov2_vit_base", "dinov2_vit_small"]
+    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small", "dino_vit_base", "dinov2_vit_base", "dinov2_vit_small", "dinov2_vit_giant2"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'adamw', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
@@ -1043,6 +1043,21 @@ if __name__ == "__main__":
                 url = "dinov2_vitb14/dinov2_vitb14_pretrain.pth"
             elif args.num_register == 4:
                 url = "dinov2_vitb14/dinov2_vitb14_reg4_pretrain.pth"
+            else:
+                raise NotImplementedError
+        state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dinov2/" + url)
+        model.load_state_dict(state_dict, strict=True)
+        model_params = {"patch_size": vit_patch_size, "register": args.num_register}
+        analysis_params = analysis_params | {"num_register": args.num_register}
+    elif model_name == "dinov2_vit_giant2":
+        #dinov2_vitb14 = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14')
+        from arch.dinov2_vit import vit_giant2
+        model = vit_giant2(patch_size=vit_patch_size, img_size=518, init_values=1.0, block_chunks=0, ffn_layer="swiglufused", num_register_tokens=args.num_register).to(device)
+        if vit_patch_size == 14:
+            if args.num_register == 0:
+                url = "dinov2_vitg14/dinov2_vitg14_pretrain.pth"
+            elif args.num_register == 4:
+                url = "dinov2_vitg14/dinov2_vitg14_reg4_pretrain.pth"
             else:
                 raise NotImplementedError
         state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dinov2/" + url)
