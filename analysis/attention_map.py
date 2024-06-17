@@ -53,7 +53,7 @@ def get_attention_map(graphs, model, device, patch_size, image_path=None, num_re
     w_featmap = img.shape[-2] // patch_size
     h_featmap = img.shape[-1] // patch_size
 
-    attentions = model.get_last_selfattention(img.to(device))#.detach().cpu() #[1,6,2601,3601]
+    attentions = model.get_all_selfattention(img.to(device))#.detach().cpu() #[1,6,2601,3601]
     nh = attentions[0].shape[1] # number of head
 
     # we keep only the output patch attention

@@ -223,15 +223,14 @@ class Attention(nn.Module):
         attn = q @ k.transpose(-2, -1)
 
         attn = attn.softmax(dim=-1)
-        if return_attention:
-            return attn
-
+        #if return_attention:
+        #    return attn        
         attn = self.attn_drop(attn)
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-        return x
+        return x, attn.detach()
 
 
 class MemEffAttention(Attention):
@@ -353,12 +352,14 @@ class Block(nn.Module):
         self.sample_drop_ratio = drop_path
 
     def forward(self, x: Tensor, return_attention: bool=False) -> Tensor:
-        if return_attention:
-            attn = self.attn(self.norm1(x), return_attention)
-            return attn.detach()
+        #if return_attention:
+        #    attn = self.attn(self.norm1(x), return_attention)
+        #    return attn.detach()
+        _, attn = self.attn(self.norm1(x).detach(), return_attention)
 
         def attn_residual_func(x: Tensor) -> Tensor:
-            return self.ls1(self.attn(self.norm1(x)))
+            x_attn, _ = self.attn(self.norm1(x))
+            return self.ls1(x_attn)
 
         def ffn_residual_func(x: Tensor) -> Tensor:
             return self.ls2(self.mlp(self.norm2(x)))
@@ -381,7 +382,7 @@ class Block(nn.Module):
         else:
             x = x + attn_residual_func(x)
             x = x + ffn_residual_func(x)
-        return x
+        return x, attn
 
 
 def drop_add_residual_stochastic_depth(
@@ -749,7 +750,7 @@ class DinoVisionTransformer(nn.Module):
     def forward_features_list(self, x_list, masks_list):
         x = [self.prepare_tokens_with_masks(x, masks) for x, masks in zip(x_list, masks_list)]
         for blk in self.blocks:
-            x = blk(x)
+            x, _ = blk(x)
 
         all_x = x
         output = []
@@ -766,14 +767,23 @@ class DinoVisionTransformer(nn.Module):
             )
         return output
 
+    def get_all_selfattention(self, x):
+        attns = []
+        x = self.prepare_tokens_with_masks(x, None)
+        for i, blk in enumerate(self.blocks):
+            x, attn_layer = blk(x)
+            attns.append(attn_layer.detach().cpu())
+        return attns
+
     def get_last_selfattention(self, x):
         x = self.prepare_tokens_with_masks(x, None)
         for i, blk in enumerate(self.blocks):
             if i < len(self.blocks) - 1:
-                x = blk(x)
+                x, _ = blk(x)
             else:
                 # return attention of the last block
-                return [blk(x, return_attention=True)]
+                _, attn = blk(x, return_attention=True)
+                return [attn]
 
     def forward_features(self, x, masks=None):
         if isinstance(x, list):
@@ -782,7 +792,7 @@ class DinoVisionTransformer(nn.Module):
         x = self.prepare_tokens_with_masks(x, masks)
 
         for blk in self.blocks:
-            x = blk(x)
+            x, _ = blk(x)
 
         x_norm = self.norm(x)
         return {
@@ -799,7 +809,7 @@ class DinoVisionTransformer(nn.Module):
         output, total_block_len = [], len(self.blocks)
         blocks_to_take = range(total_block_len - n, total_block_len) if isinstance(n, int) else n
         for i, blk in enumerate(self.blocks):
-            x = blk(x)
+            x, _ = blk(x)
             if i in blocks_to_take:
                 output.append(x)
         assert len(output) == len(blocks_to_take), f"only {len(output)} / {len(blocks_to_take)} blocks found"
@@ -812,7 +822,7 @@ class DinoVisionTransformer(nn.Module):
         blocks_to_take = range(total_block_len - n, total_block_len) if isinstance(n, int) else n
         for block_chunk in self.blocks:
             for blk in block_chunk[i:]:  # Passing the nn.Identity()
-                x = blk(x)
+                x, _ = blk(x)
                 if i in blocks_to_take:
                     output.append(x)
                 i += 1
