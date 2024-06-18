@@ -98,3 +98,62 @@ def get_attention_map(graphs, model, device, patch_size, image_path=None, num_re
         for j in range(nh):
             display_instances(image, th_attn[j], fname=os.path.join(args.output_dir, "mask_th" + str(args.threshold) + "_head" + str(j) +".png"), blur=False)
     """
+
+
+def get_attention_map_path(graphs, model, device, patch_size, image_path=None, num_register=0):
+    img = load_image(image_path)
+    image_size = (600, 600)
+    threshold = None
+    transform = pth_transforms.Compose([
+        pth_transforms.Resize(image_size),
+        pth_transforms.ToTensor(),
+        pth_transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+    ])
+    raw_image = img
+    img = transform(img)
+
+    # make the image divisible by the patch size
+    w, h = img.shape[1] - img.shape[1] % patch_size, img.shape[2] - img.shape[2] % patch_size
+    img = img[:, :w, :h].unsqueeze(0)
+
+    w_featmap = img.shape[-2] // patch_size
+    h_featmap = img.shape[-1] // patch_size
+
+    attentions = model.get_all_selfattention(img.to(device))#.detach().cpu() #[1,6,2601,3601]
+    nh = attentions[0].shape[1] # number of head
+
+    # we keep only the output patch attention
+    prominent_idx = [0]
+    for i in range(len(attentions)-1, -1, -1):
+        attentions[i] = attentions[i][0, :, prominent_idx, 1+num_register:].reshape(nh, -1)
+        _, prom_ids = torch.max(attentions[i], dim=-1, out=None)
+        print(prom_ids)
+        prominent_idx, _ = torch.mode(prom_ids.cpu())
+        print(prominent_idx)
+        prominent_idx += 1+num_register
+
+        if threshold is not None:
+            # we keep only a certain percentage of the mass
+            val, idx = torch.sort(attentions)
+            val /= torch.sum(val, dim=1, keepdim=True)
+            cumval = torch.cumsum(val, dim=1)
+            th_attn = cumval > (1 - threshold)
+            idx2 = torch.argsort(idx)
+            for head in range(nh):
+                th_attn[head] = th_attn[head][idx2[head]]
+            th_attn = th_attn.reshape(nh, w_featmap, h_featmap).float()
+            # interpolate
+            th_attn = nn.functional.interpolate(th_attn.unsqueeze(0), scale_factor=patch_size, mode="nearest")[0].cpu().numpy()
+
+        attentions[i] = attentions[i].reshape(nh, w_featmap, h_featmap).cpu().numpy()
+        #print(torch.amax(attentions[i], dim=[-2,-1]))
+        #attentions[i] = nn.functional.interpolate(attentions[i].unsqueeze(0), scale_factor=patch_size, mode="nearest")[0].cpu().numpy()
+    graphs.test_img.append(raw_image)
+    #graphs.attention_map.append([1,2,3])
+    #for i in range(len(attentions)):
+    #    print([np.max(attentions[i][j].reshape(-1)) for j in range(attentions[i].shape[0])])
+    graphs.attention_map = attentions
+
+    output_norm = model.get_intermediate_layers(img.to(device), n=1, reshape=True, norm=True)[-1].detach().cpu()
+    output_norm = torch.norm(output_norm, dim=1).tolist()
+    graphs.output_norm.append(output_norm)

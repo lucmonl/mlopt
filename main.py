@@ -595,8 +595,8 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
         get_diagonal_invariate(graphs, model, device, train_loader)
 
     if 'attention_map' in analysis_list:
-        from analysis.attention_map import get_attention_map
-        get_attention_map(graphs, model, device, vit_patch_size, num_register=analysis_params["num_register"])
+        from analysis.attention_map import get_attention_map, get_attention_map_path
+        get_attention_map_path(graphs, model, device, vit_patch_size, num_register=analysis_params["num_register"])
     """
     for i in range(2):
         print(model.module_list[i].weight)

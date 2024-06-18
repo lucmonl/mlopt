@@ -665,7 +665,7 @@ def plot_attention_map(model_param, opt_param, depths=None):
         output_norm = eval_graphs.output_norm[0]
         ax_itr+=1
         axs[ax_itr].imshow(output_norm[0])
-    return raw_image, attention_maps, output_norm
+    return raw_image, eval_graphs.attention_map, output_norm
 
 def plot_loss_ratio_vs_grad(opts, model_params, opt_params):
     fig, ax1 = plt.subplots(figsize=[6, 5])

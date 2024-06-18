@@ -89,4 +89,5 @@ class graphs:
 
         self.test_img           = []
         self.attention_map      = []
+        self.attention_map_path = []
         self.output_norm        = []
