@@ -1022,12 +1022,13 @@ if __name__ == "__main__":
     elif model_name == "dino_vit_base":
         from arch.dino_vit import vit_base
         model = vit_base(patch_size=vit_patch_size, num_classes=C).to(device)
-        if vit_patch_size == 8:
-            url = "dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth"
-        elif vit_patch_size == 16:
-            url = "dino_vitbase16_pretrain/dino_vitbase16_pretrain.pth"
-        state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dino/" + url)
-        model.load_state_dict(state_dict, strict=False)
+        if lr == 0:
+            if vit_patch_size == 8:
+                url = "dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth"
+            elif vit_patch_size == 16:
+                url = "dino_vitbase16_pretrain/dino_vitbase16_pretrain.pth"
+            state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dino/" + url)
+            model.load_state_dict(state_dict, strict=False)
         model_params = {"patch_size": vit_patch_size}
     elif model_name == "dinov2_vit_small":
         #dinov2_vitb14 = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14')
@@ -1043,15 +1044,15 @@ if __name__ == "__main__":
         #dinov2_vitb14 = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14')
         from arch.dinov2_vit import vit_base
         model = vit_base(patch_size=vit_patch_size, img_size=518, init_values=1.0, block_chunks=0, num_register_tokens=args.num_register).to(device)
-        if vit_patch_size == 14:
+        if lr == 0.0 and vit_patch_size == 14:
             if args.num_register == 0:
                 url = "dinov2_vitb14/dinov2_vitb14_pretrain.pth"
             elif args.num_register == 4:
                 url = "dinov2_vitb14/dinov2_vitb14_reg4_pretrain.pth"
             else:
                 raise NotImplementedError
-        state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dinov2/" + url)
-        model.load_state_dict(state_dict, strict=True)
+            state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dinov2/" + url)
+            model.load_state_dict(state_dict, strict=True)
         model_params = {"patch_size": vit_patch_size, "register": args.num_register}
         analysis_params = analysis_params | {"num_register": args.num_register, "topk": args.topk}
     elif model_name == "dinov2_vit_giant2":
