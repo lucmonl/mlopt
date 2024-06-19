@@ -597,6 +597,10 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
     if 'attention_map' in analysis_list:
         from analysis.attention_map import get_attention_map, get_attention_map_path
         get_attention_map_path(graphs, model, device, vit_patch_size, num_register=analysis_params["num_register"])
+
+    if 'attention_path' in analysis_list:
+        from analysis.attention_map import get_attention_map_path_topk
+        get_attention_map_path_topk(graphs, model, device, vit_patch_size, num_register=analysis_params["num_register"], k=analysis_params["topk"])
     """
     for i in range(2):
         print(model.module_list[i].weight)
@@ -676,6 +680,7 @@ if __name__ == "__main__":
     parser.add_argument("--no_train", action='store_true', help="train model")
     parser.add_argument("--do_eval", action='store_true', help="evaluate model")
     parser.add_argument("--model_average", nargs='+', type=int, default=[0,1], help="index of runs to be averaged")
+    parser.add_argument("--topk", type=int, default=1, help="topk")
 
     #federated learning hyperparameters
     parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd"], help="optimizer of server")
@@ -1048,7 +1053,7 @@ if __name__ == "__main__":
         state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dinov2/" + url)
         model.load_state_dict(state_dict, strict=True)
         model_params = {"patch_size": vit_patch_size, "register": args.num_register}
-        analysis_params = analysis_params | {"num_register": args.num_register}
+        analysis_params = analysis_params | {"num_register": args.num_register, "topk": args.topk}
     elif model_name == "dinov2_vit_giant2":
         #dinov2_vitb14 = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14')
         from arch.dinov2_vit import vit_giant2
@@ -1063,7 +1068,7 @@ if __name__ == "__main__":
         state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dinov2/" + url)
         model.load_state_dict(state_dict, strict=True)
         model_params = {"patch_size": vit_patch_size, "register": args.num_register}
-        analysis_params = analysis_params | {"num_register": args.num_register}
+        analysis_params = analysis_params | {"num_register": args.num_register, "topk": args.topk}
     
     print("number of parameters:", len(parameters_to_vector(model.parameters())))
     # analysis parameters
@@ -1247,7 +1252,8 @@ if __name__ == "__main__":
                 
             os.makedirs(f"{running_directory}/avg_{model_average[0]}{model_average[1]}", exist_ok=True)
             pickle.dump(eval_graphs, open(f"{running_directory}/avg_{model_average[0]}{model_average[1]}/eval_graphs.pk", "wb"))
-        elif 'attention_map' in analysis_list:
+        elif 'attention_map' in analysis_list or 'attention_path' in analysis_list:
+            print("in analysis")
             analysis(eval_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
 
             directory = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)

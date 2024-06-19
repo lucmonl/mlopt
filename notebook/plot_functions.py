@@ -106,6 +106,25 @@ def get_attr(opt_name, model_params, opt_params, attr):
         train_graphs = pickle.load(f)
     return getattr(train_graphs, attr)
 
+def get_attr_eval(opt_name, model_params, opt_params, attr):
+    model_param = model_params[opt_name]
+    directory = get_directory(opt_params[opt_name]['lr'], 
+                            opt_params[opt_name]['dataset_name'],
+                            opt_params[opt_name]['loss'],
+                            opt_params[opt_name]['opt'], 
+                            opt_params[opt_name]['model_name'], 
+                            opt_params[opt_name]['momentum'], 
+                            opt_params[opt_name]['weight_decay'], 
+                            opt_params[opt_name]['batch_size'], 
+                            opt_params[opt_name]['epochs'], 
+                            multi_run = False,
+                            **model_param
+                            )
+    #print(directory)
+    with open(f'../{directory}eval_graphs.pk', 'rb') as f:
+        train_graphs = pickle.load(f)
+    return getattr(train_graphs, attr)
+
 def plot_max_2d(array, k=1, start=0, end=None, xaxis=None):
 
     assert k >= 1 
