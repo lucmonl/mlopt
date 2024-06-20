@@ -838,7 +838,7 @@ if __name__ == "__main__":
             train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar100(loss_name, batch_size)
     elif dataset_name == "mnist":
         from data.mnist import load_mnist
-        train_loader, test_loader, analysis_loader, input_ch, C, transform_to_one_hot = load_mnist(loss_name, batch_size)
+        train_loader, test_loader, analysis_loader, input_ch, C, transform_to_one_hot, data_params = load_mnist(loss_name, batch_size)
     elif dataset_name == "emnist":
         if opt_name == "federated":
             from data.emnist import load_emnist_federated
@@ -1233,8 +1233,8 @@ if __name__ == "__main__":
                     
 
     if do_eval:
+        directory = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
         if lr != 0:
-            directory = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
             model.load_state_dict(torch.load(os.path.join(directory, "model.ckpt")))
             model = model.to(device)
 

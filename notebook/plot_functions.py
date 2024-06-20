@@ -691,7 +691,10 @@ def plot_loss_ratio_vs_grad(opts, model_params, opt_params):
     ax2 = ax1.twinx()
 
     lines = []
-    for opt_name in opts:
+    line_styles = ["solid", "dotted"]
+    colors = ["#69b3a2", "red"]
+
+    for i, opt_name in enumerate(opts):
         model_param = model_params[opt_name]
         directory = get_running_directory(opt_params[opt_name]['lr'], 
                                         opt_params[opt_name]['dataset_name'],
@@ -722,12 +725,22 @@ def plot_loss_ratio_vs_grad(opts, model_params, opt_params):
         loss_ratio = loss_list[:,1:]/loss_list[:,:-1]
         print(len(cur_epochs))
         print(loss_ratio.shape)
-        ax1.semilogy(np.arange(loss_ratio.shape[1]), loss_ratio[0])
+        ax1.plot(cur_epochs[:-1], loss_ratio[0], linestyle=line_styles[i], color=colors[0])
         
         #plt.legend(['Loss + Weight Decay'])
-        ax1.set_ylabel('Loss ratio')
+        ax1.set_ylabel(r"$L(\theta_{t+1}) / L(\theta_t)$")
 
         #print(train_graphs.wn_grad_loss_ratio)
         means = np.mean(np.array(grad_loss_ratio_list), axis=0)[:50]
-        ax2.semilogy(np.arange(means.shape[0]), means)
-        ax2.set_ylabel('Grad Loss Ratio')
+        lines.append(ax2.plot(cur_epochs, means, linestyle=line_styles[i], color=colors[1], label=opt_name)[0])
+        ax2.set_ylabel(r"$\Vert \nabla L(\theta_t) \Vert^2$ / $L(\theta_t)$")
+        ax1.set_xlabel("Iterations")
+    ax1.yaxis.label.set_color(colors[0])
+    ax2.yaxis.label.set_color(colors[1])
+    print(lines)
+    ax2.legend(lines, [l.get_label() for l in lines])
+    leg = ax2.get_legend()
+    leg.legendHandles[0].set_color('black')
+    leg.legendHandles[1].set_color('black')
+
+    plt.tight_layout()
