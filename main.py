@@ -1233,9 +1233,10 @@ if __name__ == "__main__":
                     
 
     if do_eval:
-        directory = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
-        model.load_state_dict(torch.load(os.path.join(directory, "model.ckpt")))
-        model = model.to(device)
+        if lr != 0:
+            directory = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
+            model.load_state_dict(torch.load(os.path.join(directory, "model.ckpt")))
+            model = model.to(device)
 
         eval_graphs = graphs()
         if 'model_average' in analysis_list:
@@ -1258,11 +1259,14 @@ if __name__ == "__main__":
             os.makedirs(f"{running_directory}/avg_{model_average[0]}{model_average[1]}", exist_ok=True)
             pickle.dump(eval_graphs, open(f"{running_directory}/avg_{model_average[0]}{model_average[1]}/eval_graphs.pk", "wb"))
         elif 'attention_map' in analysis_list or 'attention_path' in analysis_list:
-            print("in analysis")
             analysis(eval_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
 
             
             print(directory)
             os.makedirs(directory, exist_ok=True)
             pickle.dump(eval_graphs, open(f"{directory}/eval_graphs.pk", "wb"))
+
+        elif 'linear_probe' in analysis_list:
+            from analysis.probe import transformer_probe
+            transformer_probe(model, train_loader, test_loader, device)
         

@@ -20,6 +20,7 @@ from typing import Callable, Optional
 from torch import Tensor
 import torch.nn.functional as F
 import warnings
+import sys
 
 class Mlp(nn.Module):
     def __init__(
@@ -784,6 +785,26 @@ class DinoVisionTransformer(nn.Module):
                 # return attention of the last block
                 _, attn = blk(x, return_attention=True)
                 return [attn]
+
+    @torch.no_grad
+    def get_cls_tokens(self, data_loader, device, masks=None):
+        import numpy as np
+        x_list, y_list = [[] for _ in range(len(self.blocks))], []
+        for batch_idx, input in enumerate(data_loader, start=1):
+            x, target = input
+            x= x.to(device)
+            x = self.prepare_tokens_with_masks(x, masks)
+            for layer, blk in enumerate(self.blocks, start=0):
+                x, _ = blk(x) # x: [B, patch_size, dim]
+                x_list[layer].append(x[:, 0, :].detach().cpu().numpy())
+            y_list.append(target.detach().numpy())
+            if batch_idx == 100:
+                break
+        for layer in range(len(x_list)):
+            x_list[layer] = np.concatenate(x_list[layer], axis=0)
+        y_list = np.concatenate(y_list, axis=0)
+        return x_list, y_list
+
 
     def forward_features(self, x, masks=None):
         if isinstance(x, list):

@@ -36,7 +36,7 @@ def load_image(image_path):
 
 def get_attention_map(graphs, model, device, patch_size, image_path=None, num_register=0):
     img = load_image(image_path)
-    image_size = (600, 600)
+    image_size = (280, 280)
     threshold = None
     transform = pth_transforms.Compose([
         pth_transforms.Resize(image_size),

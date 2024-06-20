@@ -46,11 +46,14 @@ def make_labels(y, loss):
 def get_transform():
     train_transform = []
     test_transform = []
+    """
     train_transform += [
         transforms.RandomCrop(size=32, padding=4)
     ]
-
-    train_transform += [transforms.RandomHorizontalFlip()]
+    """
+    train_transform += [
+        transforms.Resize((280, 280)),
+        transforms.RandomHorizontalFlip()]
 
     mean = [0.4914, 0.4822, 0.4465]
     std = [0.247, 0.2435, 0.2616]
@@ -60,6 +63,7 @@ def get_transform():
     ]
     
     test_transform += [
+        transforms.Resize((280, 280)),
         transforms.ToTensor(),
         transforms.Normalize(mean=mean, std=std)
     ]
