@@ -4,7 +4,7 @@ def transformer_probe(model, train_loader, test_loader, device):
     logisticRegr = LogisticRegression()
     
     cls_tokens, targets = model.get_cls_tokens(train_loader, device)
-    cls_tokens_test, targets_test = model.get_cls_tokens(test_loader, device)
+    cls_tokens_test, targets_test = model.get_cls_tokens(train_loader, device)
     for layer in range(len(cls_tokens)):
         
         x_train, y_train =cls_tokens[layer], targets

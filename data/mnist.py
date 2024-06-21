@@ -11,6 +11,7 @@ from torchvision import datasets, transforms
 
 def load_mnist(loss: str, batch_size: int):
     data_params = {"compute_acc": True}
+    num_pixels          = 32 * 32
     im_size             = 28
     padded_im_size      = 32
     input_ch            = 1
@@ -35,4 +36,9 @@ def load_mnist(loss: str, batch_size: int):
     analysis_loader = torch.utils.data.DataLoader(
         analysis_dataset,
         batch_size=analysis_size, shuffle=False)
-    return train_loader, test_loader, analysis_loader, input_ch, C, transform_to_one_hot, data_params
+    
+    analysis_test_dataset = torch.utils.data.Subset(test_dataset, range(analysis_size))
+    analysis_test_loader = torch.utils.data.DataLoader(
+        analysis_test_dataset,
+        batch_size=analysis_size, shuffle=False)
+    return train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params

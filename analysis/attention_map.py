@@ -15,7 +15,7 @@ from PIL import Image
 import sys
 
 def load_image(image_path):
-    image_path = "plots/dog.png"
+    image_path = "plots/horse.png"
     if image_path is None:
         # user has not specified any image - we use our own image
         print("Please use the `--image_path` argument to indicate the path of the image you wish to visualize.")
@@ -33,18 +33,29 @@ def load_image(image_path):
     #print(np.array(img))
     return img
 
+def load_image_from_loader(data_loader):
+    for _, input in enumerate(data_loader):
+        x, _ = input
+        #return torchvision.transforms.functional.to_pil_image(x[0])
+        return x[0]
 
-def get_attention_map(graphs, model, device, patch_size, image_path=None, num_register=0):
+
+def get_attention_map(graphs, model, device, patch_size, image_path=None, num_register=0, loader=None):
     img = load_image(image_path)
+    #img = load_image_from_loader(loader)
     image_size = (280, 280)
     threshold = None
     transform = pth_transforms.Compose([
-        pth_transforms.Resize(image_size),
         pth_transforms.ToTensor(),
+        pth_transforms.Resize(image_size),
         pth_transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ])
     raw_image = img
+    print("in transform")
     img = transform(img)
+    print("out transform")
+    
+    
 
     # make the image divisible by the patch size
     w, h = img.shape[1] - img.shape[1] % patch_size, img.shape[2] - img.shape[2] % patch_size

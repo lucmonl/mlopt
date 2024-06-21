@@ -596,7 +596,7 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
 
     if 'attention_map' in analysis_list:
         from analysis.attention_map import get_attention_map, get_attention_map_path
-        get_attention_map_path(graphs, model, device, vit_patch_size, num_register=analysis_params["num_register"])
+        get_attention_map(graphs, model, device, vit_patch_size, num_register=analysis_params["num_register"], loader=train_loader)
 
     if 'attention_path' in analysis_list:
         from analysis.attention_map import get_attention_map_path_topk
@@ -615,7 +615,7 @@ def hook(self, input, output):
 
     
 if __name__ == "__main__":
-    DATASETS = ["spurious", "cifar", "cifar100", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds"]
+    DATASETS = ["spurious", "cifar", "cifar100", "imagenet_tiny", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds"]
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small", "dino_vit_base", "dinov2_vit_base", "dinov2_vit_small", "dinov2_vit_giant2"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
@@ -836,9 +836,12 @@ if __name__ == "__main__":
         else:
             from data.cifar import load_cifar100
             train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar100(loss_name, batch_size)
+    elif dataset_name == "imagenet_tiny":
+        from data.imagenet import load_imagenet_tiny
+        train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_imagenet_tiny(batch_size, tiny_analysis=tiny_analysis)
     elif dataset_name == "mnist":
         from data.mnist import load_mnist
-        train_loader, test_loader, analysis_loader, input_ch, C, transform_to_one_hot, data_params = load_mnist(loss_name, batch_size)
+        train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_mnist(loss_name, batch_size)
     elif dataset_name == "emnist":
         if opt_name == "federated":
             from data.emnist import load_emnist_federated

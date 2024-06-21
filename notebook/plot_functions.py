@@ -673,7 +673,7 @@ def plot_attention_map(model_param, opt_param, depths=None):
         fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
         axs = axs.reshape(-1)
         ax = axs[ax_itr]
-        raw_image = np.array(eval_graphs.test_img[0])
+        raw_image = np.array(eval_graphs.test_img[0])#.transpose([1,2,0])
         ax.imshow(raw_image)
 
         for i in range(len(attention_maps)):
