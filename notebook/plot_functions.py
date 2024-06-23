@@ -732,7 +732,7 @@ def plot_loss_ratio_vs_grad(opts, model_params, opt_params):
 
         #print(train_graphs.wn_grad_loss_ratio)
         means = np.mean(np.array(grad_loss_ratio_list), axis=0)[:50]
-        lines.append(ax2.plot(cur_epochs, means, linestyle=line_styles[i], color=colors[1], label=opt_name)[0])
+        lines.append(ax2.plot(cur_epochs[:-1], means[:-1], linestyle=line_styles[i], color=colors[1], label=opt_name)[0])
         ax2.set_ylabel(r"$\Vert \nabla L(\theta_t) \Vert^2$ / $L(\theta_t)$")
         ax1.set_xlabel("Iterations")
     ax1.yaxis.label.set_color(colors[0])

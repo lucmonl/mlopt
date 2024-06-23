@@ -1,8 +1,6 @@
 #!/bin/bash
 
-for i in 1 2
+for i in 512 1024 2048
 do
-    python main.py --dataset cifar --model weight_norm --loss MSELoss --opt sgd --lr 0.0001 --epoch 4000 --analysis loss weight_norm --batch_size 512 --width 512 --init_mode "O(1/sqrt{m})" --basis_var 1 --wn_scale 1 --momentum 0.9 --multiple_run 1
-    python main.py --dataset cifar --model weight_norm --loss MSELoss --opt sgd --lr 0.0001 --epoch 4000 --analysis loss weight_norm --batch_size 512 --width 1024 --init_mode "O(1/sqrt{m})" --basis_var 1 --wn_scale 1 --momentum 0.9 --multiple_run 1
-    python main.py --dataset cifar --model weight_norm --loss MSELoss --opt sgd --lr 0.0001 --epoch 4000 --analysis loss weight_norm --batch_size 512 --width 2048 --init_mode "O(1/sqrt{m})" --basis_var 1 --wn_scale 1 --momentum 0.9 --multiple_run 1
+    python main.py --dataset mnist --model weight_norm_v2 --loss MSELoss --opt gd --lr 0.005 --epoch 500 --analysis loss weight_norm --batch_size 512 --width $i --init_mode "O(1)" --basis_var 0.5 --wn_scale 2.0 --log_interval 10
 done

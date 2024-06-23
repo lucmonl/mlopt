@@ -616,7 +616,10 @@ def hook(self, input, output):
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "cifar100", "imagenet_tiny", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds"]
-    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2", "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small", "dino_vit_base", "dinov2_vit_base", "dinov2_vit_small", "dinov2_vit_giant2"]
+    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2",
+              "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", 
+              "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small", "dino_vit_base", "dinov2_vit_base", "dinov2_vit_small", 
+              "dinov2_vit_giant2", "vit_small"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'adamw', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
@@ -626,6 +629,7 @@ if __name__ == "__main__":
     parser.add_argument("--debug", type=bool, default=False, help="only run first 20 batches per epoch if set to True")
     parser.add_argument("--dataset",  type=str, choices=DATASETS, help="which dataset to train")
     parser.add_argument("--model",  type=str, choices=MODELS, help="which model to train")
+    parser.add_argument("--pretrain", type=str, default="none", help="use pretrained model")
 
     #model
     parser.add_argument("--width", type=int, default=512, help="network width for weight norm or number of filters in convnets")
@@ -957,7 +961,7 @@ if __name__ == "__main__":
                                   num_classes = C) """
         model = ViT(image_size=int(np.sqrt(num_pixels/input_ch)), patch_size=8, num_classes=C, dim=width, depth=vit_params[width]["depth"], heads=vit_params[width]["heads"], mlp_dim=4*width) #depth=6, heads=8
         #from arch.vit import ViT
-        #model = ViT(in_c=input_ch, num_classes=C, img_size=int(np.sqrt(num_pixels/input_ch)),patch=8,dropout=0,num_layers=7,hidden=width,mlp_hidden=width,head=12,is_cls_token=True)
+        #model = ViT(in_c=input_ch, num_classes=C, img_size=int(np.sqrt(num_pixels/input_ch)),patch=8,dropout=0,num_layers=7,hidden=width,mlp_hidden=width,head=12,is_cls_token=True
         model_params = {"width": width,  "depth":vit_params[width]["depth"], "heads":vit_params[width]["heads"]} | model_params
     elif model_name == "emnistcnn":
         from arch.conv import EMNISTCNN
@@ -1012,9 +1016,22 @@ if __name__ == "__main__":
                                                         id2label=id2label,
                                                         label2id=label2id)
         model.init_weights()
+    elif model_name == "vit_small":
+        from arch.dino_vit import vit_small
+        from path_manage import vit_directory
+        model = vit_small(patch_size=vit_patch_size, num_classes=21843).to(device)
+        if args.pretrain == "timm":
+            pretrain_file = vit_directory("small", args.vit_patch_size, 224)
+            with open(pretrain_file, "rb") as f:
+                tensors = torch.load(f, map_location="cpu")
+            model.load_state_dict(tensors, strict=True)
+            model_params = {"pretrain": args.pretrain}
+        model_params = model_params | {"patch_size": vit_patch_size}
+        analysis_params = analysis_params | {"num_register": args.num_register, "topk": args.topk}
     elif model_name == "dino_vit_small":
         from arch.dino_vit import vit_small
         model = vit_small(patch_size=vit_patch_size, num_classes=C).to(device)
+        
         if vit_patch_size == 8:
             url = "dino_deitsmall8_300ep_pretrain/dino_deitsmall8_300ep_pretrain.pth"
         elif vit_patch_size == 16:
@@ -1036,13 +1053,14 @@ if __name__ == "__main__":
     elif model_name == "dinov2_vit_small":
         #dinov2_vitb14 = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14')
         from arch.dinov2_vit import vit_small
-        model = vit_small(patch_size=vit_patch_size).to(device)
+        model = vit_small(patch_size=vit_patch_size, img_size=224, init_values=1.0, block_chunks=0, num_register_tokens=args.num_register).to(device)
         print(len(parameters_to_vector(model.parameters())))
-        if vit_patch_size == 14:
+        if lr == 0.0 and vit_patch_size == 14:
             url = "dinov2_vits14/dinov2_vits14_pretrain.pth"
-        state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dinov2/" + url)
-        model.load_state_dict(state_dict, strict=False)
-        model_params = {"patch_size": vit_patch_size}
+            state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dinov2/" + url)
+            model.load_state_dict(state_dict, strict=False)
+        model_params = {"patch_size": vit_patch_size, "register": args.num_register}
+        analysis_params = analysis_params | {"num_register": args.num_register, "topk": args.topk}
     elif model_name == "dinov2_vit_base":
         #dinov2_vitb14 = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14')
         from arch.dinov2_vit import vit_base
