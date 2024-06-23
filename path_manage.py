@@ -44,5 +44,7 @@ def continue_training(lr, dataset_name, loss_name, opt_name, model_name, momentu
             break
     return load_from_epoch
 
-def vit_directory(size, patch_size, img_size):
+def vit_directory(size, patch_size, img_size, opt_name=None):
+    if opt_name == "sam":
+        return "/projects/dali/models/vit/vit_{}_patch{}_{}.sam_in1k/pytorch_model.bin".format(size, patch_size, img_size)
     return "/projects/dali/models/vit/vit_{}_patch{}_{}.augreg_in21k/pytorch_model.bin".format(size, patch_size, img_size)

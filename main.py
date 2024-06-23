@@ -619,7 +619,7 @@ if __name__ == "__main__":
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2",
               "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", 
               "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small", "dino_vit_base", "dinov2_vit_base", "dinov2_vit_small", 
-              "dinov2_vit_giant2", "vit_small"]
+              "dinov2_vit_giant2", "vit_small", "vit_base"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'adamw', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
@@ -1028,6 +1028,18 @@ if __name__ == "__main__":
             model_params = {"pretrain": args.pretrain}
         model_params = model_params | {"patch_size": vit_patch_size}
         analysis_params = analysis_params | {"num_register": args.num_register, "topk": args.topk}
+    elif model_name == "vit_base":
+        from arch.dino_vit import vit_base
+        from path_manage import vit_directory
+        model = vit_base(patch_size=vit_patch_size, num_classes=1000).to(device)
+        if args.pretrain == "timm":
+            pretrain_file = vit_directory("base", args.vit_patch_size, 224, opt_name=opt_name)
+            with open(pretrain_file, "rb") as f:
+                tensors = torch.load(f, map_location="cpu")
+            model.load_state_dict(tensors, strict=True)
+            model_params = {"pretrain": args.pretrain}
+        model_params = model_params | {"patch_size": vit_patch_size}
+        analysis_params = analysis_params | {"num_register": args.num_register, "topk": args.topk}
     elif model_name == "dino_vit_small":
         from arch.dino_vit import vit_small
         model = vit_small(patch_size=vit_patch_size, num_classes=C).to(device)
@@ -1279,15 +1291,15 @@ if __name__ == "__main__":
                 
             os.makedirs(f"{running_directory}/avg_{model_average[0]}{model_average[1]}", exist_ok=True)
             pickle.dump(eval_graphs, open(f"{running_directory}/avg_{model_average[0]}{model_average[1]}/eval_graphs.pk", "wb"))
-        elif 'attention_map' in analysis_list or 'attention_path' in analysis_list:
+            sys.exit()
+        
+        if 'attention_map' in analysis_list or 'attention_path' in analysis_list:
             analysis(eval_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
-
-            
-            print(directory)
-            os.makedirs(directory, exist_ok=True)
-            pickle.dump(eval_graphs, open(f"{directory}/eval_graphs.pk", "wb"))
-
-        elif 'linear_probe' in analysis_list:
+        if 'linear_probe' in analysis_list:
             from analysis.probe import transformer_probe
-            transformer_probe(model, train_loader, test_loader, device)
+            transformer_probe(eval_graphs, model, train_loader, test_loader, device)
+        print(directory)
+        os.makedirs(directory, exist_ok=True)
+        pickle.dump(eval_graphs, open(f"{directory}/eval_graphs.pk", "wb"))
+
         
