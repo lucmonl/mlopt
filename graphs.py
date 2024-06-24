@@ -89,5 +89,6 @@ class graphs:
 
         self.test_img           = []
         self.attention_map      = []
-        self.attention_path = []
+        self.attention_path     = []
         self.output_norm        = []
+        self.layer_cls_score    = []

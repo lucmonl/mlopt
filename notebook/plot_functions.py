@@ -362,8 +362,9 @@ def plot_attr(ax, train_graphs, attr, start=None, end=None):
     return line
 
 
-def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, end=None):
+def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, end=None, eval=False):
     rows, cols = (len(attrs) - 1) // 6 + 1, min(len(attrs), 6)
+    cols = 2 if cols == 1 else cols # avoid error in subplots
     fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
     axs = axs.reshape(-1)
     lines = []
@@ -399,8 +400,13 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, e
         run_dir = os.listdir("../" + directory)
         train_graphs = []
         for run_id in run_dir[::-1]:
-            with open(f'../{directory}/{run_id}/train_graphs.pk', 'rb') as f:
-                train_graphs.append(pickle.load(f))
+            if not eval: 
+                with open(f'../{directory}/{run_id}/train_graphs.pk', 'rb') as f:
+                    train_graphs.append(pickle.load(f))
+            else:
+                print("loading eval graph")
+                with open(f'../{directory}/{run_id}/eval_graphs.pk', 'rb') as f:
+                    train_graphs.append(pickle.load(f))
         #if len(train_graphs.log_epochs) != 0:
         #    cur_epochs = train_graphs.log_epochs
         #else:
