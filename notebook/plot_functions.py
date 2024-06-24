@@ -87,7 +87,7 @@ def plot_figures_opts(opts, model_params, opt_params):
     plt.tight_layout()
     plt.show()
 
-def get_attr(opt_name, model_params, opt_params, attr):
+def get_attr(opt_name, model_params, opt_params, attr, eval_graph=False):
     model_param = model_params[opt_name]
     directory = get_directory(opt_params[opt_name]['lr'], 
                             opt_params[opt_name]['dataset_name'],
@@ -102,8 +102,12 @@ def get_attr(opt_name, model_params, opt_params, attr):
                             **model_param
                             )
     #print(directory)
-    with open(f'../{directory}train_graphs.pk', 'rb') as f:
-        train_graphs = pickle.load(f)
+    if not eval_graph:
+        with open(f'../{directory}train_graphs.pk', 'rb') as f:
+            train_graphs = pickle.load(f)
+    else:
+        with open(f'../{directory}eval_graphs.pk', 'rb') as f:
+            train_graphs = pickle.load(f)
     return getattr(train_graphs, attr)
 
 def get_attr_eval(opt_name, model_params, opt_params, attr):
@@ -651,6 +655,23 @@ def plot_figure_cos_descent_ascent(opts, model_params, opt_params):
         plt.xlabel('Epoch')
         plt.ylabel('Value')
         plt.title('cos_descent_ascent')
+
+def plot_eval_attr_keys(opt_name, model_params, opt_params, attr, keys):
+    #rows, cols = (len(attr) - 1) // 6 + 1, min(len(epochs), 6)
+    rows, cols = 1, 2
+    fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
+    axs = axs.reshape(-1)
+
+    ax_ptr = 0
+    attr_dict = get_attr(opt_name, model_params, opt_params, attr, eval_graph=True)
+    for key in keys:
+        attr_list = attr_dict[key]
+        axs[ax_ptr].plot(attr_list)
+
+    axs[0].legend(keys)
+    plt.tight_layout()
+    plt.show()
+
 
 def plot_attention_map(model_param, opt_param, depths=None):
     directory = get_directory(opt_param['lr'], 

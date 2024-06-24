@@ -685,7 +685,7 @@ if __name__ == "__main__":
     parser.add_argument("--do_eval", action='store_true', help="evaluate model")
     parser.add_argument("--model_average", nargs='+', type=int, default=[0,1], help="index of runs to be averaged")
     parser.add_argument("--topk", type=int, default=1, help="topk")
-    parser.add_argument("--zero_out_attn", action='store_true', help="zero out small entries in attention maps")
+    parser.add_argument("--zero_out_attn", type=int, default=-1, help="zero out small entries in attention maps")
 
     #federated learning hyperparameters
     parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd"], help="optimizer of server")
@@ -1273,6 +1273,10 @@ if __name__ == "__main__":
             model = model.to(device)
 
         eval_graphs = graphs()
+        if os.path.exists(f"{directory}/eval_graphs.pk"):
+            with open(f"{directory}/eval_graphs.pk", "rb") as f:
+                eval_graphs = pickle.load(f)
+
         if 'model_average' in analysis_list:
             running_directory = get_running_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, **model_params)
             epoch_list = np.arange(1, epochs+1, analysis_interval).tolist()
@@ -1298,6 +1302,7 @@ if __name__ == "__main__":
             analysis(eval_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
         if 'linear_probe' in analysis_list:
             from analysis.probe import transformer_probe
+            print(type(eval_graphs.layer_cls_score))
             transformer_probe(eval_graphs, model, train_loader, test_loader, device, zero_out_attn=args.zero_out_attn)
         print(directory)
         os.makedirs(directory, exist_ok=True)

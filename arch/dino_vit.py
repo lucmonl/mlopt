@@ -120,14 +120,13 @@ class Attention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
-    def forward(self, x, zero_out=False):
+    def forward(self, x, zero_out=-1):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
         attn = (q @ k.transpose(-2, -1)) * self.scale #[B, heads, patch_num, patch_num]
-
-        if zero_out:
-            topk_vals, topk_indices = torch.topk(attn, k=10, dim=-1)
+        if zero_out != -1:
+            topk_vals, topk_indices = torch.topk(attn[:,:,0:1,:], k=zero_out, dim=-1)
             attn = torch.full_like(attn, -torch.inf).detach().cpu().numpy()
             #print(attn.shape)
             #print(topk_indices.shape)
@@ -167,7 +166,7 @@ class Block(nn.Module):
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
     """
-    def forward(self, x, zero_out_attn=False):
+    def forward(self, x, zero_out_attn=-1):
         y, attn = self.attn(self.norm1(x), zero_out=zero_out_attn)
         #if return_attention:
         #    return attn
@@ -295,7 +294,7 @@ class VisionTransformer(nn.Module):
                 return [attn.detach().cpu()]
             
     @torch.no_grad
-    def get_cls_tokens(self, data_loader, device, zero_out_attn=False):
+    def get_cls_tokens(self, data_loader, device, zero_out_attn=-1):
         import numpy as np
         x_list, y_list = [[] for _ in range(len(self.blocks))], []
         for batch_idx, input in enumerate(data_loader, start=1):
@@ -303,10 +302,10 @@ class VisionTransformer(nn.Module):
             x= x.to(device)
             x = self.prepare_tokens(x)
             for layer, blk in enumerate(self.blocks, start=0):
-                if layer > 5 and zero_out_attn:
-                    x, _ = blk(x, True) # x: [B, patch_size, dim]
+                if layer > 5 and zero_out_attn != -1:
+                    x, _ = blk(x, zero_out_attn) # x: [B, patch_size, dim]
                 else:
-                    x, _ = blk(x, False)
+                    x, _ = blk(x, -1)
                 x_list[layer].append(x[:, 0, :].detach().cpu().numpy())
             y_list.append(target.detach().numpy())
             if batch_idx == 100:
