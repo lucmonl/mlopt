@@ -126,16 +126,18 @@ class Attention(nn.Module):
         q, k, v = qkv[0], qkv[1], qkv[2]
         attn = (q @ k.transpose(-2, -1)) * self.scale #[B, heads, patch_num, patch_num]
         if zero_out != -1:
-            topk_vals, topk_indices = torch.topk(attn[:,:,0:1,:], k=zero_out, dim=-1)
-            attn = torch.full_like(attn, -torch.inf).detach().cpu().numpy()
+            cls_attn = attn[:,:,0,:]
+            topk_vals, topk_indices = torch.topk(cls_attn, k=zero_out, dim=-1)
+            cls_attn = torch.full_like(cls_attn, -torch.inf).detach().cpu().numpy()
             #print(attn.shape)
             #print(topk_indices.shape)
             #print(torch.max(topk_indices))
             # future: replace with torch functions
             import numpy as np
-            np.put_along_axis(attn, topk_indices.detach().cpu().numpy(), topk_vals.detach().cpu().numpy(), axis=-1)
+            np.put_along_axis(cls_attn, topk_indices.detach().cpu().numpy(), topk_vals.detach().cpu().numpy(), axis=-1)
             #attn[topk_indices[:,0,0,0], topk_indices[0,:,0,0], topk_indices[:,0,0,0],topk_indices[:,0,0,0]] = topk_vals
-            attn = torch.tensor(attn).to(x)
+            attn[:,:,0,:] = torch.tensor(cls_attn).to(attn)
+        
 
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
