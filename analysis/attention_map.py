@@ -40,7 +40,7 @@ def load_image_from_loader(data_loader):
         return x[0]
 
 
-def get_attention_map(graphs, model, device, patch_size, image_path=None, num_register=0, loader=None):
+def get_attention_map(graphs, model, device, patch_size, image_path=None, num_register=0, loader=None, zero_out_attn=-1):
     img = load_image(image_path)
     #img = load_image_from_loader(loader)
     image_size = (280, 280)
@@ -64,7 +64,7 @@ def get_attention_map(graphs, model, device, patch_size, image_path=None, num_re
     w_featmap = img.shape[-2] // patch_size
     h_featmap = img.shape[-1] // patch_size
 
-    attentions = model.get_all_selfattention(img.to(device))#.detach().cpu() #[1,6,2601,3601]
+    attentions = model.get_all_selfattention(img.to(device), zero_out_attn=zero_out_attn)#.detach().cpu() #[1,6,2601,3601]
     nh = attentions[0].shape[1] # number of head
 
     # we keep only the output patch attention

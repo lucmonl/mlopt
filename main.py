@@ -594,13 +594,6 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
         get_diagonal_coef(graphs, model, device, train_loader)
         get_diagonal_invariate(graphs, model, device, train_loader)
 
-    if 'attention_map' in analysis_list:
-        from analysis.attention_map import get_attention_map, get_attention_map_path
-        get_attention_map(graphs, model, device, vit_patch_size, num_register=analysis_params["num_register"], loader=train_loader)
-
-    if 'attention_path' in analysis_list:
-        from analysis.attention_map import get_attention_map_path_topk
-        get_attention_map_path_topk(graphs, model, device, vit_patch_size, num_register=analysis_params["num_register"], k=analysis_params["topk"])
     """
     for i in range(2):
         print(model.module_list[i].weight)
@@ -1297,9 +1290,18 @@ if __name__ == "__main__":
             os.makedirs(f"{running_directory}/avg_{model_average[0]}{model_average[1]}", exist_ok=True)
             pickle.dump(eval_graphs, open(f"{running_directory}/avg_{model_average[0]}{model_average[1]}/eval_graphs.pk", "wb"))
             sys.exit()
-        
+        """
         if 'attention_map' in analysis_list or 'attention_path' in analysis_list:
             analysis(eval_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
+        """
+        if 'attention_map' in analysis_list:
+            from analysis.attention_map import get_attention_map, get_attention_map_path
+            get_attention_map(eval_graphs, model, device, vit_patch_size, num_register=analysis_params["num_register"], loader=train_loader, zero_out_attn=args.zero_out_attn)
+
+        if 'attention_path' in analysis_list:
+            from analysis.attention_map import get_attention_map_path_topk
+            get_attention_map_path_topk(eval_graphs, model, device, vit_patch_size, num_register=analysis_params["num_register"], k=analysis_params["topk"])
+        
         if 'linear_probe' in analysis_list:
             from analysis.probe import transformer_probe
             print(type(eval_graphs.layer_cls_score))

@@ -277,11 +277,11 @@ class VisionTransformer(nn.Module):
         x = self.norm(x)
         return x[:, 0]
     
-    def get_all_selfattention(self, x):
+    def get_all_selfattention(self, x, zero_out_attn=-1):
         attns = []
         x = self.prepare_tokens(x)
         for i, blk in enumerate(self.blocks):
-            x, attn_layer = blk(x)
+            x, attn_layer = blk(x, zero_out_attn)
             attns.append(attn_layer.detach().cpu())
         return attns
 
