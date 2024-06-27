@@ -40,9 +40,18 @@ class LinearTransformer(nn.Module):
     def __init__(self, embed_dim=768, depth=12):
         super().__init__()
         self.attn_blocks = nn.ModuleList([Attention(dim=embed_dim, num_heads=1) for _ in range(depth)])
+        #self.mlp = nn.Linear(input_dim, embed_dim)
 
     def forward(self, x):
+        #x = self.mlp(x)
         for attn_block in self.attn_blocks:
             attn_x, _ = attn_block(x)
             x = x + attn_x
         return x[:, -1, -1] #right bottom entry
+
+    def get_all_selfattention(self, x, zero_out_attn=-1):
+        attns = []
+        for i, blk in enumerate(self.attn_blocks):
+            x, attn_layer = blk(x, zero_out_attn)
+            attns.append(attn_layer.detach().cpu())
+        return attns

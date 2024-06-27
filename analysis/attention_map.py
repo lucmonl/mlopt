@@ -37,10 +37,19 @@ def load_image_from_loader(data_loader):
     for _, input in enumerate(data_loader):
         x, _ = input
         #return torchvision.transforms.functional.to_pil_image(x[0])
-        return x[0]
+        return x[0:1]
 
+def get_icl_attention_map(graphs, model, device, loader=None, zero_out_attn=-1):
+    if loader:
+        icl_data = load_image_from_loader(loader)
+    
+    attentions = model.get_all_selfattention(icl_data.to(device), zero_out_attn=zero_out_attn)
+    for i in range(len(attentions)):
+        attentions[i] = attentions[i][0, :, 0, 1:]
+    print(attentions)
+    graphs.attention_map = attentions
 
-def get_attention_map(graphs, model, device, patch_size, image_path=None, num_register=0, loader=None, zero_out_attn=-1):
+def get_image_attention_map(graphs, model, device, patch_size, image_path=None, num_register=0, loader=None, zero_out_attn=-1):
     img = load_image(image_path)
     #img = load_image_from_loader(loader)
     image_size = (280, 280)
@@ -109,6 +118,12 @@ def get_attention_map(graphs, model, device, patch_size, image_path=None, num_re
         for j in range(nh):
             display_instances(image, th_attn[j], fname=os.path.join(args.output_dir, "mask_th" + str(args.threshold) + "_head" + str(j) +".png"), blur=False)
     """
+
+def get_attention_map(graphs, dataset_name, model, device, kwargs, loader=None, zero_out_attn=-1):
+    if dataset_name == "cifar":
+        get_image_attention_map(graphs, model, device, patch_size=kwargs["patch_size"], image_path=None, num_register=0, loader=loader, zero_out_attn=zero_out_attn)
+    elif dataset_name == "icl":
+        get_icl_attention_map(graphs, model, device, loader=loader, zero_out_attn=zero_out_attn)
 
 
 def get_attention_map_path(graphs, model, device, patch_size, image_path=None, num_register=0):

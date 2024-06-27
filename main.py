@@ -1107,6 +1107,7 @@ if __name__ == "__main__":
         from arch.linear_transformer import LinearTransformer
         model = LinearTransformer(embed_dim=sp_feat_dim+1, depth=depth)
         model_params = {"depth": depth}
+        analysis_params = analysis_params |  {"num_register": args.num_register, "topk": args.topk}
     
     print("number of parameters:", len(parameters_to_vector(model.parameters())))
     # analysis parameters
@@ -1272,6 +1273,7 @@ if __name__ == "__main__":
     if do_eval:
         directory = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
         if lr != 0:
+            print("loading pretrained model..")
             model.load_state_dict(torch.load(os.path.join(directory, "model.ckpt")))
             model = model.to(device)
 
@@ -1308,7 +1310,8 @@ if __name__ == "__main__":
         """
         if 'attention_map' in analysis_list:
             from analysis.attention_map import get_attention_map, get_attention_map_path
-            get_attention_map(eval_graphs, model, device, vit_patch_size, num_register=analysis_params["num_register"], loader=train_loader, zero_out_attn=args.zero_out_attn)
+            #get_attention_map(eval_graphs, model, device, vit_patch_size, num_register=analysis_params["num_register"], loader=train_loader, zero_out_attn=args.zero_out_attn)
+            get_attention_map(eval_graphs, dataset_name, model, device, kwargs = analysis_params, loader=train_loader, zero_out_attn=-1)
 
         if 'attention_path' in analysis_list:
             from analysis.attention_map import get_attention_map_path_topk
