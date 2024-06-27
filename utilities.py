@@ -913,3 +913,7 @@ def dict_to_(sample_dict, device):
         value = sample_dict[key]
         if isinstance(value, torch.Tensor):
             sample_dict[key] = value.to(device)
+
+def copy_graph(dest, src):
+    for key in src.__dict__:
+        setattr(dest, key, getattr(src, key))

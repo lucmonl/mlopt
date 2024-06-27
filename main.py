@@ -608,11 +608,12 @@ def hook(self, input, output):
 
     
 if __name__ == "__main__":
-    DATASETS = ["spurious", "cifar", "cifar100", "imagenet_tiny", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds"]
+    DATASETS = ["spurious", "cifar", "cifar100", "imagenet_tiny", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", 
+                "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds", "icl"]
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2",
               "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", 
               "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small", "dino_vit_base", "dinov2_vit_base", "dinov2_vit_small", 
-              "dinov2_vit_giant2", "vit_small", "vit_base"]
+              "dinov2_vit_giant2", "vit_small", "vit_base", "lin_attn"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'adamw', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
@@ -912,6 +913,11 @@ if __name__ == "__main__":
         else:
             from data.wilds import load_wilds
             train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_wilds(batch_size, args.task_name)
+    elif dataset_name == "icl":
+        from data.icl import load_icl_data
+        train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_icl_data(batch_size, dim=sp_feat_dim, length=sp_patch_dim, train_size = sp_train_size)
+        model_params = model_params | {"patch_dim": sp_patch_dim, "feat_dim": sp_feat_dim, "train_size": sp_train_size}
+        analysis_params = analysis_params | data_params
 
     compute_acc = data_params["compute_acc"]
     if args.mixup == "cut":
@@ -1015,7 +1021,7 @@ if __name__ == "__main__":
         from path_manage import vit_directory
         model = vit_small(patch_size=vit_patch_size, num_classes=21843).to(device)
         if args.pretrain == "timm":
-            pretrain_file = vit_directory("small", args.vit_patch_size, 224)
+            pretrain_file = vit_directory("small", args.vit_patch_size, 224, opt_name=opt_name)
             with open(pretrain_file, "rb") as f:
                 tensors = torch.load(f, map_location="cpu")
             model.load_state_dict(tensors, strict=True)
@@ -1097,6 +1103,10 @@ if __name__ == "__main__":
         model.load_state_dict(state_dict, strict=True)
         model_params = {"patch_size": vit_patch_size, "register": args.num_register}
         analysis_params = analysis_params | {"num_register": args.num_register, "topk": args.topk}
+    elif model_name == "lin_attn":
+        from arch.linear_transformer import LinearTransformer
+        model = LinearTransformer(embed_dim=sp_feat_dim+1, depth=depth)
+        model_params = {"depth": depth}
     
     print("number of parameters:", len(parameters_to_vector(model.parameters())))
     # analysis parameters
@@ -1267,8 +1277,10 @@ if __name__ == "__main__":
 
         eval_graphs = graphs()
         if os.path.exists(f"{directory}/eval_graphs.pk"):
+            from utilities import copy_graph
             with open(f"{directory}/eval_graphs.pk", "rb") as f:
-                eval_graphs = pickle.load(f)
+                eval_graphs_exist = pickle.load(f)
+                copy_graph(eval_graphs, eval_graphs_exist)
 
         if 'model_average' in analysis_list:
             running_directory = get_running_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, **model_params)

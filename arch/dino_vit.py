@@ -126,8 +126,14 @@ class Attention(nn.Module):
         q, k, v = qkv[0], qkv[1], qkv[2]
         attn = (q @ k.transpose(-2, -1)) * self.scale #[B, heads, patch_num, patch_num]
         if zero_out != -1:
-            cls_attn = attn[:,:,0,:]
+            cls_attn = attn[:,:,0,1:]
             topk_vals, topk_indices = torch.topk(cls_attn, k=zero_out, dim=-1)
+
+            cls_attn = cls_attn.detach().cpu().numpy()
+            import numpy as np
+            np.put_along_axis(cls_attn, topk_indices.detach().cpu().numpy(), -np.inf, axis=-1)
+            attn[:,:,0,1:] = torch.tensor(cls_attn).to(attn)
+            """
             cls_attn = torch.full_like(cls_attn, -torch.inf).detach().cpu().numpy()
             #print(attn.shape)
             #print(topk_indices.shape)
@@ -137,6 +143,7 @@ class Attention(nn.Module):
             np.put_along_axis(cls_attn, topk_indices.detach().cpu().numpy(), topk_vals.detach().cpu().numpy(), axis=-1)
             #attn[topk_indices[:,0,0,0], topk_indices[0,:,0,0], topk_indices[:,0,0,0],topk_indices[:,0,0,0]] = topk_vals
             attn[:,:,0,:] = torch.tensor(cls_attn).to(attn)
+            """
         
 
         attn = attn.softmax(dim=-1)
