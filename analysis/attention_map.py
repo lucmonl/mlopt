@@ -74,6 +74,7 @@ def get_image_attention_map(graphs, model, device, patch_size, image_path=None, 
     h_featmap = img.shape[-1] // patch_size
 
     attentions = model.get_all_selfattention(img.to(device), zero_out_attn=zero_out_attn)#.detach().cpu() #[1,6,2601,3601]
+
     nh = attentions[0].shape[1] # number of head
 
     # we keep only the output patch attention
@@ -95,9 +96,10 @@ def get_image_attention_map(graphs, model, device, patch_size, image_path=None, 
             th_attn = nn.functional.interpolate(th_attn.unsqueeze(0), scale_factor=patch_size, mode="nearest")[0].cpu().numpy()
 
         attentions[i] = attentions[i].reshape(nh, w_featmap, h_featmap)
-        attentions[i] = nn.functional.interpolate(attentions[i].unsqueeze(0), scale_factor=patch_size, mode="nearest")[0].cpu().numpy()
+        #attentions[i] = nn.functional.interpolate(attentions[i].unsqueeze(0), scale_factor=patch_size, mode="nearest")[0].cpu().numpy()
     graphs.test_img.append(raw_image)
     #graphs.attention_map.append([1,2,3])
+    print(attentions[0].shape)
     graphs.attention_map = attentions
 
     output_norm = model.get_intermediate_layers(img.to(device), n=1, reshape=True, norm=True)[-1].detach().cpu()

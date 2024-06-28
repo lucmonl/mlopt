@@ -128,12 +128,14 @@ class Attention(nn.Module):
         if zero_out != -1:
             cls_attn = attn[:,:,0,1:]
             topk_vals, topk_indices = torch.topk(cls_attn, k=zero_out, dim=-1)
-
+            print(topk_vals[0,0])
+            """
             cls_attn = cls_attn.detach().cpu().numpy()
             import numpy as np
             np.put_along_axis(cls_attn, topk_indices.detach().cpu().numpy(), -np.inf, axis=-1)
             attn[:,:,0,1:] = torch.tensor(cls_attn).to(attn)
             """
+            
             cls_attn = torch.full_like(cls_attn, -torch.inf).detach().cpu().numpy()
             #print(attn.shape)
             #print(topk_indices.shape)
@@ -142,11 +144,16 @@ class Attention(nn.Module):
             import numpy as np
             np.put_along_axis(cls_attn, topk_indices.detach().cpu().numpy(), topk_vals.detach().cpu().numpy(), axis=-1)
             #attn[topk_indices[:,0,0,0], topk_indices[0,:,0,0], topk_indices[:,0,0,0],topk_indices[:,0,0,0]] = topk_vals
-            attn[:,:,0,:] = torch.tensor(cls_attn).to(attn)
-            """
+            attn[:,:,0,1:] = torch.tensor(cls_attn).to(attn)
+            attn[:,:,0,0] = -torch.inf
+            
         
 
         attn = attn.softmax(dim=-1)
+        print(torch.topk(attn[0,0,0, 1:], k=10, dim=-1)[0])
+        print(attn.shape)
+        print("...")
+        #print(torch.max(attn[0,0,0,1:]), torch.min(attn[0,0,0,1:]))
         attn = self.attn_drop(attn)
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)

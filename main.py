@@ -680,6 +680,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_average", nargs='+', type=int, default=[0,1], help="index of runs to be averaged")
     parser.add_argument("--topk", type=int, default=1, help="topk")
     parser.add_argument("--zero_out_attn", type=int, default=-1, help="zero out small entries in attention maps")
+    parser.add_argument("--zero_out_top", type=bool, default=0, help="if 0 preserves top entries, if 1 zero out top entries")
 
     #federated learning hyperparameters
     parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd"], help="optimizer of server")
@@ -1039,7 +1040,7 @@ if __name__ == "__main__":
             model.load_state_dict(tensors, strict=True)
             model_params = {"pretrain": args.pretrain}
         model_params = model_params | {"patch_size": vit_patch_size}
-        analysis_params = analysis_params | {"num_register": args.num_register, "topk": args.topk}
+        analysis_params = analysis_params | {"patch_size": vit_patch_size, "num_register": args.num_register, "topk": args.topk}
     elif model_name == "dino_vit_small":
         from arch.dino_vit import vit_small
         model = vit_small(patch_size=vit_patch_size, num_classes=C).to(device)
@@ -1319,7 +1320,7 @@ if __name__ == "__main__":
         
         if 'linear_probe' in analysis_list:
             from analysis.probe import transformer_probe
-            print(type(eval_graphs.layer_cls_score))
+            #print(type(eval_graphs.layer_cls_score))
             transformer_probe(eval_graphs, model, train_loader, test_loader, device, zero_out_attn=args.zero_out_attn)
         print(directory)
         os.makedirs(directory, exist_ok=True)

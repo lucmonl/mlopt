@@ -91,4 +91,5 @@ class graphs:
         self.attention_map      = []
         self.attention_path     = []
         self.output_norm        = []
-        self.layer_cls_score    = {}
+        self.layer_cls_train_score = {}
+        self.layer_cls_test_score  = {}
