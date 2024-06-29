@@ -656,17 +656,25 @@ def plot_figure_cos_descent_ascent(opts, model_params, opt_params):
         plt.ylabel('Value')
         plt.title('cos_descent_ascent')
 
-def plot_eval_attr_keys(opt_name, model_params, opt_params, attr, keys):
+def plot_eval_attr_keys(opt_name, model_params, opt_params, attrs, keys, zero_out_top, zero_out_selfattn):
     #rows, cols = (len(attr) - 1) // 6 + 1, min(len(epochs), 6)
     rows, cols = 1, 2
     fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
     axs = axs.reshape(-1)
 
     ax_ptr = 0
-    attr_dict = get_attr(opt_name, model_params, opt_params, attr, eval_graph=True)
-    for key in keys:
-        attr_list = attr_dict[key]
-        axs[ax_ptr].plot(attr_list)
+    for attr in attrs:
+        attr_dict = get_attr(opt_name, model_params, opt_params, attr, eval_graph=True)
+        print(attr_dict[zero_out_top].keys())
+        for key in keys:
+            if key != -1:
+                attr_list = attr_dict[zero_out_top][zero_out_selfattn][key]
+            else:
+                attr_list = attr_dict[key]
+            axs[ax_ptr].plot(attr_list)
+        axs[ax_ptr].set_title(attr)
+        ax_ptr += 1
+        
 
     axs[0].legend(keys)
     plt.tight_layout()

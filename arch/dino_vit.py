@@ -120,7 +120,7 @@ class Attention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
-    def forward(self, x, zero_out=-1):
+    def forward(self, x, zero_out=-1, zero_out_top=1, zero_out_selfattn=0):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
@@ -128,31 +128,29 @@ class Attention(nn.Module):
         if zero_out != -1:
             cls_attn = attn[:,:,0,1:]
             topk_vals, topk_indices = torch.topk(cls_attn, k=zero_out, dim=-1)
-            print(topk_vals[0,0])
-            """
-            cls_attn = cls_attn.detach().cpu().numpy()
-            import numpy as np
-            np.put_along_axis(cls_attn, topk_indices.detach().cpu().numpy(), -np.inf, axis=-1)
-            attn[:,:,0,1:] = torch.tensor(cls_attn).to(attn)
-            """
-            
-            cls_attn = torch.full_like(cls_attn, -torch.inf).detach().cpu().numpy()
-            #print(attn.shape)
-            #print(topk_indices.shape)
-            #print(torch.max(topk_indices))
-            # future: replace with torch functions
-            import numpy as np
-            np.put_along_axis(cls_attn, topk_indices.detach().cpu().numpy(), topk_vals.detach().cpu().numpy(), axis=-1)
-            #attn[topk_indices[:,0,0,0], topk_indices[0,:,0,0], topk_indices[:,0,0,0],topk_indices[:,0,0,0]] = topk_vals
-            attn[:,:,0,1:] = torch.tensor(cls_attn).to(attn)
-            attn[:,:,0,0] = -torch.inf
-            
-        
+            #print(topk_vals[0,0])
 
+            if zero_out_top:
+                cls_attn = cls_attn.detach().cpu().numpy()
+                import numpy as np
+                np.put_along_axis(cls_attn, topk_indices.detach().cpu().numpy(), -np.inf, axis=-1)
+                #attn[:,:,0,1:] = torch.tensor(cls_attn).to(attn)
+            else:
+                cls_attn = torch.full_like(cls_attn, -torch.inf).detach().cpu().numpy()
+                # future: replace with torch functions
+                import numpy as np
+                np.put_along_axis(cls_attn, topk_indices.detach().cpu().numpy(), topk_vals.detach().cpu().numpy(), axis=-1)
+                #attn[topk_indices[:,0,0,0], topk_indices[0,:,0,0], topk_indices[:,0,0,0],topk_indices[:,0,0,0]] = topk_vals
+
+            attn[:,:,0,1:] = torch.tensor(cls_attn).to(attn)
+            
+            if zero_out_selfattn:
+                attn[:,:,0,0] = -torch.inf       
+        
         attn = attn.softmax(dim=-1)
-        print(torch.topk(attn[0,0,0, 1:], k=10, dim=-1)[0])
-        print(attn.shape)
-        print("...")
+        #print(torch.topk(attn[0,0,0, 1:], k=10, dim=-1)[0])
+        #print(attn.shape)
+        #print("...")
         #print(torch.max(attn[0,0,0,1:]), torch.min(attn[0,0,0,1:]))
         attn = self.attn_drop(attn)
 
@@ -182,8 +180,8 @@ class Block(nn.Module):
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
     """
-    def forward(self, x, zero_out_attn=-1):
-        y, attn = self.attn(self.norm1(x), zero_out=zero_out_attn)
+    def forward(self, x, zero_out_attn=-1, zero_out_top=1, zero_out_selfattn=0):
+        y, attn = self.attn(self.norm1(x), zero_out=zero_out_attn, zero_out_top=zero_out_top, zero_out_selfattn=zero_out_selfattn)
         #if return_attention:
         #    return attn
         x = x + self.drop_path(y)
@@ -310,7 +308,7 @@ class VisionTransformer(nn.Module):
                 return [attn.detach().cpu()]
             
     @torch.no_grad
-    def get_cls_tokens(self, data_loader, device, zero_out_attn=-1):
+    def get_cls_tokens(self, data_loader, device, zero_out_attn=-1, zero_out_top=1, zero_out_selfattn=0):
         import numpy as np
         x_list, y_list = [[] for _ in range(len(self.blocks))], []
         for batch_idx, input in enumerate(data_loader, start=1):
@@ -319,13 +317,11 @@ class VisionTransformer(nn.Module):
             x = self.prepare_tokens(x)
             for layer, blk in enumerate(self.blocks, start=0):
                 if layer > 5 and zero_out_attn != -1:
-                    x, _ = blk(x, zero_out_attn) # x: [B, patch_size, dim]
+                    x, _ = blk(x, zero_out_attn, zero_out_top, zero_out_selfattn) # x: [B, patch_size, dim]
                 else:
-                    x, _ = blk(x, -1)
+                    x, _ = blk(x, -1, zero_out_top=None, zero_out_selfattn=None)
                 x_list[layer].append(x[:, 0, :].detach().cpu().numpy())
             y_list.append(target.detach().numpy())
-            if batch_idx == 100:
-                break
         for layer in range(len(x_list)):
             x_list[layer] = np.concatenate(x_list[layer], axis=0)
         y_list = np.concatenate(y_list, axis=0)

@@ -680,7 +680,8 @@ if __name__ == "__main__":
     parser.add_argument("--model_average", nargs='+', type=int, default=[0,1], help="index of runs to be averaged")
     parser.add_argument("--topk", type=int, default=1, help="topk")
     parser.add_argument("--zero_out_attn", type=int, default=-1, help="zero out small entries in attention maps")
-    parser.add_argument("--zero_out_top", type=bool, default=0, help="if 0 preserves top entries, if 1 zero out top entries")
+    parser.add_argument("--zero_out_top", type=int, default=0, help="if 0 preserves top entries, if 1 zero out top entries")
+    parser.add_argument("--zero_out_selfattn", type=int, default=0, help="if 0 preserves self attention, if 1 zero out self attention")
 
     #federated learning hyperparameters
     parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd"], help="optimizer of server")
@@ -1019,28 +1020,35 @@ if __name__ == "__main__":
         model.init_weights()
     elif model_name == "vit_small":
         from arch.dino_vit import vit_small
-        from path_manage import vit_directory
-        model = vit_small(patch_size=vit_patch_size, num_classes=21843).to(device)
-        if args.pretrain == "timm":
-            pretrain_file = vit_directory("small", args.vit_patch_size, 224, opt_name=opt_name)
+        from path_manage import vit_directory, pretain_num_classes
+        model = vit_small(patch_size=vit_patch_size, num_classes=pretain_num_classes(args.pretrain)).to(device)
+        if args.pretrain != 'none':
+            pretrain_file = vit_directory("small", args.vit_patch_size, 224, opt_name=opt_name, pretrain=args.pretrain)
             with open(pretrain_file, "rb") as f:
                 tensors = torch.load(f, map_location="cpu")
             model.load_state_dict(tensors, strict=True)
             model_params = {"pretrain": args.pretrain}
+        #if args.pretrain == "timm":
+        #    
+        #else:
+        #    raise NotImplementedError
         model_params = model_params | {"patch_size": vit_patch_size}
-        analysis_params = analysis_params | {"num_register": args.num_register, "topk": args.topk}
+        analysis_params = analysis_params | {"num_register": args.num_register, "topk": args.topk, "zero_out_attn": args.zero_out_attn, 
+                                             "zero_out_top": args.zero_out_top, "zero_out_selfattn": args.zero_out_selfattn}
     elif model_name == "vit_base":
         from arch.dino_vit import vit_base
-        from path_manage import vit_directory
-        model = vit_base(patch_size=vit_patch_size, num_classes=1000).to(device)
-        if args.pretrain == "timm":
-            pretrain_file = vit_directory("base", args.vit_patch_size, 224, opt_name=opt_name)
+        from path_manage import vit_directory, pretain_num_classes
+        model = vit_base(patch_size=vit_patch_size, num_classes=pretain_num_classes(args.pretrain)).to(device)
+        if args.pretrain != 'none':
+            pretrain_file = vit_directory("base", args.vit_patch_size, 224, opt_name=opt_name, pretrain=args.pretrain)
             with open(pretrain_file, "rb") as f:
                 tensors = torch.load(f, map_location="cpu")
             model.load_state_dict(tensors, strict=True)
             model_params = {"pretrain": args.pretrain}
         model_params = model_params | {"patch_size": vit_patch_size}
-        analysis_params = analysis_params | {"patch_size": vit_patch_size, "num_register": args.num_register, "topk": args.topk}
+        analysis_params = analysis_params | {"patch_size": vit_patch_size, "num_register": args.num_register, "topk": args.topk, 
+                                              "zero_out_attn": args.zero_out_attn, 
+                                             "zero_out_top": args.zero_out_top, "zero_out_selfattn": args.zero_out_selfattn}
     elif model_name == "dino_vit_small":
         from arch.dino_vit import vit_small
         model = vit_small(patch_size=vit_patch_size, num_classes=C).to(device)
@@ -1321,7 +1329,8 @@ if __name__ == "__main__":
         if 'linear_probe' in analysis_list:
             from analysis.probe import transformer_probe
             #print(type(eval_graphs.layer_cls_score))
-            transformer_probe(eval_graphs, model, train_loader, test_loader, device, zero_out_attn=args.zero_out_attn)
+            #transformer_probe(eval_graphs, model, train_loader, test_loader, device, zero_out_attn=args.zero_out_attn)
+            transformer_probe(eval_graphs, model, train_loader, test_loader, device, **analysis_params)
         print(directory)
         os.makedirs(directory, exist_ok=True)
         pickle.dump(eval_graphs, open(f"{directory}/eval_graphs.pk", "wb"))
