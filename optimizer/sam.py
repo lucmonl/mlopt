@@ -12,6 +12,7 @@ class SAM(torch.optim.Optimizer):
         self.base_optimizer = base_optimizer(self.param_groups, **kwargs)
         self.param_groups = self.base_optimizer.param_groups
 
+        #self.train_stats = train_stats
         self.track_cos_descent_ascent = train_stats
         self.track_ascent_step_diff = train_stats
         self.track_descent_step_diff = train_stats
@@ -66,7 +67,7 @@ class SAM(torch.optim.Optimizer):
                 if self.track_cos_descent_ascent:
                     #cos_descent_ascent += self.state[p]["descent_grad"] @ (p.grad.clone() / (grad_norm + 1e-12))
                     self.state[p]["ascent_grad"] = p.grad.clone().reshape(-1) / (grad_norm + 1e-12)
-        print('in loop', self._get_attr_norm('ascent_grad'))
+        #print('in loop', self._get_attr_norm('ascent_grad'))
 
         if zero_grad: self.zero_grad()
         train_stats["ascent_step_cos"] = math.sqrt(train_stats["ascent_step_cos"])

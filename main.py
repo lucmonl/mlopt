@@ -364,7 +364,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 grad_norm = get_grad_norm(model, ascent=True)
                 map_update(track_train_stats, grad_norm, reduction = "append")
             train_stats = optimizer.first_step(zero_grad=True)
-            print(train_stats['ascent_step_cos'])
+            #print(train_stats['ascent_step_cos'])
             if not (epoch == 1 and batch_idx==1):
                 map_update(track_train_stats, train_stats, reduction="sum")
             # second forward-backward step
@@ -624,6 +624,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset",  type=str, choices=DATASETS, help="which dataset to train")
     parser.add_argument("--model",  type=str, choices=MODELS, help="which model to train")
     parser.add_argument("--pretrain", type=str, default="none", help="use pretrained model")
+    parser.add_argument("--pretrain_aug", type=str, default="none", choices=["none", "sam"], help="augmentation used in pretrained model.")
 
     #model
     parser.add_argument("--width", type=int, default=512, help="network width for weight norm or number of filters in convnets")
@@ -1023,28 +1024,32 @@ if __name__ == "__main__":
         from path_manage import vit_directory, pretain_num_classes
         model = vit_small(patch_size=vit_patch_size, num_classes=pretain_num_classes(args.pretrain)).to(device)
         if args.pretrain != 'none':
-            pretrain_file = vit_directory("small", args.vit_patch_size, 224, opt_name=opt_name, pretrain=args.pretrain)
+            pretrain_file = vit_directory("small", args.vit_patch_size, 224, opt_name=args.pretrain_aug, pretrain=args.pretrain)
             with open(pretrain_file, "rb") as f:
                 tensors = torch.load(f, map_location="cpu")
             model.load_state_dict(tensors, strict=True)
             model_params = {"pretrain": args.pretrain}
+            if args.pretrain_aug == "sam":
+                model_params = {"aug": args.pretrain_opt} | model_params
         #if args.pretrain == "timm":
         #    
         #else:
         #    raise NotImplementedError
         model_params = model_params | {"patch_size": vit_patch_size}
-        analysis_params = analysis_params | {"num_register": args.num_register, "topk": args.topk, "zero_out_attn": args.zero_out_attn, 
+        analysis_params = analysis_params | {"patch_size": vit_patch_size, "num_register": args.num_register, "topk": args.topk, "zero_out_attn": args.zero_out_attn, 
                                              "zero_out_top": args.zero_out_top, "zero_out_selfattn": args.zero_out_selfattn}
     elif model_name == "vit_base":
         from arch.dino_vit import vit_base
         from path_manage import vit_directory, pretain_num_classes
         model = vit_base(patch_size=vit_patch_size, num_classes=pretain_num_classes(args.pretrain)).to(device)
         if args.pretrain != 'none':
-            pretrain_file = vit_directory("base", args.vit_patch_size, 224, opt_name=opt_name, pretrain=args.pretrain)
+            pretrain_file = vit_directory("base", args.vit_patch_size, 224, opt_name=args.pretrain_aug, pretrain=args.pretrain)
             with open(pretrain_file, "rb") as f:
                 tensors = torch.load(f, map_location="cpu")
             model.load_state_dict(tensors, strict=True)
             model_params = {"pretrain": args.pretrain}
+            if args.pretrain_aug == "sam":
+                model_params = {"aug": args.pretrain_opt} | model_params
         model_params = model_params | {"patch_size": vit_patch_size}
         analysis_params = analysis_params | {"patch_size": vit_patch_size, "num_register": args.num_register, "topk": args.topk, 
                                               "zero_out_attn": args.zero_out_attn, 
