@@ -1230,9 +1230,9 @@ if __name__ == "__main__":
         criterion = BCE
         criterion_summed = BCE_sum
 
+    optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, model_params, **opt_params)
     if not no_train:
         train_graphs = graphs()
-        optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, model_params, **opt_params)
         if opt_name == "federated":
             from optimizer.load_optimizer import load_fake_scheduler
             client_lr_scheduler = load_fake_scheduler(opt_params["client_lr"], **opt_params)

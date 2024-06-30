@@ -15,7 +15,12 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
     
     model_output = []
     for batch_idx, input in enumerate(loader_abridged, start=1):
-        if opt_params["cub_data"]:
+        if opt_params["wild_data"]:
+            data, target, metadata = input
+            data, target = data.to(device), target.to(device)
+            out = model(data)
+            loss = criterion_summed(out, target)
+        elif opt_params["cub_data"]:
             data, target, group = input
             data, target, group = data.to(device), target.to(device), group.to(device)
             out = model(data)
@@ -56,7 +61,8 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
             data, target, metadata = input
             data, target = data.to(device), target.to(device)
             out = model(data)
-            loss = criterion(out, target)
+            loss = criterion_summed(out, target)
+            physical_batch_size = data.shape[0]
         elif opt_params["cub_data"]:
             data, target, group = input
             data, target, group = data.to(device), target.to(device), group.to(device)

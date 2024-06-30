@@ -9,7 +9,7 @@ def load_wilds(batch_size, task_name):
     transform_to_one_hot = True
     data_params = {"compute_acc": True}
 
-    dataset = get_dataset(dataset=task_name, download=True)
+    dataset = get_dataset(dataset=task_name, download=True, root_dir='/projects/dali/data')
     train_data = dataset.get_subset(
         "train",
         transform=transforms.Compose(
@@ -37,18 +37,21 @@ def load_wilds_federated(batch_size, task_name, client_num=1):
     transform_to_one_hot = True
     data_params = {"compute_acc": True}
 
-    dataset = get_dataset(dataset=task_name, download=True)
+    dataset = get_dataset(dataset=task_name, download=True, root_dir='/projects/dali/data')
     train_data = dataset.get_subset(
         "train",
         transform=transforms.Compose(
-            [transforms.Resize((448, 448)), transforms.ToTensor()]
+            [transforms.Resize((224, 224)), transforms.ToTensor()]
         ),
     )
     randperm = np.random.permutation(len(train_data))
     train_data = torch.utils.data.Subset(train_data, randperm[:50000])
 
     #train_loader = get_train_loader("standard", train_data, batch_size=batch_size)
-
+    train_loader = torch.utils.data.DataLoader(
+                        train_data,
+                        batch_size=batch_size, shuffle=True)
+    
     randperm = np.random.permutation(len(train_data))
     client_loaders = []
     for i in range(client_num):
@@ -61,12 +64,15 @@ def load_wilds_federated(batch_size, task_name, client_num=1):
     test_data = dataset.get_subset(
         'test',
         transform=transforms.Compose(
-            [transforms.Resize((448, 448)), transforms.ToTensor()]
+            [transforms.Resize((224, 224)), transforms.ToTensor()]
         ),
     )
-    randperm = np.random.permutation(len(test_data))
-    train_data = torch.utils.data.Subset(test_data, randperm[:5000])
-    test_loader = get_train_loader("standard", test_data, batch_size=batch_size)
+    #randperm = np.random.permutation(len(test_data))
+    #test_data = torch.utils.data.Subset(test_data, randperm[:5000])
+    #test_loader = get_train_loader("standard", test_data, batch_size=batch_size)
+    test_loader = torch.utils.data.DataLoader(
+                        test_data,
+                        batch_size=batch_size, shuffle=False)
 
     analysis_loader = None
     analysis_test_loader = None
