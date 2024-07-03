@@ -831,7 +831,8 @@ def map_update(map1, map2, reduction="sum"):
         
 def graph_update(graph, map,  normalizer):
     for key in map:
-        if key in ["grad_norm", "grad_l1_norm", "ascent_grad_norm", "ascent_grad_l1_norm"]:
+        if key in ["grad_norm", "grad_l1_norm", "ascent_grad_norm", "ascent_grad_l1_norm", "dominant_alignment"]:
+            print(map[key])
             getattr(graph, key).append(map[key])
         else:
             if key == 'ascent_step_cos':
@@ -851,6 +852,17 @@ def optimizer_to(optim, device):
                     subparam.data = subparam.data.to(device)
                     if subparam._grad is not None:
                         subparam._grad.data = subparam._grad.data.to(device)
+
+def grads_to_vector(parameters: Iterable[torch.Tensor]) -> None:
+    param_device = None
+
+    vec = []
+    for param in parameters:
+        # Ensure the parameters are located in the same device
+        param_device = _check_param_device(param, param_device)
+
+        vec.append(param.grad.view(-1))
+    return torch.cat(vec)
 
 def vector_to_grads(vec: torch.Tensor, parameters: Iterable[torch.Tensor]) -> None:
     r"""Convert one vector to the parameters

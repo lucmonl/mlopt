@@ -482,6 +482,9 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 optimizer.second_step(zero_grad=False)
             optimizer.third_step(zero_grad=True)
             enable_running_stats(model)
+        elif opt_name == "dom_sgd":
+            dominant_alignment = optimizer.step(batch=input, zero_grad=True, train_stats=opt_params["train_stats"])
+            map_update(track_train_stats, dominant_alignment, reduction = "append")
         elif opt_name == "norm-sgd":
             if loss_name == 'MSELoss':
                 optimizer.step(loss=loss)
@@ -511,8 +514,8 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 loss.item(),
                 accuracy))
         
-        #if debug and batch_idx > 20:
-        #    break
+        if debug and batch_idx > 2:
+            break
 
     if opt_name == "gd":
         optimizer.step()
@@ -619,7 +622,7 @@ if __name__ == "__main__":
               "dinov2_vit_giant2", "vit_small", "vit_base", "lin_attn"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
-    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'norm-sgd','adam', 'adamw', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
+    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'dom_sgd', 'norm-sgd','adam', 'adamw', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
     BASE_OPTIMIZERS = ['sgd','adam']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")
@@ -751,9 +754,12 @@ if __name__ == "__main__":
 
     batch_size          = args.batch_size #512 # 128
 
+
     model_average       = args.model_average
     
     # for training process
+    opt_params["device"]              = device
+    opt_params["batch_size"]          = args.batch_size
     opt_params["mixup"]               = args.mixup
     opt_params["epoch"]               = args.epoch
     opt_params["scheduler_name"]      = args.scheduler
@@ -924,6 +930,8 @@ if __name__ == "__main__":
         train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_icl_data(batch_size, dim=sp_feat_dim, length=sp_patch_dim, train_size = sp_train_size)
         model_params = model_params | {"patch_dim": sp_patch_dim, "feat_dim": sp_feat_dim, "train_size": sp_train_size}
         analysis_params = analysis_params | data_params
+
+    opt_params["num_classes"] = C
 
     compute_acc = data_params["compute_acc"]
     if args.mixup == "cut":
@@ -1237,6 +1245,8 @@ if __name__ == "__main__":
         
         criterion = BCE
         criterion_summed = BCE_sum
+
+    opt_params["criterion_summed"] = criterion_summed
 
     optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, model_params, **opt_params)
     if not no_train:
