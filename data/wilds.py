@@ -13,15 +13,15 @@ def load_wilds(batch_size, task_name):
     train_data = dataset.get_subset(
         "train",
         transform=transforms.Compose(
-            [transforms.Resize((448, 448)), transforms.ToTensor()]
+            [transforms.Resize((224, 224)), transforms.ToTensor()]
         ),
     )
     train_loader = get_train_loader("standard", train_data, batch_size=batch_size)
 
     test_data = dataset.get_subset(
-        'test',
+        'val',
         transform=transforms.Compose(
-            [transforms.Resize((448, 448)), transforms.ToTensor()]
+            [transforms.Resize((224, 224)), transforms.ToTensor()]
         ),
     )
     test_loader = get_train_loader("standard", test_data, batch_size=batch_size)

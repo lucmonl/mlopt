@@ -47,6 +47,8 @@ def continue_training(lr, dataset_name, loss_name, opt_name, model_name, momentu
 def vit_directory(size, patch_size, img_size, opt_name=None, pretrain="in21k"):
     if opt_name == "sam":
         return "/projects/dali/models/vit/vit_{}_patch{}_{}.sam_{}/pytorch_model.bin".format(size, patch_size, img_size, pretrain)
+    elif opt_name == "clip":
+        return "/projects/dali/models/vit/vit_{}_patch{}_clip_{}.openai_ft_{}/pytorch_model.bin".format(size, patch_size, img_size, pretrain)
     return "/projects/dali/models/vit/vit_{}_patch{}_{}.augreg_{}/pytorch_model.bin".format(size, patch_size, img_size, pretrain)
 
 def pretain_num_classes(pretrain):

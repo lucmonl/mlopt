@@ -44,6 +44,7 @@ def make_labels(y, loss):
         raise NotImplementedError
     
 def get_transform():
+    print("getting my transform")
     train_transform = []
     test_transform = []
     """
@@ -259,11 +260,11 @@ def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num
     C = 10
     transform_to_one_hot = True
 
-    train_transform = transforms.Compose([transforms.RandomCrop(32, padding=4),
-                                          transforms.RandomHorizontalFlip()])
+    #train_transform = transforms.Compose([transforms.RandomCrop(32, padding=4),
+    #                                      transforms.RandomHorizontalFlip()])
     
-    cifar10_train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
-    cifar10_test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False)
+    #cifar10_train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
+    #cifar10_test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False)
     """
     #X_train = train_transform(cifar10_train.data)
     X_train, X_test = flatten(cifar10_train.data / 255), flatten(cifar10_test.data / 255)

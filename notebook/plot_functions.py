@@ -314,6 +314,8 @@ def get_attr_from_graph(train_graph, attr):
         return loss[1:] / loss[:-1]
     else:
         return getattr(train_graph, attr)
+    
+
 
 def plot_attr(ax, train_graphs, attr, start=None, end=None):
     data = []
@@ -364,6 +366,49 @@ def plot_attr(ax, train_graphs, attr, start=None, end=None):
         else:
             line = plot_y(ax=ax, yaxis=[], name=attr)
     return line
+
+def plot_single_attr(opts, model_params, opt_params, attr, savefig=None, title=None, xlabel=None, ylabel=None, eval=False):
+    fig, ax = plt.subplots(figsize=(6, 5))
+    lines = []
+    for opt_name in opts:
+        model_param = model_params[opt_name]
+        directory = get_running_directory(opt_params[opt_name]['lr'], 
+                                        opt_params[opt_name]['dataset_name'],
+                                        opt_params[opt_name]['loss'],
+                                        opt_params[opt_name]['opt'], 
+                                        opt_params[opt_name]['model_name'], 
+                                        opt_params[opt_name]['momentum'], 
+                                        opt_params[opt_name]['weight_decay'], 
+                                        opt_params[opt_name]['batch_size'], 
+                                        opt_params[opt_name]['epochs'], **model_param)
+        print(directory)
+        run_dir = os.listdir("../" + directory)
+        train_graphs = []
+        for run_id in run_dir[::-1]:
+            if not eval: 
+                with open(f'../{directory}/{run_id}/train_graphs.pk', 'rb') as f:
+                    train_graphs.append(pickle.load(f))
+            else:
+                print("loading eval graph")
+                with open(f'../{directory}/{run_id}/eval_graphs.pk', 'rb') as f:
+                    train_graphs.append(pickle.load(f))
+        lines.append(plot_attr(ax=ax, train_graphs=train_graphs, attr=attr))
+    ax.legend(lines, opts)
+
+    if title is not None:
+        plt.title(title)
+    else:
+        plt.title("")
+    if xlabel is not None:
+        plt.xlabel(xlabel)
+    if ylabel is not None:
+        plt.ylabel(ylabel)
+
+    plt.tight_layout()
+
+    if savefig is not None:
+        plt.savefig(savefig)
+    plt.show()
 
 
 def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, end=None, eval=False):
@@ -681,6 +726,36 @@ def plot_eval_attr_keys(opt_name, model_params, opt_params, attrs, keys, zero_ou
     plt.show()
 
 
+def plot_eigen_density(model_param, opt_param):
+    from utilities import get_esd_plot
+    directory = get_directory(opt_param['lr'], 
+                            opt_param['dataset_name'],
+                            opt_param['loss'],
+                            opt_param['opt'], 
+                            opt_param['model_name'], 
+                            opt_param['momentum'], 
+                            opt_param['weight_decay'], 
+                            opt_param['batch_size'], 
+                            opt_param['epochs'], 
+                            multi_run = False,
+                            **model_param
+                            )
+    print(directory)
+    with open(f'../{directory}train_graphs.pk', 'rb') as f:
+        eval_graphs = pickle.load(f)
+    
+    cur_epochs = eval_graphs.log_epochs
+    density_eigens, density_weights = eval_graphs.density_eigen, eval_graphs.density_weight
+    rows, cols = (len(density_eigens)-1) // 6 + 1, min(len(density_eigens), 6)
+    fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
+    axs = axs.reshape(-1)
+    for i in range(len(density_eigens)):
+        ax, density_eigen, density_weight = axs[i], density_eigens[i], density_weights[i]
+    #for ax, density_eigen, density_weight in zip(axs, density_eigens, density_weights):
+        #plt.figure(figsize=(3,3))
+        get_esd_plot(ax, density_eigen, density_weight, cur_epochs[i])
+    plt.tight_layout()
+
 def plot_attention_map(model_param, opt_param, depths=None):
     directory = get_directory(opt_param['lr'], 
                             opt_param['dataset_name'],
@@ -721,7 +796,7 @@ def plot_attention_map(model_param, opt_param, depths=None):
         axs[ax_itr].imshow(output_norm[0])
     return raw_image, eval_graphs.attention_map, output_norm
 
-def plot_loss_ratio_vs_grad(opts, model_params, opt_params):
+def plot_loss_ratio_vs_grad(opts, model_params, opt_params, savefig=None):
     fig, ax1 = plt.subplots(figsize=[6, 5])
     ax2 = ax1.twinx()
 
@@ -779,3 +854,6 @@ def plot_loss_ratio_vs_grad(opts, model_params, opt_params):
     leg.legendHandles[1].set_color('black')
 
     plt.tight_layout()
+
+    if savefig is not None:
+        plt.savefig(savefig)

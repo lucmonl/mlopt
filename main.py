@@ -512,8 +512,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 accuracy))
         
         #if debug and batch_idx > 20:
-        if debug and batch_idx > 10:
-           break
+        #    break
 
     if opt_name == "gd":
         optimizer.step()
@@ -561,6 +560,10 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
         from analysis.eigs import compute_gn_eigenvalues
         compute_gn_eigenvalues(graphs, loss_name, model, analysis_loader, num_classes, device)
     
+    if 'eig_spectra' in analysis_list:
+        from analysis.eig_spectra import compute_eigen_spectrum
+        compute_eigen_spectrum(graphs, model, criterion, analysis_loader, device)
+
     if 'nc' in analysis_list:
         from analysis.nc import get_nc_statistics
         get_nc_statistics(graphs, model, features, classifier, loss_name, criterion_summed, weight_decay, num_classes, analysis_loader, analysis_test_loader, device, debug=False)
@@ -624,7 +627,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset",  type=str, choices=DATASETS, help="which dataset to train")
     parser.add_argument("--model",  type=str, choices=MODELS, help="which model to train")
     parser.add_argument("--pretrain", type=str, default="none", help="use pretrained model")
-    parser.add_argument("--pretrain_aug", type=str, default="none", choices=["none", "sam"], help="augmentation used in pretrained model.")
+    parser.add_argument("--pretrain_aug", type=str, default="none", choices=["none", "sam", "clip"], help="augmentation used in pretrained model.")
 
     #model
     parser.add_argument("--width", type=int, default=512, help="network width for weight norm or number of filters in convnets")
@@ -1023,14 +1026,15 @@ if __name__ == "__main__":
         from arch.dino_vit import vit_small
         from path_manage import vit_directory, pretain_num_classes
         model = vit_small(patch_size=vit_patch_size, num_classes=pretain_num_classes(args.pretrain)).to(device)
+        #model = vit_small(patch_size=vit_patch_size, num_classes=10).to(device)
         if args.pretrain != 'none':
             pretrain_file = vit_directory("small", args.vit_patch_size, 224, opt_name=args.pretrain_aug, pretrain=args.pretrain)
             with open(pretrain_file, "rb") as f:
                 tensors = torch.load(f, map_location="cpu")
-            model.load_state_dict(tensors, strict=True)
+            model.load_state_dict(tensors, strict=False)
             model_params = {"pretrain": args.pretrain}
-            if args.pretrain_aug == "sam":
-                model_params = {"aug": args.pretrain_opt} | model_params
+            if args.pretrain_aug != "none":
+                model_params = {"aug": args.pretrain_aug} | model_params
         #if args.pretrain == "timm":
         #    
         #else:
@@ -1042,14 +1046,17 @@ if __name__ == "__main__":
         from arch.dino_vit import vit_base
         from path_manage import vit_directory, pretain_num_classes
         model = vit_base(patch_size=vit_patch_size, num_classes=pretain_num_classes(args.pretrain)).to(device)
+        #model = vit_base(patch_size=vit_patch_size, num_classes=2).to(device)
         if args.pretrain != 'none':
             pretrain_file = vit_directory("base", args.vit_patch_size, 224, opt_name=args.pretrain_aug, pretrain=args.pretrain)
             with open(pretrain_file, "rb") as f:
                 tensors = torch.load(f, map_location="cpu")
-            model.load_state_dict(tensors, strict=True)
+                #tensors['head.weight'] = tensors['head.weight'][:2]
+                #tensors['head.bias'] = tensors['head.bias'][:2]
+            model.load_state_dict(tensors, strict=False)
             model_params = {"pretrain": args.pretrain}
-            if args.pretrain_aug == "sam":
-                model_params = {"aug": args.pretrain_opt} | model_params
+            if args.pretrain_aug != "none":
+                model_params = {"aug": args.pretrain_aug} | model_params
         model_params = model_params | {"patch_size": vit_patch_size}
         analysis_params = analysis_params | {"patch_size": vit_patch_size, "num_register": args.num_register, "topk": args.topk, 
                                               "zero_out_attn": args.zero_out_attn, 
@@ -1119,6 +1126,7 @@ if __name__ == "__main__":
         analysis_params = analysis_params | {"num_register": args.num_register, "topk": args.topk}
     elif model_name == "lin_attn":
         from arch.linear_transformer import LinearTransformer
+        #model = LinearTransformer(input_dim=sp_feat_dim+1, embed_dim=width, depth=depth)
         model = LinearTransformer(embed_dim=sp_feat_dim+1, depth=depth)
         model_params = {"depth": depth}
         analysis_params = analysis_params |  {"num_register": args.num_register, "topk": args.topk}

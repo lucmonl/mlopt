@@ -47,6 +47,7 @@ class LinearTransformer(nn.Module):
         for attn_block in self.attn_blocks:
             attn_x, _ = attn_block(x)
             x = x + attn_x
+            #x = attn_x
         return x[:, -1, -1] #right bottom entry
 
     def get_all_selfattention(self, x, zero_out_attn=-1):

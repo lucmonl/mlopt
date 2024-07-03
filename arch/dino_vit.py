@@ -287,7 +287,7 @@ class VisionTransformer(nn.Module):
         for blk in self.blocks:
             x, _ = blk(x)
         x = self.norm(x)
-        return x[:, 0]
+        return self.head(x[:, 0])
     
     def get_all_selfattention(self, x, zero_out_attn=-1):
         attns = []

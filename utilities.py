@@ -917,3 +917,50 @@ def dict_to_(sample_dict, device):
 def copy_graph(dest, src):
     for key in src.__dict__:
         setattr(dest, key, getattr(src, key))
+
+def density_generate(eigenvalues,
+                     weights,
+                     num_bins=10000,
+                     sigma_squared=1e-5,
+                     overhead=0.01):
+
+    eigenvalues = np.array(eigenvalues)
+    weights = np.array(weights)
+
+    lambda_max = np.mean(np.max(eigenvalues, axis=1), axis=0) + overhead
+    lambda_min = np.mean(np.min(eigenvalues, axis=1), axis=0) - overhead
+
+    grids = np.linspace(lambda_min, lambda_max, num=num_bins)
+    sigma = sigma_squared * max(1, (lambda_max - lambda_min))
+
+    num_runs = eigenvalues.shape[0]
+    density_output = np.zeros((num_runs, num_bins))
+
+    for i in range(num_runs):
+        for j in range(num_bins):
+            x = grids[j]
+            tmp_result = gaussian(eigenvalues[i, :], x, sigma)
+            density_output[i, j] = np.sum(tmp_result * weights[i, :])
+    density = np.mean(density_output, axis=0)
+    normalization = np.sum(density) * (grids[1] - grids[0])
+    density = density / normalization
+    return density, grids
+
+
+def gaussian(x, x0, sigma_squared):
+    return np.exp(-(x0 - x)**2 /
+                  (2.0 * sigma_squared)) / np.sqrt(2 * np.pi * sigma_squared)
+
+def get_esd_plot(ax, eigenvalues, weights, title):
+    #import matplotlib.pyplot as plt
+    density, grids = density_generate(eigenvalues, weights)
+    ax.semilogy(grids, density + 1.0e-7)
+    #ax.set_ylabel('Density (Log Scale)', fontsize=14, labelpad=10)
+    ax.set_xlabel('Eigenvlaue', fontsize=14, labelpad=6)
+    #ax.set_xticks(fontsize=12)
+    #ax.set_yticks(fontsize=12)
+    ax.tick_params(axis='both', which='major', labelsize=10)
+    #ax.axis([np.min(eigenvalues) - 1, np.max(eigenvalues) + 1, None, None])
+    ax.set_xlim(np.min(eigenvalues) - 1, np.max(eigenvalues) + 1)
+    #plt.tight_layout()
+    ax.set_title("Epoch: " + str(title))
