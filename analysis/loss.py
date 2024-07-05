@@ -38,7 +38,10 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
 
         if compute_acc:
             if out.dim() > 1:
-                accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
+                if out.shape != target.shape:
+                    accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
+                else:
+                    accuracy = torch.mean((torch.argmax(out,dim=1)==torch.argmax(target,dim=1)).float()).item()
             else:
                 accuracy = torch.sum((out*target > 0).float()).item()
 
@@ -85,7 +88,10 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
 
         if compute_acc:
             if out.dim() > 1:
-                accuracy = torch.sum((torch.argmax(out,dim=1)==target).float()).item()
+                if out.shape != target.shape:
+                    accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
+                else:
+                    accuracy = torch.mean((torch.argmax(out,dim=1)==torch.argmax(target,dim=1)).float()).item()
             else:
                 accuracy = torch.sum((out*target > 0).float()).item()
         pbar.update(1)

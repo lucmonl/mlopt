@@ -9,24 +9,36 @@ from torch import Tensor
 import torch.nn.functional as F
 from torchvision import datasets, transforms
 
-def load_mnist(loss: str, batch_size: int):
+def take_first(dataset: TensorDataset, num_to_keep: int):
+    #print(dataset.data.dtype)
+    #return TensorDataset(dataset.data[0:num_to_keep], dataset.targets[0:num_to_keep])
+    return torch.utils.data.Subset(dataset, np.arange(num_to_keep))
+
+def load_mnist(loss: str, batch_size: int, train_size: int=-1):
     data_params = {"compute_acc": True}
     num_pixels          = 32 * 32
     im_size             = 28
     padded_im_size      = 32
     input_ch            = 1
     C                   = 10
-    transform_to_one_hot = True
+    transform_to_one_hot = False
     transform = transforms.Compose([transforms.Pad((padded_im_size - im_size)//2),
                                     transforms.ToTensor(),
                                     transforms.Normalize(0.1307,0.3081)])
+    target_transform = transforms.Compose([
+                                 lambda x:torch.LongTensor([x]), # or just torch.tensor
+                                 lambda x:F.one_hot(x,C),
+                                 lambda x:torch.squeeze(x),
+                                 lambda x:x.float()])
 
-    train_dataset = datasets.MNIST('/projects/dali/data', train=True, download=True, transform=transform)
+    train_dataset = datasets.MNIST('/projects/dali/data', train=True, download=True, transform=transform, target_transform=target_transform)
+    if train_size != -1:
+        train_dataset = take_first(train_dataset, train_size)
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=batch_size, shuffle=True)
     
-    test_dataset = datasets.MNIST('/projects/dali/data', train=False, download=True, transform=transform)
+    test_dataset = datasets.MNIST('/projects/dali/data', train=False, download=True, transform=transform, target_transform=target_transform)
     test_loader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=batch_size, shuffle=False)

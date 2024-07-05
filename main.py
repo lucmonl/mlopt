@@ -353,7 +353,10 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
 
             if compute_acc:
                 if out.dim() > 1:
-                    accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
+                    if out.shape != target.shape:
+                        accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
+                    else:
+                        accuracy = torch.mean((torch.argmax(out,dim=1)==torch.argmax(target,dim=1)).float()).item()
                 else:
                     accuracy = torch.mean((out*target > 0).float()).item()
 
@@ -831,7 +834,7 @@ if __name__ == "__main__":
             train_loader, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params = load_cifar_vit(model_name, batch_size)
         else:
             train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar(loss_name, batch_size, train_size=sp_train_size, augment=args.augment, tiny_analysis=tiny_analysis)
-            if sp_train_size != 0:
+            if sp_train_size != -1:
                 model_params = model_params | {"train_size": sp_train_size}
             if args.augment != 0:
                 model_params = model_params | {"augment": args.augment}
@@ -856,7 +859,9 @@ if __name__ == "__main__":
         train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_imagenet_tiny(batch_size, tiny_analysis=tiny_analysis)
     elif dataset_name == "mnist":
         from data.mnist import load_mnist
-        train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_mnist(loss_name, batch_size)
+        train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_mnist(loss_name, batch_size, train_size=sp_train_size)
+        if sp_train_size != -1:
+            model_params = model_params | {"train_size": sp_train_size}
     elif dataset_name == "emnist":
         if opt_name == "federated":
             from data.emnist import load_emnist_federated
