@@ -21,7 +21,7 @@ class FixupBasicBlock(nn.Module):
         self.bias1a = nn.Parameter(torch.zeros(1))
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bias1b = nn.Parameter(torch.zeros(1))
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = nn.ReLU(inplace=False)
         self.bias2a = nn.Parameter(torch.zeros(1))
         self.conv2 = conv3x3(planes, planes)
         self.scale = nn.Parameter(torch.ones(1))
@@ -55,7 +55,7 @@ class FixupResNet(nn.Module):
         self.inplanes = 16
         self.conv1 = conv3x3(input_ch, 16)
         self.bias1 = nn.Parameter(torch.zeros(1))
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = nn.ReLU(inplace=False)
         self.layer1 = self._make_layer(block, 16, layers[0])
         self.layer2 = self._make_layer(block, 32, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 64, layers[2], stride=2)

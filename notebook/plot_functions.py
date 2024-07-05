@@ -331,8 +331,8 @@ def plot_attr(ax, train_graphs, attr, start=None, end=None):
             # still running
             continue
     xaxis = xaxis[start: end]
-    yaxis = np.mean(np.array(data), axis=0)
-    stds = np.std(np.array(data), axis=0)
+    yaxis = np.mean(np.array(data), axis=0).reshape(-1)
+    stds = np.std(np.array(data), axis=0).reshape(-1)
     #if attr == "loss":
     #    print(data)
     #plt.plot(x, means, label="Estimated Mean")
@@ -352,7 +352,9 @@ def plot_attr(ax, train_graphs, attr, start=None, end=None):
     elif attr in ['loss_ratio']:
         line = plot_xy(ax, xaxis[:-1], yaxis, name=attr)
         ax.fill_between(xaxis[:-1], yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
-    elif attr in ['cos_descent_ascent', 'progress_dir', 'ascent_semi_cos', 'ascent_step_diff', 'descent_step_diff', 'descent_norm']:
+    elif attr in ['cos_descent_ascent', 'progress_dir', 'ascent_semi_cos', \
+                  'ascent_step_diff', 'descent_step_diff', 'descent_norm', \
+                  'dominant_alignment', 'batch_loss']:
         if hasattr(train_graph, attr):
             #yaxis = getattr(train_graphs, attr)[start:end]
             line = plot_y(ax=ax, yaxis=yaxis, name=attr)
@@ -724,7 +726,6 @@ def plot_eval_attr_keys(opt_name, model_params, opt_params, attrs, keys, zero_ou
     axs[0].legend(keys)
     plt.tight_layout()
     plt.show()
-
 
 def plot_eigen_density(model_param, opt_param):
     from utilities import get_esd_plot

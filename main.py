@@ -482,9 +482,10 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 optimizer.second_step(zero_grad=False)
             optimizer.third_step(zero_grad=True)
             enable_running_stats(model)
-        elif opt_name == "dom_sgd":
-            dominant_alignment = optimizer.step(batch=input, zero_grad=True, train_stats=opt_params["train_stats"])
+        elif opt_name in ["dom_sgd", "gn_dom_sgd"]:
+            dominant_alignment = optimizer.step(epoch, batch_idx, batch=input, zero_grad=True, train_stats=opt_params["train_stats"])
             map_update(track_train_stats, dominant_alignment, reduction = "append")
+            map_update(track_train_stats, {"batch_loss": loss.item()}, reduction = "append")
         elif opt_name == "norm-sgd":
             if loss_name == 'MSELoss':
                 optimizer.step(loss=loss)
@@ -499,6 +500,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 from analysis.grad_norm import get_grad_norm
                 grad_norm = get_grad_norm(model)
                 map_update(track_train_stats, grad_norm, reduction = "append")
+                map_update(track_train_stats, {"batch_loss": loss.item()}, reduction = "append")
             optimizer.step()
                 
         pbar.update(1)
@@ -619,10 +621,10 @@ if __name__ == "__main__":
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2",
               "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", 
               "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small", "dino_vit_base", "dinov2_vit_base", "dinov2_vit_small", 
-              "dinov2_vit_giant2", "vit_small", "vit_base", "lin_attn"]
+              "dinov2_vit_giant2", "vit_small", "vit_base", "lin_attn", "mlp"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
-    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'dom_sgd', 'norm-sgd','adam', 'adamw', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
+    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'dom_sgd', 'gn_dom_sgd', 'norm-sgd','adam', 'adamw', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
     BASE_OPTIMIZERS = ['sgd','adam']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")
@@ -828,7 +830,9 @@ if __name__ == "__main__":
             from data.cifar import load_cifar_vit
             train_loader, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params = load_cifar_vit(model_name, batch_size)
         else:
-            train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar(loss_name, batch_size, augment=args.augment, tiny_analysis=tiny_analysis)
+            train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar(loss_name, batch_size, train_size=sp_train_size, augment=args.augment, tiny_analysis=tiny_analysis)
+            if sp_train_size != 0:
+                model_params = model_params | {"train_size": sp_train_size}
             if args.augment != 0:
                 model_params = model_params | {"augment": args.augment}
     elif dataset_name == "cifar100":
@@ -939,7 +943,11 @@ if __name__ == "__main__":
         cutmix = CutMix(int(np.sqrt(num_pixels/input_ch)), beta=1)
         model_params = model_params | {"mixup" : "cut"}
 
-    if model_name == "resnet18":
+    if model_name == "mlp":
+        from arch.mlp import get_mlp
+        model = get_mlp(num_pixels, width, C)
+        model_params = {"width": width} | model_params
+    elif model_name == "resnet18":
         model = models.resnet18(pretrained=False, num_classes=C)
         model_params = {} | model_params
         if dataset_name == "mnist":
@@ -1246,6 +1254,7 @@ if __name__ == "__main__":
         criterion = BCE
         criterion_summed = BCE_sum
 
+    opt_params["criterion"] = criterion
     opt_params["criterion_summed"] = criterion_summed
 
     optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, model_params, **opt_params)

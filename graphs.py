@@ -7,6 +7,7 @@ class graphs:
         self.gn_eigs         = []
         self.eigs_test    = []
         self.adv_eigs     = {} # the keys are adv_eta
+        self.batch_loss   = []
 
         self.density_eigen  = []
         self.density_weight = []
