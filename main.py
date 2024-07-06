@@ -487,8 +487,9 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             enable_running_stats(model)
         elif opt_name in ["dom_sgd", "gn_dom_sgd"]:
             dominant_alignment = optimizer.step(epoch, batch_idx, batch=input, zero_grad=True, train_stats=opt_params["train_stats"])
-            map_update(track_train_stats, dominant_alignment, reduction = "append")
-            map_update(track_train_stats, {"batch_loss": loss.item()}, reduction = "append")
+            if opt_params["train_stats"]:
+                map_update(track_train_stats, dominant_alignment, reduction = "append")
+                map_update(track_train_stats, {"batch_loss": loss.item()}, reduction = "append")
         elif opt_name == "norm-sgd":
             if loss_name == 'MSELoss':
                 optimizer.step(loss=loss)

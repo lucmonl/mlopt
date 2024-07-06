@@ -33,7 +33,7 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
                             use_hf_model=kwargs["hf_model"], lr=lr, momentum=momentum, weight_decay=weight_decay)
     elif opt_name == "gn_dom_sgd":
         from optimizer.subspace_sgd import GN_DOM_SGD
-        optimizer = GN_DOM_SGD(model,  model.parameters(), kwargs["num_classes"], kwargs["criterion"], kwargs["device"],
+        optimizer = GN_DOM_SGD(model,  model.parameters(), kwargs["num_classes"], kwargs["criterion"], kwargs["criterion_summed"], kwargs["device"],
                                lr=lr, momentum=momentum, weight_decay=weight_decay)
     elif opt_name == "sketch_adam":
         from optimizer.sketch_adam import Adam

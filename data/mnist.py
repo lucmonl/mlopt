@@ -21,15 +21,20 @@ def load_mnist(loss: str, batch_size: int, train_size: int=-1):
     padded_im_size      = 32
     input_ch            = 1
     C                   = 10
-    transform_to_one_hot = False
+    
     transform = transforms.Compose([transforms.Pad((padded_im_size - im_size)//2),
                                     transforms.ToTensor(),
                                     transforms.Normalize(0.1307,0.3081)])
-    target_transform = transforms.Compose([
-                                 lambda x:torch.LongTensor([x]), # or just torch.tensor
-                                 lambda x:F.one_hot(x,C),
-                                 lambda x:torch.squeeze(x),
-                                 lambda x:x.float()])
+    if loss == "MSELoss":
+        transform_to_one_hot = False
+        target_transform = transforms.Compose([
+                                    lambda x:torch.LongTensor([x]), # or just torch.tensor
+                                    lambda x:F.one_hot(x,C),
+                                    lambda x:torch.squeeze(x),
+                                    lambda x:x.float()])
+    else:
+        transform_to_one_hot = True
+        target_transform = None
 
     train_dataset = datasets.MNIST('/projects/dali/data', train=True, download=True, transform=transform, target_transform=target_transform)
     if train_size != -1:

@@ -849,7 +849,7 @@ def plot_loss_ratio_vs_grad(opts, model_params, opt_params, savefig=None):
     ax1.yaxis.label.set_color(colors[0])
     ax2.yaxis.label.set_color(colors[1])
     print(lines)
-    ax2.legend(lines, [l.get_label() for l in lines])
+    ax2.legend(lines, [l.get_label() for l in lines], loc='center right')
     leg = ax2.get_legend()
     leg.legendHandles[0].set_color('black')
     leg.legendHandles[1].set_color('black')

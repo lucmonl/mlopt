@@ -14,16 +14,18 @@ from torch.nn import Linear, MSELoss, ReLU, Sequential
 from vivit.linalg.eigh import EighComputation
 
 from torch import cat
+import numpy as np
 
 
 class GN_DOM_SGD(torch.optim.Optimizer):
-    def __init__(self, model, params, dom_dim, criterion, device, **kwargs):
+    def __init__(self, model, params, dom_dim, criterion, criterion_summed, device, **kwargs):
         defaults = dict(**kwargs)
         super(GN_DOM_SGD, self).__init__(params, defaults)
         #self.norm_sgd_lr = norm_sgd_lr
         self.dom_dim = dom_dim
         self.model = model
         self.criterion = criterion
+        self.criterion_summed = criterion_summed
         self.device = device
 
         self.base_optimizer = torch.optim.SGD(self.param_groups, **kwargs)
@@ -75,18 +77,38 @@ class GN_DOM_SGD(torch.optim.Optimizer):
         disable_running_stats(self.model)
 
         dominant_alignment = torch.ones(1) * -1
+        hessian_gn_align = torch.ones(1) * -1
 
-        if epoch >= 0 and batch_idx % 30 == 0: 
-            _, eigvecs = self.get_gn_eigs(batch[0].to(self.device), batch[1].to(self.device))          
+        if epoch >= 90 and batch_idx % 1 == 0: 
+            eigvals, eigvecs = self.get_gn_eigs(batch[0].to(self.device), batch[1].to(self.device))    
+            #eigvecs = torch.flip(eigvecs, dim=1)      
             dom_grad, dominant_alignment = self.project_and_step(eigvecs.to(self.device))
-            if dominant_alignment > 0.95:
-                vector_to_grads(dom_grad, self.model.parameters())
+            
+            #print(eigvals)
+            #if dominant_alignment > 0.95:
+
+            batch_dataset = TensorDataset(batch[0], batch[1])
+            batch_loader = torch.utils.data.DataLoader(batch_dataset, batch_size=batch[0].shape[0], shuffle=True)
+
+            hes_eigvals, hes_eigvecs = get_hessian_eigenvalues_weight_decay(self.model, self.criterion_summed, 
+                                                                0.0, batch_loader, 
+                                                                neigs=10, 
+                                                                num_classes=10,
+                                                                device=self.device, 
+                                                                use_hf_model=False)
+            #print(eigvals)
+            #print([(hes_eigvecs[:, i] @ eigvecs[:, 9-i].cpu()).abs().item() for i in range(10)])
+            #hessian_gn_align = np.mean([(hes_eigvecs[:, i] @ eigvecs[:, 9-i].cpu()).abs().item() for i in range(self.dom_dim)])
+            #print((hes_eigvecs.T @ eigvecs.cpu()).abs())
+            hessian_gn_align = torch.mean(torch.norm(hes_eigvecs @ (hes_eigvecs.T @ eigvecs.cpu()), dim=0))
+            
+            vector_to_grads(dom_grad, self.model.parameters())
         self.base_optimizer.step()
         if zero_grad: self.zero_grad()
         enable_running_stats(self.model)
 
         if train_stats:
-            return {"dominant_alignment": dominant_alignment.item()}
+            return {"dominant_alignment": dominant_alignment.item(), "hessian_gn_align": hessian_gn_align.item()}
 
 class DOM_SGD(torch.optim.Optimizer):
     def __init__(self, model, params, dom_dim, criterion_summed, batch_size, num_classes, device, use_hf_model=False, **kwargs):
@@ -119,7 +141,7 @@ class DOM_SGD(torch.optim.Optimizer):
 
         dominant_alignment = torch.ones(1) * -1
 
-        if epoch >= 0 and batch_id % 30 == 0: 
+        if epoch >= 90 and batch_id % 1 == 0: 
             batch_dataset = TensorDataset(batch[0], batch[1])
             batch_loader = torch.utils.data.DataLoader(batch_dataset, batch_size=batch[0].shape[0], shuffle=True)
 
@@ -133,8 +155,8 @@ class DOM_SGD(torch.optim.Optimizer):
         
           
             dom_grad, dominant_alignment = self.project_and_step(eigvecs.to(self.device))
-            if dominant_alignment > 0.95:
-                vector_to_grads(dom_grad, self.model.parameters())
+            #if dominant_alignment > 0.95:
+            vector_to_grads(dom_grad, self.model.parameters())
         self.base_optimizer.step()
         if zero_grad: self.zero_grad()
         enable_running_stats(self.model)
