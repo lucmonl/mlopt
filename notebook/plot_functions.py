@@ -345,7 +345,7 @@ def plot_attr(ax, train_graphs, attr, start=None, end=None):
         #yaxis = getattr(train_graphs, attr)[start:end]
         line = plot_xlogy(ax, xaxis, yaxis, name=attr)
         ax.fill_between(xaxis, yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
-    elif attr in ['accuracy',  'test_accuracy', 'wn_grad_loss_ratio', 'wn_norm_min']:
+    elif attr in ['accuracy',  'test_accuracy', 'wn_grad_loss_ratio', 'wn_norm_min', "grad_evecs_cos"]:
         #yaxis = getattr(train_graphs, attr)[start:end]
         line = plot_xy(ax, xaxis, yaxis, name=attr)
         ax.fill_between(xaxis, yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
@@ -845,7 +845,7 @@ def plot_loss_ratio_vs_grad(opts, model_params, opt_params, savefig=None):
         means = np.mean(np.array(grad_loss_ratio_list), axis=0)[:50]
         lines.append(ax2.plot(cur_epochs[:-1], means[:-1], linestyle=line_styles[i], color=colors[1], label=opt_name)[0])
         ax2.set_ylabel(r"$\Vert \nabla L(\theta_t) \Vert^2$ / $L(\theta_t)$")
-        ax1.set_xlabel("Iterations")
+        ax1.set_xlabel("Epochs")
     ax1.yaxis.label.set_color(colors[0])
     ax2.yaxis.label.set_color(colors[1])
     print(lines)

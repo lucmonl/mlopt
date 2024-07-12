@@ -49,6 +49,8 @@ def vit_directory(size, patch_size, img_size, opt_name=None, pretrain="in21k"):
         return "/projects/dali/models/vit/vit_{}_patch{}_{}.sam_{}/pytorch_model.bin".format(size, patch_size, img_size, pretrain)
     elif opt_name == "clip":
         return "/projects/dali/models/vit/vit_{}_patch{}_clip_{}.openai_ft_{}/pytorch_model.bin".format(size, patch_size, img_size, pretrain)
+    elif opt_name == "sbb":
+        return "/projects/dali/models/vit/vit_{}_patch{}_reg4_gap_{}.sbb_{}/pytorch_model.bin".format(size, patch_size, img_size, pretrain)
     return "/projects/dali/models/vit/vit_{}_patch{}_{}.augreg_{}/pytorch_model.bin".format(size, patch_size, img_size, pretrain)
 
 def pretain_num_classes(pretrain):

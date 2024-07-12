@@ -54,6 +54,7 @@ def get_transform():
     """
     train_transform += [
         #transforms.Resize((280, 280)),
+        transforms.Resize((256, 256)),
         transforms.RandomHorizontalFlip()]
 
     mean = [0.4914, 0.4822, 0.4465]
@@ -65,6 +66,7 @@ def get_transform():
     
     test_transform += [
         #transforms.Resize((280, 280)),
+        transforms.Resize((256, 256)),
         transforms.ToTensor(),
         transforms.Normalize(mean=mean, std=std)
     ]

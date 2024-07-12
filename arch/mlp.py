@@ -6,6 +6,10 @@ def get_mlp(D_in, D_hidden, D_out):
         Linear(D_in, D_hidden),
         Tanh(),
         Linear(D_hidden, D_hidden),
+        #Tanh(),
+        #Linear(D_hidden, D_hidden),
+        #Tanh(),
+        #Linear(D_hidden, D_hidden),
         Tanh(),
         Linear(D_hidden, D_out),
     )

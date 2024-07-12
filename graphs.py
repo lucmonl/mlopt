@@ -18,6 +18,8 @@ class graphs:
         self.reg_loss     = []
         self.test_reg_loss     = []
 
+        self.grad_evecs_cos = []
+
         # NC1
         self.Sw_invSb     = []
 
@@ -92,6 +94,8 @@ class graphs:
         self.pseudo_grad_norm   = []
         self.dominant_alignment = []
         self.hessian_gn_align   = []
+        self.hessian_eig        = []
+        self.gn_eig             = []
 
         self.test_img           = []
         self.attention_map      = []

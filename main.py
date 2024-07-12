@@ -485,7 +485,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 optimizer.second_step(zero_grad=False)
             optimizer.third_step(zero_grad=True)
             enable_running_stats(model)
-        elif opt_name in ["dom_sgd", "gn_dom_sgd"]:
+        elif opt_name in ["dom_sgd", "gn_dom_sgd", "gn_bulk_sgd", "bulk_sgd"]:
             dominant_alignment = optimizer.step(epoch, batch_idx, batch=input, zero_grad=True, train_stats=opt_params["train_stats"])
             if opt_params["train_stats"]:
                 map_update(track_train_stats, dominant_alignment, reduction = "append")
@@ -625,10 +625,11 @@ if __name__ == "__main__":
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2",
               "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", 
               "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small", "dino_vit_base", "dinov2_vit_base", "dinov2_vit_small", 
-              "dinov2_vit_giant2", "vit_small", "vit_base", "lin_attn", "mlp"]
+              "dinov2_vit_giant2", "vit_small", "vit_medium", "vit_base", "lin_attn", "mlp"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
-    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'dom_sgd', 'gn_dom_sgd', 'norm-sgd','adam', 'adamw', 'federated','replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
+    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'dom_sgd', 'gn_dom_sgd', 'gn_bulk_sgd', 'bulk_sgd', 'norm-sgd','adam', 'adamw', 'federated',
+                  'replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
     BASE_OPTIMIZERS = ['sgd','adam']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")
@@ -636,7 +637,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset",  type=str, choices=DATASETS, help="which dataset to train")
     parser.add_argument("--model",  type=str, choices=MODELS, help="which model to train")
     parser.add_argument("--pretrain", type=str, default="none", help="use pretrained model")
-    parser.add_argument("--pretrain_aug", type=str, default="none", choices=["none", "sam", "clip"], help="augmentation used in pretrained model.")
+    parser.add_argument("--pretrain_aug", type=str, default="none", choices=["none", "sam", "clip", "sbb"], help="augmentation used in pretrained model.")
 
     #model
     parser.add_argument("--width", type=int, default=512, help="network width for weight norm or number of filters in convnets")
@@ -1064,6 +1065,31 @@ if __name__ == "__main__":
         model_params = model_params | {"patch_size": vit_patch_size}
         analysis_params = analysis_params | {"patch_size": vit_patch_size, "num_register": args.num_register, "topk": args.topk, "zero_out_attn": args.zero_out_attn, 
                                              "zero_out_top": args.zero_out_top, "zero_out_selfattn": args.zero_out_selfattn}
+    elif model_name == "vit_medium":
+        """
+        from arch.dino_vit import vit_medium
+        from path_manage import vit_directory, pretain_num_classes
+        model = vit_medium(patch_size=vit_patch_size, num_classes=pretain_num_classes(args.pretrain)).to(device)
+        if args.pretrain != 'none':
+            pretrain_file = vit_directory("medium", args.vit_patch_size, 256, opt_name=args.pretrain_aug, pretrain=args.pretrain)
+            with open(pretrain_file, "rb") as f:
+                tensors = torch.load(f, map_location="cpu")
+            model.load_state_dict(tensors, strict=False)
+            model_params = {"pretrain": args.pretrain}
+            if args.pretrain_aug != "none":
+                model_params = {"aug": args.pretrain_aug} | model_params
+        model_params = model_params | {"patch_size": vit_patch_size}
+        analysis_params = analysis_params | {"patch_size": vit_patch_size, "num_register": args.num_register, "topk": args.topk, "zero_out_attn": args.zero_out_attn, 
+                                             "zero_out_top": args.zero_out_top, "zero_out_selfattn": args.zero_out_selfattn}
+        """
+        import timm
+        from timm.layers.config import set_fused_attn
+        set_fused_attn(enable = False)
+        model = timm.create_model("hf_hub:timm/vit_medium_patch16_reg4_gap_256.sbb_in12k_ft_in1k", pretrained=True)
+        model_params = {"pretrain": args.pretrain} | model_params
+        if args.pretrain_aug != "none":
+            model_params = {"aug": args.pretrain_aug} | model_params
+        model_params = model_params | {"patch_size": vit_patch_size}
     elif model_name == "vit_base":
         from arch.dino_vit import vit_base
         from path_manage import vit_directory, pretain_num_classes
@@ -1248,7 +1274,7 @@ if __name__ == "__main__":
             criterion_summed = mse_sum_with_one_hot
         else:
             criterion = nn.MSELoss()
-            criterion_summed = nn.MSELoss(reduction='sum')
+            criterion_summed = nn.MSELoss(reduction="sum")
     elif loss_name == "BCELoss":
         assert not transform_to_one_hot
         def BCE(out, target):
