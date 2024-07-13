@@ -815,6 +815,8 @@ def vector_to_state_dict(vec, state_dict) -> None:
     return state_dict
 
 def map_update(map1, map2, reduction="sum"):
+    if map2 is None:
+        return
     for key in map2:
         if reduction == "sum":
             if key in map1:

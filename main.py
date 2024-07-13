@@ -361,7 +361,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                     accuracy = torch.mean((out*target > 0).float()).item()
 
         
-        if opt_name in ["sam", "sam_on"]:
+        if opt_name in ["sam", "sam_on", "adams_v1"]:
             if opt_params["train_stats"]:
                 from analysis.grad_norm import get_grad_norm
                 grad_norm = get_grad_norm(model, ascent=True)
@@ -629,7 +629,7 @@ if __name__ == "__main__":
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'dom_sgd', 'gn_dom_sgd', 'gn_bulk_sgd', 'bulk_sgd', 'norm-sgd','adam', 'adamw', 'federated',
-                  'replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam']
+                  'replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam', 'adams_v1']
     BASE_OPTIMIZERS = ['sgd','adam']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")

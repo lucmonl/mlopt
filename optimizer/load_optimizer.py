@@ -24,6 +24,10 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
     elif opt_name == "adamw":
         from torch.optim import AdamW
         optimizer = AdamW(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
+    elif opt_name == "adams_v1":
+        from optimizer.sam_adam import AdamS_v1
+        optimizer = AdamS_v1(model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
+        model_params = model_params | {"sam_rho": kwargs["sam_rho"]} 
     elif opt_name == "dom_sgd":
         """from paper Does SGD really happen in tiny subspaces? https://arxiv.org/pdf/2405.16002"""
         from optimizer.subspace_sgd import DOM_SGD
