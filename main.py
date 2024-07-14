@@ -1306,6 +1306,11 @@ if __name__ == "__main__":
             load_from_dir = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, load_from_epoch, multi_run, **model_params)
             model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))
             optimizer.load_state_dict(torch.load(os.path.join(load_from_dir, "optimizer.ckpt")))
+            if hasattr(optimizer, "base_optimizer"):
+                optimizer.base_optimizer.load_state_dict(torch.load(os.path.join(load_from_dir, "base_optimizer.ckpt")))
+                optimizer_to(optimizer.base_optimizer, device)
+                #print(optimizer.base_optimizer.state_dict()['state'][0]['step'])
+                #sys.exit()
             optimizer_to(optimizer, device)
             with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
                 train_graphs = pickle.load(f)
@@ -1338,6 +1343,8 @@ if __name__ == "__main__":
                 pickle.dump(train_graphs, open(f"{directory}/train_graphs.pk", "wb"))
                 torch.save(model.state_dict(), f"{directory}/model.ckpt")
                 torch.save(optimizer.state_dict(), f"{directory}/optimizer.ckpt")
+                if hasattr(optimizer, "base_optimizer"):
+                    torch.save(optimizer.base_optimizer.state_dict(), f"{directory}/base_optimizer.ckpt")
                 if store_model_checkpoint:
                     os.makedirs(f"{directory}/checkpoint_{epoch}")
                     torch.save(model.state_dict(), f"{directory}/checkpoint_{epoch}/model.ckpt") 
