@@ -679,7 +679,7 @@ if __name__ == "__main__":
     parser.add_argument("--base_opt", type=str, default="sgd", choices=BASE_OPTIMIZERS, help="base optimizer for sam/norm-sgd optimizer")
     parser.add_argument("--sam_rho", type=float, default=0.2, help="rho for SAM")
     parser.add_argument("--sam_adaptive", type=bool, default=False, help="use adaptive SAM")
-    parser.add_argument("--look_alpha", type=float, default=0.1, help="alpha for LookSAM/AlternateSAM")
+    parser.add_argument("--sam_alpha", type=float, default=1.0, help="alpha for LookSAM/AlternateSAM/AdamS")
     parser.add_argument("--gold_delta", type=float, default=1, help="delta for goldstein")
     parser.add_argument("--norm_sgd_lr", type=float, default=1e-3, help="learning rate for normalized sgd when overfit")
 
@@ -776,7 +776,7 @@ if __name__ == "__main__":
     opt_params["base_opt"]            = args.base_opt
     opt_params["sam_rho"]             = args.sam_rho #0.1
     opt_params["sam_adaptive"]        = args.sam_adaptive #False
-    opt_params["look_alpha"]          = args.look_alpha
+    opt_params["sam_alpha"]           = args.sam_alpha
     opt_params["norm_sgd_lr"]         = args.norm_sgd_lr
     opt_params["gold_delta"]          = args.gold_delta
     opt_params["train_stats"]         = args.train_stats
@@ -952,8 +952,8 @@ if __name__ == "__main__":
 
     if model_name == "mlp":
         from arch.mlp import get_mlp
-        model = get_mlp(num_pixels, width, C)
-        model_params = {"width": width} | model_params
+        model = get_mlp(num_pixels, width, C, depth)
+        model_params = {"width": width, "depth": depth} | model_params
     elif model_name == "resnet18":
         model = models.resnet18(pretrained=False, num_classes=C)
         model_params = {} | model_params
@@ -1340,6 +1340,7 @@ if __name__ == "__main__":
                 #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
                 analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc,train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
                 
+            if epoch in epoch_list or epoch == epochs:
                 pickle.dump(train_graphs, open(f"{directory}/train_graphs.pk", "wb"))
                 torch.save(model.state_dict(), f"{directory}/model.ckpt")
                 torch.save(optimizer.state_dict(), f"{directory}/optimizer.ckpt")

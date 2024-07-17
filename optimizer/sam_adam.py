@@ -4,12 +4,13 @@ import sys
 
 
 class AdamS_v1(torch.optim.Optimizer):
-    def __init__(self, params, rho=0.05, adaptive=False, **kwargs):
+    def __init__(self, params, alpha, rho=0.05, adaptive=False, **kwargs):
         assert rho >= 0.0, f"Invalid rho, should be non-negative: {rho}"
 
         defaults = dict(rho=rho, adaptive=adaptive, **kwargs)
         super(AdamS_v1, self).__init__(params, defaults)
 
+        self.alpha = alpha
         self.lr = kwargs["lr"]
         self.base_optimizer = Adam(self.param_groups, lr=self.lr, betas=(kwargs["momentum"], 0.999), weight_decay=kwargs["weight_decay"])
         #self.sgd_optimizer = SGD(self.param_groups, lr=self.lr, momentum=0.0, weight_decay=0.0)
@@ -59,7 +60,7 @@ class AdamS_v1(torch.optim.Optimizer):
             for p in group["params"]:
                 if p.grad is None: continue
                 p.data = self.state[p]["old_p"]  # get back to "w" from "w + e(w)"
-                p.grad = self.state[p]["adam"] + 1.0 * adam_norm * p.grad / grad_norm
+                p.grad = self.state[p]["adam"] + self.alpha * adam_norm * p.grad / grad_norm
 
                 p.add_(p.grad, alpha=-self.lr) 
 

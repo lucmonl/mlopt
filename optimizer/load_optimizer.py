@@ -26,8 +26,8 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         optimizer = AdamW(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
     elif opt_name == "adams_v1":
         from optimizer.sam_adam import AdamS_v1
-        optimizer = AdamS_v1(model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
-        model_params = model_params | {"sam_rho": kwargs["sam_rho"]} 
+        optimizer = AdamS_v1(model.parameters(), alpha=kwargs["sam_alpha"], lr=lr, momentum=momentum, weight_decay=weight_decay)
+        model_params = model_params | {"alpha":kwargs["sam_alpha"], "sam_rho": kwargs["sam_rho"]} 
     elif opt_name == "dom_sgd":
         """from paper Does SGD really happen in tiny subspaces? https://arxiv.org/pdf/2405.16002"""
         from optimizer.subspace_sgd import DOM_SGD
@@ -78,20 +78,20 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         from optimizer.sam import Alternate_SAM
         if kwargs["base_opt"] == "sgd":
             base_optimizer = torch.optim.SGD
-            optimizer = Alternate_SAM(model.parameters(), base_optimizer, alpha=kwargs["look_alpha"], rho=kwargs["sam_rho"], adaptive=kwargs["sam_adaptive"], train_stats=kwargs["train_stats"], lr=lr, momentum=momentum, weight_decay=weight_decay)
-        model_params = model_params | {"base_opt": kwargs["base_opt"], "sam_rho": kwargs["sam_rho"], "look_alpha": kwargs["look_alpha"]} 
+            optimizer = Alternate_SAM(model.parameters(), base_optimizer, alpha=kwargs["sam_alpha"], rho=kwargs["sam_rho"], adaptive=kwargs["sam_adaptive"], train_stats=kwargs["train_stats"], lr=lr, momentum=momentum, weight_decay=weight_decay)
+        model_params = model_params | {"base_opt": kwargs["base_opt"], "sam_rho": kwargs["sam_rho"], "look_alpha": kwargs["sam_alpha"]} 
     elif opt_name == "alternate_sam_v2":
         from optimizer.sam import Alternate_SAM_v2
         if kwargs["base_opt"] == "sgd":
             base_optimizer = torch.optim.SGD
-            optimizer = Alternate_SAM_v2(model.parameters(), base_optimizer, alpha=kwargs["look_alpha"], rho=kwargs["sam_rho"], adaptive=kwargs["sam_adaptive"], train_stats=kwargs["train_stats"], lr=lr, momentum=momentum, weight_decay=weight_decay)
-        model_params = model_params | {"base_opt": kwargs["base_opt"], "sam_rho": kwargs["sam_rho"], "look_alpha": kwargs["look_alpha"]} 
+            optimizer = Alternate_SAM_v2(model.parameters(), base_optimizer, alpha=kwargs["sam_alpha"], rho=kwargs["sam_rho"], adaptive=kwargs["sam_adaptive"], train_stats=kwargs["train_stats"], lr=lr, momentum=momentum, weight_decay=weight_decay)
+        model_params = model_params | {"base_opt": kwargs["base_opt"], "sam_rho": kwargs["sam_rho"], "look_alpha": kwargs["sam_alpha"]} 
     elif opt_name == "alternate_sam_v3":
         from optimizer.sam import Alternate_SAM_v3
         if kwargs["base_opt"] == "sgd":
             base_optimizer = torch.optim.SGD
-            optimizer = Alternate_SAM_v3(model.parameters(), base_optimizer, alpha=kwargs["look_alpha"], rho=kwargs["sam_rho"], adaptive=kwargs["sam_adaptive"], train_stats=kwargs["train_stats"], lr=lr, momentum=momentum, weight_decay=weight_decay)
-        model_params = model_params | {"base_opt": kwargs["base_opt"], "sam_rho": kwargs["sam_rho"], "look_alpha": kwargs["look_alpha"]} 
+            optimizer = Alternate_SAM_v3(model.parameters(), base_optimizer, alpha=kwargs["sam_alpha"], rho=kwargs["sam_rho"], adaptive=kwargs["sam_adaptive"], train_stats=kwargs["train_stats"], lr=lr, momentum=momentum, weight_decay=weight_decay)
+        model_params = model_params | {"base_opt": kwargs["base_opt"], "sam_rho": kwargs["sam_rho"], "look_alpha": kwargs["sam_alpha"]} 
     elif opt_name == "replay_sam":
         from optimizer.sam import Replay_SAM
         if kwargs["base_opt"] == "sgd":
@@ -109,13 +109,13 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         from optimizer.sam import LookSAM
         if kwargs["base_opt"] == "sgd":
             base_optimizer = torch.optim.SGD
-            optimizer = LookSAM(alpha=kwargs["look_alpha"], params=model.parameters(), base_optimizer=base_optimizer, rho=kwargs["sam_rho"], lr=lr, momentum=momentum, weight_decay=weight_decay)
+            optimizer = LookSAM(alpha=kwargs["sam_alpha"], params=model.parameters(), base_optimizer=base_optimizer, rho=kwargs["sam_rho"], lr=lr, momentum=momentum, weight_decay=weight_decay)
         elif kwargs["base_opt"] == "adam":
             base_optimizer = torch.optim.Adam
-            optimizer = LookSAM(alpha=kwargs["look_alpha"], params=model.parameters(), base_optimizer=base_optimizer, rho=kwargs["sam_rho"], lr=lr, momentum=momentum, weight_decay=weight_decay)
+            optimizer = LookSAM(alpha=kwargs["sam_alpha"], params=model.parameters(), base_optimizer=base_optimizer, rho=kwargs["sam_rho"], lr=lr, momentum=momentum, weight_decay=weight_decay)
         else:
             raise NotImplementedError
-        model_params = model_params | {"base_opt": kwargs["base_opt"], "sam_rho": kwargs["sam_rho"], "look_alpha": kwargs["look_alpha"]} 
+        model_params = model_params | {"base_opt": kwargs["base_opt"], "sam_rho": kwargs["sam_rho"], "look_alpha": kwargs["sam_alpha"]} 
         if kwargs["sam_adaptive"]:
             model_params = model_params | {"sam": "adaptive"}
     elif opt_name == "norm-sgd":
