@@ -4,10 +4,14 @@ class graphs:
         self.accuracy     = []
         self.loss         = []
         self.eigs         = []
-        self.gn_eigs         = []
+        self.evec         = []   
+        self.gn_eigs      = []
         self.eigs_test    = []
         self.adv_eigs     = {} # the keys are adv_eta
         self.batch_loss   = []
+
+        self.weight       = []
+        self.grads        = []
 
         self.density_eigen  = []
         self.density_weight = []
@@ -68,6 +72,8 @@ class graphs:
         self.wn_norm_min_with_g = []
 
         # weight alignment
+        self.signal_1           = []
+        self.signal_2           = []
         self.align_signal_1     = []
         self.align_signal_2     = []
         self.align_noise        = []

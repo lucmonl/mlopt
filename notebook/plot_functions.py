@@ -11,6 +11,13 @@ from path_manage import get_directory, get_running_directory
 
 #print(graphs)
 
+def cosine_similarity(u, v, ret_abs=False):
+    cosine =  (u @ v / np.linalg.norm(u) / np.linalg.norm(v))
+    if ret_abs:
+        return np.abs(cosine)
+    else:
+        return cosine
+
 def plot_figures_opts(opts, model_params, opt_params):
     plt.figure(figsize=(15,5))
     for opt_name in opts:
@@ -130,18 +137,17 @@ def get_attr_eval(opt_name, model_params, opt_params, attr):
     return getattr(train_graphs, attr)
 
 def plot_max_2d(array, k=1, start=0, end=None, xaxis=None):
-
     assert k >= 1 
-    if k > len(array[0]):
+    if k > array[0].shape[0]:
         print("WARNING: exceeds the second dim of array. Force round to max dim")
-        k = len(array[0])
+        k = array[0].shape[0]
     for j in range(1,k+1):
         if not xaxis:
             plt.plot([np.partition(np.array(array[start+i]).flatten(), -j)[-j] for i in range(len(array[start:end]))])
         else:
             plt.plot(xaxis, [np.partition(np.array(array[start+i]).flatten(), -j)[-j] for i in range(len(array[start:end]))])
 
-def plot_figures_align(opts, model_params, opt_params, signal_nums=1):
+def plot_figures_align(opts, model_params, opt_params, signal_nums=1, topk=1):
     plt.figure(figsize=(15,5))
     for opt_name in opts:
         model_param = model_params[opt_name]
@@ -173,7 +179,7 @@ def plot_figures_align(opts, model_params, opt_params, signal_nums=1):
             #print(train_graphs.loss)
             #plt.semilogy(cur_epochs, train_graphs.loss)
             align = getattr(train_graphs, "align_signal_{}".format(i))
-            plot_max_2d(align, 4, xaxis=cur_epochs)
+            plot_max_2d(align, topk, xaxis=cur_epochs)
             #plt.legend(['Loss + Weight Decay'])
             plt.xlabel('Epoch')
             plt.ylabel('Value')
@@ -188,7 +194,7 @@ def plot_figures_align(opts, model_params, opt_params, signal_nums=1):
         plt.xlabel('Epoch')
         plt.ylabel('Value')
         plt.title('Align Noise')
-
+        """
         plt.subplot(2,6,i+2)
         out_layer = getattr(train_graphs, "linear_coefs") # get_attr('sgd-0.05', model_params, opt_params, "out_layer")
         plot_max_2d(out_layer, 2, xaxis=cur_epochs)
@@ -204,7 +210,7 @@ def plot_figures_align(opts, model_params, opt_params, signal_nums=1):
         plt.xlabel('Epoch')
         plt.ylabel('Value')
         plt.title("(out-target)*target > 0")
-      
+        """
 
     plt.legend(opts)
     plt.tight_layout()

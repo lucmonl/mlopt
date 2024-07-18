@@ -17,13 +17,15 @@ class conv_fixed_last_layer(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        self.w_plus.data.uniform_(-self.std_v, self.std_v)
+        alpha = 0.1
+        self.w_plus.data.uniform_(-alpha*self.std_v, alpha*self.std_v)
         #self.w_minus.data.uniform_(-self.std_v, self.std_v)
         #self.v_plus.data.uniform_(0,1)
         #self.v_minus.data.uniform_(0,1)
 
     def forward(self, batched_x):
-        batched_x_plus = torch.nn.Tanh()(batched_x @ self.w_plus) ## (B*P*d) * (d*width)
+        batched_x_plus = (batched_x @ self.w_plus)**3
+        #batched_x_plus = torch.nn.Tanh()(batched_x @ self.w_plus) ## (B*P*d) * (d*width)
         #batched_x_minus = torch.nn.Tanh()(batched_x @ self.w_minus) #comment
 
         #batched_x = 1/self.num_filters*(self.v_plus*torch.sum(batched_x_plus, [1,2]) - self.v_minus*torch.sum(batched_x_minus, [1,2]))

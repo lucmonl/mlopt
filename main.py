@@ -563,7 +563,7 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
 
     if 'eigs' in analysis_list:
         from analysis.eigs import compute_eigenvalues
-        compute_eigenvalues(graphs, model, criterion_summed, weight_decay, analysis_loader, analysis_test_loader, num_classes, device, use_hf_model=opt_params["hf_model"])
+        compute_eigenvalues(graphs, model, criterion_summed, weight_decay, analysis_loader, analysis_test_loader, num_classes, device, analysis_list, use_hf_model=opt_params["hf_model"])
 
     if 'gn_eigs' in analysis_list:
         from analysis.eigs import compute_gn_eigenvalues
