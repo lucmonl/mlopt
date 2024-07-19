@@ -591,6 +591,10 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
         from analysis.alignment import compute_weight_signal_alignment
         compute_weight_signal_alignment(graphs, model, analysis_params["signal"], analysis_params["signal_patch_index"], train_loader)
 
+    if 'residual' in analysis_list:
+        from analysis.alignment import compute_residual
+        compute_residual(graphs, model, analysis_params["signal"], analysis_params["signal_patch_index"], train_loader, device)
+
     if 'linear' in analysis_list:
         from analysis.alignment import get_linear_coefs
         get_linear_coefs(graphs, model)

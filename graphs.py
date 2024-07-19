@@ -12,6 +12,7 @@ class graphs:
 
         self.weight       = []
         self.grads        = []
+        self.residuals    = []
 
         self.density_eigen  = []
         self.density_weight = []

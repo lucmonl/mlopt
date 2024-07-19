@@ -58,7 +58,7 @@ def load_signal_noise_data_2d(loss_name, patch_dim, feat_dim, train_size, batch_
     flip_prob = 0.1
     assert int(flip_prob * train_size) > 1
 
-    X_train, X_test = torch.randn(train_size, patch_dim, feat_dim) / (2*patch_dim), torch.randn(train_size, patch_dim, feat_dim) / (2*patch_dim)
+    X_train, X_test = torch.randn(train_size, patch_dim, feat_dim) / (0.5*patch_dim), torch.randn(train_size, patch_dim, feat_dim) / (0.5*patch_dim)
     X_train = X_train - torch.einsum('ij,k->ijk', (X_train @ signal), signal /  (np.linalg.norm(signal)**2)) 
     X_test = X_test - torch.einsum('ij,k->ijk', (X_test @ signal), signal /  (np.linalg.norm(signal)**2)) 
 

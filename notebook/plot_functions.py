@@ -351,7 +351,7 @@ def plot_attr(ax, train_graphs, attr, start=None, end=None):
         #yaxis = getattr(train_graphs, attr)[start:end]
         line = plot_xlogy(ax, xaxis, yaxis, name=attr)
         ax.fill_between(xaxis, yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
-    elif attr in ['accuracy',  'test_accuracy', 'wn_grad_loss_ratio', 'wn_norm_min', "grad_evecs_cos"]:
+    elif attr in ['accuracy',  'test_accuracy', 'wn_grad_loss_ratio', 'wn_norm_min', "grad_evecs_cos", "residuals"]:
         #yaxis = getattr(train_graphs, attr)[start:end]
         line = plot_xy(ax, xaxis, yaxis, name=attr)
         ax.fill_between(xaxis, yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
@@ -368,11 +368,14 @@ def plot_attr(ax, train_graphs, attr, start=None, end=None):
         else:
             line = plot_y(ax=ax, yaxis=[], name=attr)
     else:
+        raise NotImplementedError
+        """
         if hasattr(train_graph, attr):
             line = plot_y(ax=ax, yaxis=yaxis, name=attr)
             ax.fill_between(range(len(yaxis)), yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
         else:
             line = plot_y(ax=ax, yaxis=[], name=attr)
+        """
     return line
 
 def plot_single_attr(opts, model_params, opt_params, attr, savefig=None, title=None, xlabel=None, ylabel=None, eval=False):
