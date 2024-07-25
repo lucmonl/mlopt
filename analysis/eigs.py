@@ -33,7 +33,7 @@ def compute_eigenvalues(graphs, model, criterion_summed, weight_decay, loader, l
         print("grad and eigenspace alignment", grad_evecs_cos.item())
         graphs.grad_evecs_cos.append(grad_evecs_cos.item())
         graphs.grads.append(grad)
-        graphs.weight.append(model.w_plus.detach().cpu().numpy())
+        #graphs.weight.append(model.w_plus.detach().cpu().numpy())
 
     eigs_test, _ = get_hessian_eigenvalues_weight_decay(model, criterion_summed, weight_decay, loader_test, neigs=10, num_classes=num_classes, device=device, use_hf_model=use_hf_model)
     #eigs, _, _, _ = get_hessian_eigenvalues(model, criterion_summed, lr, analysis_dataset, neigs=10, return_smallest = False)

@@ -966,16 +966,18 @@ def gaussian(x, x0, sigma_squared):
     return np.exp(-(x0 - x)**2 /
                   (2.0 * sigma_squared)) / np.sqrt(2 * np.pi * sigma_squared)
 
-def get_esd_plot(ax, eigenvalues, weights, title):
+def get_esd_plot(ax, eigenvalues, weights, title, ylabel=False):
     #import matplotlib.pyplot as plt
     density, grids = density_generate(eigenvalues, weights)
     ax.semilogy(grids, density + 1.0e-7)
     #ax.set_ylabel('Density (Log Scale)', fontsize=14, labelpad=10)
-    ax.set_xlabel('Eigenvlaue', fontsize=14, labelpad=6)
+    ax.set_xlabel('Eigenvalues', fontsize=10, labelpad=6)
+    if ylabel == 0:
+        ax.set_ylabel('Density (Log Scale)', fontsize=8, labelpad=6)
     #ax.set_xticks(fontsize=12)
     #ax.set_yticks(fontsize=12)
-    ax.tick_params(axis='both', which='major', labelsize=10)
+    ax.tick_params(axis='both', which='major', labelsize=8)
     #ax.axis([np.min(eigenvalues) - 1, np.max(eigenvalues) + 1, None, None])
     ax.set_xlim(np.min(eigenvalues) - 1, np.max(eigenvalues) + 1)
     #plt.tight_layout()
-    ax.set_title("Epoch: " + str(title))
+    ax.set_title("Epoch: " + str(title-1))

@@ -12,6 +12,7 @@ def compute_residual(graphs, model, signals, signal_index, train_loader, device)
         #print(torch.sign(data[range(batch_size),signal_index[batch_size*(batch_idx-1):batch_size*batch_idx], :].to(device) @ model.w_plus).shape)
         #print(model(data.to(device)) - target.to(device))
         # ensure that the residual and sign vectors have the same dimension!
+        print(model(data.to(device)))
         residuals += torch.sum((model(data.to(device)) - target.to(device)) * torch.sign(data[range(batch_size),signal_index[batch_size*(batch_idx-1):batch_size*batch_idx], :].to(device) @ model.w_plus.squeeze()))
     graphs.residuals.append(residuals.item())
     return

@@ -189,11 +189,27 @@ def plot_figures_align(opts, model_params, opt_params, signal_nums=1, topk=1):
         plt.subplot(2,6,i+1)
         #print(train_graphs.eigs)
         align = getattr(train_graphs, "align_noise")
-        plot_max_2d(align, 4, xaxis=cur_epochs)
+        plot_max_2d(align, 20, xaxis=cur_epochs)
         #plt.legend(['Loss + Weight Decay'])
         plt.xlabel('Epoch')
         plt.ylabel('Value')
         plt.title('Align Noise')
+
+        grads = getattr(train_graphs, "grads")
+        signal = getattr(train_graphs, "signal_1").cpu().numpy()
+        evecs = getattr(train_graphs, "evec")
+
+        ax = plt.subplot(2, 6, i+2)
+        yaxis = [cosine_similarity(grads[i], signal, ret_abs=True) for i in range(len(grads))]
+        plot_xy(ax, xaxis=cur_epochs, yaxis=yaxis, name="cos_grad_signal", alpha=1.0)
+
+        ax = plt.subplot(2, 6, i+3)
+        yaxis = [cosine_similarity(grads[i], evecs[i], ret_abs=True) for i in range(len(grads))]
+        plot_xy(ax, xaxis=cur_epochs, yaxis=yaxis, name="cos_grad_evec", alpha=1.0)
+
+        ax = plt.subplot(2, 6, i+4)
+        yaxis = [cosine_similarity(evecs[i], signal, ret_abs=True) for i in range(len(grads))]
+        plot_xy(ax, xaxis=cur_epochs, yaxis=yaxis, name="cos_evec_signal", alpha=1.0)
         """
         plt.subplot(2,6,i+2)
         out_layer = getattr(train_graphs, "linear_coefs") # get_attr('sgd-0.05', model_params, opt_params, "out_layer")
@@ -347,11 +363,11 @@ def plot_attr(ax, train_graphs, attr, start=None, end=None):
         #yaxis = 1- np.array(getattr(train_graphs, "test_accuracy")[start:end])
         line = plot_xlogy(ax, xaxis, yaxis, name=attr)
         ax.fill_between(xaxis, yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
-    elif attr in ['loss', 'train_err', 'test_loss', 'eigs',  'eigs_test']:
+    elif attr in ['loss', 'train_err', 'test_loss']:
         #yaxis = getattr(train_graphs, attr)[start:end]
         line = plot_xlogy(ax, xaxis, yaxis, name=attr)
         ax.fill_between(xaxis, yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
-    elif attr in ['accuracy',  'test_accuracy', 'wn_grad_loss_ratio', 'wn_norm_min', "grad_evecs_cos", "residuals"]:
+    elif attr in ['accuracy',  'test_accuracy', 'wn_grad_loss_ratio', 'wn_norm_min', "grad_evecs_cos", "residuals", 'eigs',  'eigs_test']:
         #yaxis = getattr(train_graphs, attr)[start:end]
         line = plot_xy(ax, xaxis, yaxis, name=attr)
         ax.fill_between(xaxis, yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
@@ -631,9 +647,13 @@ def plot_figures_attrs_hists(opt, model_params, opt_params, attrs, epochs):
 
 def plot_figures_opts_attr(opts_list, model_params, opt_params, attr, start=None, end=None, alpha=1.0, legends=[], titles=[], save_dir=None):
     #rows, cols = (len(attrs) - 1) // 6 + 1, min(len(attrs), 6)
+    import matplotlib.ticker as mtick
     rows, cols = 1, len(opts_list)
     fig, axs = plt.subplots(rows,cols, figsize=(cols*4, rows*3))
-    axs = axs.reshape(-1)
+    if len(opts_list) > 1:
+        axs = axs.reshape(-1)
+    else:
+        axs = [axs]
     ax_ptr = 0
     for opts, legend, title in zip(opts_list, legends, titles):
         for opt_name in opts:
@@ -664,25 +684,27 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attr, start=None
                 plot_train_loss(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.loss[start:end])
             
             if 'acc' == attr:
+                axs[ax_ptr].yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1, decimals=0))
                 plot_train_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.accuracy[start:end])
 
             if 'train_err' == attr:
+                axs[ax_ptr].yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1, decimals=0))
                 plot_xlogy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-np.array(train_graphs.accuracy[start:end]), name="Train Error")
 
             if 'test_loss' == attr:
                 plot_test_loss(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_loss[start:end])
 
             if 'test_acc' == attr:
+                axs[ax_ptr].yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1, decimals=0))
                 plot_test_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_accuracy[start:end])
 
             if 'test_err' == attr:
-                import matplotlib.ticker as mtick
                 axs[ax_ptr].yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1, decimals=0))
                 plot_xy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-1*np.array(train_graphs.test_accuracy[start:end]), name=title, alpha=alpha)
 
         axs[ax_ptr].legend(legend)
         ax_ptr += 1
-    axs[0].set_ylabel("Test Err")
+    #axs[0].set_ylabel("Test Err")
     plt.tight_layout()
     if save_dir:
         plt.savefig(save_dir)
@@ -736,7 +758,7 @@ def plot_eval_attr_keys(opt_name, model_params, opt_params, attrs, keys, zero_ou
     plt.tight_layout()
     plt.show()
 
-def plot_eigen_density(model_param, opt_param):
+def plot_eigen_density(model_param, opt_param, start=None, end=None, save_dir=None):
     from utilities import get_esd_plot
     directory = get_directory(opt_param['lr'], 
                             opt_param['dataset_name'],
@@ -756,6 +778,7 @@ def plot_eigen_density(model_param, opt_param):
     
     cur_epochs = eval_graphs.log_epochs
     density_eigens, density_weights = eval_graphs.density_eigen, eval_graphs.density_weight
+    density_eigens, density_weights, epochs = density_eigens[start:end], density_weights[start:end], cur_epochs[start:end]
     rows, cols = (len(density_eigens)-1) // 6 + 1, min(len(density_eigens), 6)
     fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
     axs = axs.reshape(-1)
@@ -763,8 +786,10 @@ def plot_eigen_density(model_param, opt_param):
         ax, density_eigen, density_weight = axs[i], density_eigens[i], density_weights[i]
     #for ax, density_eigen, density_weight in zip(axs, density_eigens, density_weights):
         #plt.figure(figsize=(3,3))
-        get_esd_plot(ax, density_eigen, density_weight, cur_epochs[i])
+        get_esd_plot(ax, density_eigen, density_weight, epochs[i], ylabel=i%6)
     plt.tight_layout()
+    if save_dir:
+        plt.savefig(save_dir)
 
 def plot_attention_map(model_param, opt_param, depths=None):
     directory = get_directory(opt_param['lr'], 

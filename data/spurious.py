@@ -97,7 +97,7 @@ def load_signal_noise_data_2d(loss_name, patch_dim, feat_dim, train_size, batch_
         analysis_test,
         batch_size=anaylsis_size, shuffle=False)
     data_params = {"signal": [signal], "compute_acc": True, "signal_patch_index": signal_index_train}
-    return train_loader, test_loader, analysis_loader, analysis_test_loader, feat_dim, C, transform_to_one_hot, data_params
+    return train_loader, test_loader, analysis_loader, analysis_test_loader, patch_dim*feat_dim, C, transform_to_one_hot, data_params
 
 
 def load_multi_view_data(loss_name, patch_dim, feat_dim, train_size, batch_size):

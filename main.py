@@ -329,7 +329,6 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             if opt_name != "gd":
                 optimizer.zero_grad()
             out = model(data)
-
             if opt_params["mixup"] == "none":
                 loss = criterion(out, target)
             elif opt_params["mixup"] == "cut":
@@ -626,7 +625,7 @@ def hook(self, input, output):
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "cifar100", "imagenet_tiny", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", 
                 "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds", "icl"]
-    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2",
+    MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "res_conv_fixed_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2",
               "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", 
               "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small", "dino_vit_base", "dinov2_vit_base", "dinov2_vit_small", 
               "dinov2_vit_giant2", "vit_small", "vit_medium", "vit_base", "lin_attn", "mlp"]
@@ -650,6 +649,7 @@ if __name__ == "__main__":
     parser.add_argument("--init_mode",  type=str, default="O(1)", choices=INIT_MODES, help="Initialization Mode")
     parser.add_argument("--basis_var", type=float, default=5, help="variance for initialization")
     parser.add_argument("--wn_scale", type=float, default=10, help="scaling coef for weight_norm model")
+    parser.add_argument("--activation",  type=str, default="none", choices=["cube", "tanh", "relu", "dual_leaky_relu", "none"], help="Activation function for user-specified model")
 
     #parser.add_argument("--vit_patch_size", type=int, default=8, help="patch size for ViT")
     parser.add_argument("--vit_patch_size", type=int, default=8, help="patch size for ViT")
@@ -1030,13 +1030,18 @@ if __name__ == "__main__":
     elif model_name == "conv_fixed_last":
         from arch.conv import conv_fixed_last_layer
         assert C == 1
-        model = conv_fixed_last_layer(num_pixels, width)
-        model_params = {"nfilters": width} | model_params
+        model = conv_fixed_last_layer(num_pixels, sp_patch_dim, width, args.activation)
+        model_params = {"activation": args.activation, "nfilters": width} | model_params
+    elif model_name == "res_conv_fixed_last":
+        from arch.conv import res_conv_fixed_last_layer
+        assert C == 1
+        model = res_conv_fixed_last_layer(num_pixels, sp_patch_dim, width, args.activation)
+        model_params = {"activation": args.activation, "nfilters": width} | model_params
     elif model_name == "conv_with_last":
         from arch.conv import conv_with_last_layer
         assert C == 1
-        model = conv_with_last_layer(num_pixels, width)
-        model_params = {"nfilters": width} | model_params
+        model = conv_with_last_layer(num_pixels, sp_patch_dim, width, args.activation)
+        model_params = {"activation": args.activation, "nfilters": width} | model_params
     elif model_name == "scalarized_conv":
         from arch.conv import scalarized_conv
         assert C == 1
