@@ -203,7 +203,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     sketch_size = opt_params["sketch_size"]
 
     #sketch_matrix_m, sketch_matrix_v = torch.randn(sketch_size, p).to(device) / (sketch_size**0.5), torch.randn(sketch_size, p).to(device) / (sketch_size**0.5)
-    from hadamard_transform import hadamard_transform, pad_to_power_of_2 
+
     p_pad = pow(2, math.ceil(math.log(p)/math.log(2)))
     #for i in range(200):
     if sketch_size != -1:
@@ -239,17 +239,24 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             #vector_m_norm.append(torch.norm(old_params - new_params).item())
         else:
             vector_m_true += (old_params - new_params).detach()
-            new_params_pad = pad_to_power_of_2((old_params - new_params).detach())
-
-            hadamard_params_pad = hadamard_transform(D*new_params_pad)
-            vector_m += sub_sample_row @ hadamard_params_pad
-
+            if opt_params["server_opt_name"] == "fetchsgd":
+                from csvec import CSVec
+                sketch = CSVec(d=p, c=sketch_size, r=5, device=vector_m_true.device, numBlocks=20)
+                sketch.accumulateVec(vector_m_true)
+                vector_m += sketch.table
+            else:
+                from hadamard_transform import hadamard_transform, pad_to_power_of_2 
+                new_params_pad = pad_to_power_of_2((old_params - new_params).detach())
+                hadamard_params_pad = hadamard_transform(D*new_params_pad)
+                vector_m += sub_sample_row @ hadamard_params_pad
             #hadamard_params_pad = hadamard_transform(D*(new_params_pad ** 2)) #deprecated
             #vector_v += sub_sample_row @ hadamard_params_pad
 
     vector_m = vector_m / client_num
+    if opt_params["server_opt_name"] == "fetchsgd":
+        model.avg_sketch = vector_m.detach()
     #vector_v = vector_v / client_num #deprecated
-    if sketch_size != -1:
+    if sketch_size != -1 and opt_params["server_opt_name"] != "fetchsgd":
         vector_m = sub_sample_row.T @ vector_m
         vector_m = hadamard_transform(vector_m) * D
         print("sketch error:", torch.norm(vector_m - new_params_pad), torch.norm(new_params_pad))
@@ -280,6 +287,9 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             print("no clip")
         """
         #vector_to_grads(vector_m, model.parameters())
+    elif opt_params["server_opt_name"] == "fetchsgd":
+        model.desketch_operator = sub_sample_row.T
+        model.D = D
     else:
         vector_to_grads(vector_m, model.parameters())
         #vector_to_grads_sq(vector_v, model.parameters()) #deprecated
@@ -702,7 +712,7 @@ if __name__ == "__main__":
     parser.add_argument("--zero_out_selfattn", type=int, default=0, help="if 0 preserves self attention, if 1 zero out self attention")
 
     #federated learning hyperparameters
-    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd"], help="optimizer of server")
+    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd"], help="optimizer of server")
     parser.add_argument("--client_num", type=int, default=1, help="number of clients")
     parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd", "adam"], help="optimizer of clients")
     parser.add_argument("--client_lr", type=float, default=0.01, help="lr of clients")

@@ -150,6 +150,9 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
                             weight_decay=weight_decay)
         model_params = model_params | {'server_opt': kwargs['server_opt_name'], 'client_opt': kwargs['client_opt_name'], 'client_lr': kwargs['client_lr'], 'client_momentum': kwargs['client_momentum'],
                                        "client_num": kwargs['client_num'], 'client_epoch': kwargs['client_epoch'], 'sketch_size': kwargs['sketch_size']}
+    elif opt_name == "fetchsgd":
+        from optimizer.fetchsgd import fetchSGD
+        optimizer = fetchSGD(model, model.parameters(), lr=lr, sketch_size=kwargs["sketch_size"], momentum=momentum)
     else:
         raise NotImplementedError
     """

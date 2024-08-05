@@ -3,7 +3,9 @@ from torch import nn
 import math
 
 def get_activation(activate: str):
-    if activate == "cube":
+    if activate == "none":
+        return torch.nn.Identity()
+    elif activate == "cube":
         return lambda x: x**3
     elif activate == "tanh":
         return torch.nn.Tanh()

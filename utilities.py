@@ -867,6 +867,24 @@ def grads_to_vector(parameters: Iterable[torch.Tensor]) -> None:
         vec.append(param.grad.view(-1))
     return torch.cat(vec)
 
+def vector_to_group_grads(vec, param_groups):
+    # Ensure vec of type Tensor
+    if not isinstance(vec, torch.Tensor):
+        raise TypeError(f'expected torch.Tensor, but got: {torch.typename(vec)}')
+    param_device = None
+
+    # Pointer for slicing the vector for each parameter
+    pointer = 0
+    for group in param_groups:
+        for param in group["params"]:
+            param_device = _check_param_device(param, param_device)
+            num_param = param.numel()
+            # Slice the vector, reshape it, and replace the old data of the parameter
+            param.grad = vec[pointer:pointer + num_param].view_as(param).data
+
+            # Increment the pointer
+            pointer += num_param
+
 def vector_to_grads(vec: torch.Tensor, parameters: Iterable[torch.Tensor]) -> None:
     r"""Convert one vector to the parameters
 
