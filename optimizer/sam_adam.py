@@ -60,12 +60,11 @@ class AdamS_v1(torch.optim.Optimizer):
             for p in group["params"]:
                 if p.grad is None: continue
                 p.data = self.state[p]["old_p"]  # get back to "w" from "w + e(w)"
-                p.grad = self.state[p]["adam"] + self.alpha * adam_norm * p.grad / grad_norm
-
+                #p.grad = self.state[p]["adam"] + self.alpha * adam_norm * p.grad / grad_norm
+                p.grad = self.state[p]["adam"] * grad_norm / adam_norm + self.alpha * p.grad
                 p.add_(p.grad, alpha=-self.lr) 
 
                 #print(self.state[p]['exp_avg'])
-
         #self.adam_optimizer.step()  # do the actual "sharpness-aware" update
         if zero_grad: self.zero_grad()
 

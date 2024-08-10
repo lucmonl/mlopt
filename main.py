@@ -298,8 +298,8 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     if server_lr_scheduler is not None:
         server_lr_scheduler.step()
 
-    #for group in server_optimizer.param_groups:
-    #    print(group['lr'])
+    for group in server_optimizer.param_groups:
+        print("server lr", group['lr'])
 
     train_graphs.pseudo_grad_norm.append(vector_m_norm)
 
@@ -696,6 +696,8 @@ if __name__ == "__main__":
     parser.add_argument("--sam_alpha", type=float, default=1.0, help="alpha for LookSAM/AlternateSAM/AdamS")
     parser.add_argument("--gold_delta", type=float, default=1, help="delta for goldstein")
     parser.add_argument("--norm_sgd_lr", type=float, default=1e-3, help="learning rate for normalized sgd when overfit")
+    parser.add_argument("--eig_start", type=int, default=0, help="dom_sgd: eig to preserve starts from")
+    parser.add_argument("--eig_end", type=int, default=-1, help="dom_sgd: eig to preserve ends at; -1 means num_classes")
 
     # analysis hyperparameters
     parser.add_argument("--adv_eta", type=float, default=0.01, help="eta for adversarial perturbation")
@@ -785,6 +787,10 @@ if __name__ == "__main__":
     opt_params["epoch"]               = args.epoch
     opt_params["scheduler_name"]      = args.scheduler
     opt_params["lr_min"]              = args.lr_min
+
+    #hyperparameters for dom_sgd
+    opt_params["eig_start"]           = args.eig_start
+    opt_params["eig_end"]             = args.eig_end
 
     #hyperparameters for sam
     opt_params["base_opt"]            = args.base_opt
@@ -1345,10 +1351,11 @@ if __name__ == "__main__":
         for epoch in range(load_from_epoch+1, epochs + 1):
             if opt_name == "federated":
                 #exp_avg, exp_avg_sq = federated_train(model, loss_name, criterion, device, C, client_loaders, exp_avg, exp_avg_sq, opt_params, epoch)
-                client_lr = client_lr_scheduler.get_last_lr()[0]
-                federated_train(model, loss_name, criterion, device, client_loaders, optimizer, None, client_lr, opt_params, epoch)
-                client_lr_scheduler.step()
-                print(client_lr)
+                #client_lr = client_lr_scheduler.get_last_lr()[0]
+                #federated_train(model, loss_name, criterion, device, client_loaders, optimizer, None, client_lr, opt_params, epoch)
+                #client_lr_scheduler.step()
+                #print(client_lr)
+                federated_train(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params["client_lr"], opt_params, epoch)
             else:
                 train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params)
                 #lr_scheduler.step()
