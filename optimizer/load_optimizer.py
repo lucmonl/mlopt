@@ -43,7 +43,9 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         optimizer = BULK_SGD(model, model.parameters(), kwargs["num_classes"], 
                             kwargs["criterion_summed"], kwargs["batch_size"], 
                             kwargs["num_classes"], kwargs["device"], 
-                            use_hf_model=kwargs["hf_model"], lr=lr, momentum=momentum, weight_decay=weight_decay)
+                            use_hf_model=kwargs["hf_model"], end=kwargs["eig_end"], lr=lr, momentum=momentum, weight_decay=weight_decay)
+        if kwargs["eig_end"] != -1:
+            model_params = model_params | {"end": kwargs["eig_end"]}
     elif opt_name == "gn_dom_sgd":
         from optimizer.subspace_sgd import GN_DOM_SGD
         optimizer = GN_DOM_SGD(model,  model.parameters(), kwargs["num_classes"], kwargs["criterion"], kwargs["criterion_summed"], kwargs["device"],

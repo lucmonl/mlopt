@@ -283,7 +283,7 @@ class DOM_SGD(torch.optim.Optimizer):
 
 
 class BULK_SGD(torch.optim.Optimizer):
-    def __init__(self, model, params, dom_dim, criterion_summed, batch_size, num_classes, device, use_hf_model=False, **kwargs):
+    def __init__(self, model, params, dom_dim, criterion_summed, batch_size, num_classes, device, use_hf_model=False, end=-1, **kwargs):
         defaults = dict(**kwargs)
         super(BULK_SGD, self).__init__(params, defaults)
         #self.norm_sgd_lr = norm_sgd_lr
@@ -295,6 +295,7 @@ class BULK_SGD(torch.optim.Optimizer):
         self.num_classes = num_classes
         self.device = device
         self.use_hf_model = use_hf_model
+        self.end_eigs = num_classes if end == -1 else end
 
         self.base_optimizer = torch.optim.SGD(self.param_groups, **kwargs)
         self.param_groups = self.base_optimizer.param_groups
@@ -319,7 +320,7 @@ class BULK_SGD(torch.optim.Optimizer):
 
             _, eigvecs = get_hessian_eigenvalues_weight_decay(self.model, self.criterion_summed, 
                                                                 self.weight_decay, batch_loader, 
-                                                                neigs=self.num_classes, 
+                                                                neigs=self.end_eigs, 
                                                                 num_classes=self.num_classes,
                                                                 device=self.device, 
                                                                 use_hf_model=self.use_hf_model) 
