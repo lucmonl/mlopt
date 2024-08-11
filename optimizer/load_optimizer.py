@@ -34,7 +34,10 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         optimizer = DOM_SGD(model, model.parameters(), kwargs["num_classes"], 
                             kwargs["criterion_summed"], kwargs["batch_size"], 
                             kwargs["num_classes"], kwargs["device"], 
-                            use_hf_model=kwargs["hf_model"], start=kwargs["eig_start"], end=kwargs["eig_end"], lr=lr, momentum=momentum, weight_decay=weight_decay)
+                            use_hf_model=kwargs["hf_model"], start=kwargs["eig_start"], end=kwargs["eig_end"], 
+                            eigs_pattern= kwargs["eigs_pattern"], lr=lr, momentum=momentum, weight_decay=weight_decay)
+        if kwargs["eigs_pattern"] != "LM":
+            model_params = model_params | {"eig_pattern": kwargs["eigs_pattern"]}
         if kwargs["eig_start"] != 0 or kwargs["eig_end"] != -1:
             model_params = model_params | {"start": kwargs["eig_start"], "end": kwargs["eig_end"]}
     elif opt_name == "bulk_sgd":

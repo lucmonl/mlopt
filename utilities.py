@@ -192,7 +192,7 @@ def compute_hvp_smallest(network: nn.Module, loss_fn: nn.Module, alpha:float,
     hvp = alpha * vector - hvp
     return hvp
 
-def lanczos(matrix_vector, dim: int, neigs: int):
+def lanczos(matrix_vector, dim: int, neigs: int, which="LM"):
     """ Invoke the Lanczos algorithm to compute the leading eigenvalues and eigenvectors of a matrix / linear operator
     (which we can access via matrix-vector products). """
 
@@ -201,7 +201,7 @@ def lanczos(matrix_vector, dim: int, neigs: int):
         return matrix_vector(gpu_vec)
 
     operator = LinearOperator((dim, dim), matvec=mv)
-    l_evals, l_evecs = eigsh(operator, neigs)
+    l_evals, l_evecs = eigsh(operator, neigs, which=which)
     #s_evals, s_evecs= eigsh(operator, neigs, which='SM')
     return torch.from_numpy(np.ascontiguousarray(l_evals[::-1]).copy()).float(), \
            torch.from_numpy(np.ascontiguousarray(np.flip(l_evecs, -1)).copy()).float()
@@ -247,7 +247,7 @@ def compute_hvp_weight_decay(network: nn.Module, loss_fn: nn.Module, weight_deca
     return hvp
 
 def get_hessian_eigenvalues_weight_decay(network: nn.Module, loss_fn: nn.Module, weight_decay: float, loader: torch.utils.data.DataLoader,
-                            neigs=5, num_classes=10, device=torch.device('cpu'), use_hf_model=False):
+                            neigs=5, num_classes=10, device=torch.device('cpu'), which_eigs = "LM", use_hf_model=False):
     #vector_test = torch.ones(200)
     #print(compute_hvp(network, loss_fn, dataset, vector_test, physical_batch_size=physical_batch_size))
     #sys.exit()
@@ -256,7 +256,7 @@ def get_hessian_eigenvalues_weight_decay(network: nn.Module, loss_fn: nn.Module,
                                           delta, num_classes, device, use_hf_model).detach().cpu()
     nparams = len(parameters_to_vector((network.parameters())))
     #print("lanczos starts")
-    l_evals, l_evecs = lanczos(hvp_delta, nparams, neigs=neigs)
+    l_evals, l_evecs = lanczos(hvp_delta, nparams, neigs=neigs, which = which_eigs)
     #print("lanczos ends")
     #print(l_evals)
     return l_evals, l_evecs

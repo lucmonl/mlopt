@@ -698,6 +698,7 @@ if __name__ == "__main__":
     parser.add_argument("--norm_sgd_lr", type=float, default=1e-3, help="learning rate for normalized sgd when overfit")
     parser.add_argument("--eig_start", type=int, default=0, help="dom_sgd: eig to preserve starts from")
     parser.add_argument("--eig_end", type=int, default=-1, help="dom_sgd: eig to preserve ends at; -1 means num_classes")
+    parser.add_argument("--eigs_pattern", type=str, default="LM", choices=["LM", "SM", "LA", "SA", "BE"], help="eig pattern")
 
     # analysis hyperparameters
     parser.add_argument("--adv_eta", type=float, default=0.01, help="eta for adversarial perturbation")
@@ -791,6 +792,7 @@ if __name__ == "__main__":
     #hyperparameters for dom_sgd
     opt_params["eig_start"]           = args.eig_start
     opt_params["eig_end"]             = args.eig_end
+    opt_params["eigs_pattern"]        = args.eigs_pattern
 
     #hyperparameters for sam
     opt_params["base_opt"]            = args.base_opt
