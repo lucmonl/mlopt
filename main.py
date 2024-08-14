@@ -664,6 +664,11 @@ if __name__ == "__main__":
     #parser.add_argument("--vit_patch_size", type=int, default=8, help="patch size for ViT")
     parser.add_argument("--vit_patch_size", type=int, default=8, help="patch size for ViT")
 
+    # lora
+    parser.add_argument("--apply_lora", type=bool, default=False, help="use peft methods to update model")
+    parser.add_argument("--lora_rank", type=int, default=-1)
+    parser.add_argument("--lora_alpha", type=float, default=1.0)
+
     parser.add_argument("--loss",  type=str, choices=LOSSES, help="Training Loss")
     parser.add_argument("--opt",  type=str, choices=OPTIMIZERS, help="Training Optimizer")
     parser.add_argument("--scheduler",  type=str, choices=['none', 'cosine', 'multistep'], default='none', help="LR Scheduler")
@@ -762,6 +767,11 @@ if __name__ == "__main__":
     vit_patch_size      = args.vit_patch_size
     #vit_head_num        = args.vit_head_num
     #vit_depth           = args.vit_depth
+
+    # lora parameters
+    apply_lora          = args.apply_lora
+    lora_rank           = args.lora_rank
+    lora_alpha          = args.lora_alpha
 
     # Optimization Criterion
     # loss_name = 'CrossEntropyLoss'
@@ -1205,8 +1215,15 @@ if __name__ == "__main__":
         model = LinearTransformer(embed_dim=sp_feat_dim+1, depth=depth)
         model_params = {"depth": depth}
         analysis_params = analysis_params |  {"num_register": args.num_register, "topk": args.topk}
-    
-    print("number of parameters:", len(parameters_to_vector(model.parameters())))
+
+    if apply_lora:
+        from arch.lora import add_adapters_dataset
+        total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        add_adapters_dataset(dataset_name, model, lora_rank, lora_alpha)
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"Training {trainable_params} parameters ({100*trainable_params/total_params:.2f}% of original {total_params})")
+    else:
+        print("number of parameters:", len(parameters_to_vector(model.parameters())))
     # analysis parameters
     """
     epoch_list          = [1,   2,   3,   4,   5,   6,   7,   8,   9,   10,   11,

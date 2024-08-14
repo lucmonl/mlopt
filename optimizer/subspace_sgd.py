@@ -330,7 +330,6 @@ class BULK_SGD(torch.optim.Optimizer):
                                                                 use_hf_model=self.use_hf_model) 
         #eigvecs shape [p, neigs]
         
-          
             dom_grad, dominant_alignment = self.project_and_step(eigvecs.to(self.device))
             #if dominant_alignment > 0.95:
             vector_to_grads(dom_grad, self.model.parameters())
