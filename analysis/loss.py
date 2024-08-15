@@ -31,9 +31,15 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
             out = model(data)
             loss = criterion_summed(out, target)
         else:
-            dict_to_(input, device)
-            target = input["labels"]
-            output = model(**input)
+            if type(input).__name__ == "list":
+                data, target = input
+                data, target = data.to(device), target.to(device)
+                output = model(data, labels=target)
+            elif type(input).__name__ == "dict":
+                dict_to_(input, device)
+                target = input["labels"].to(device)
+                output = model(**input)
+
             loss, out = output.loss * output.logits.shape[0], output.logits
 
         if compute_acc:
@@ -79,9 +85,14 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
             loss = criterion_summed(out, target)
             physical_batch_size = data.shape[0]
         else:
-            dict_to_(input, device)
-            target = input["labels"]
-            output = model(**input)
+            if type(input).__name__ == "list":
+                data, target = input
+                data, target = data.to(device), target.to(device)
+                output = model(data, labels=target)
+            elif type(input).__name__ == "dict":
+                dict_to_(input, device)
+                target = input["labels"].to(device)
+                output = model(**input)
             physical_batch_size = output.logits.shape[0]
             loss, out = output.loss * physical_batch_size, output.logits
             

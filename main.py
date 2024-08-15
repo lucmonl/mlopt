@@ -347,11 +347,17 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 assert False
         else:
             #print(input)
-            dict_to_(input, device)
-            target = input["labels"].to(device)
             if opt_name != "gd":
                 optimizer.zero_grad()
-            output = model(**input)
+
+            if type(input).__name__ == "list":
+                data, target = input
+                data, target = data.to(device), target.to(device)
+                output = model(data, labels=target)
+            elif type(input).__name__ == "dict":
+                dict_to_(input, device)
+                target = input["labels"].to(device)
+                output = model(**input)
             loss, out = output.loss, output.logits
 
         if opt_params["forward_backward"]:
@@ -634,11 +640,11 @@ def hook(self, input, output):
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "cifar100", "imagenet_tiny", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", 
-                "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds", "icl"]
+                "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds", "icl", "20newsgroups"]
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "res_conv_fixed_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2",
               "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", 
               "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small", "dino_vit_base", "dinov2_vit_base", "dinov2_vit_small", 
-              "dinov2_vit_giant2", "vit_small", "vit_medium", "vit_base", "lin_attn", "mlp"]
+              "dinov2_vit_giant2", "vit_small", "vit_medium", "vit_base", "lin_attn", "mlp", "gpt2"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'dom_sgd', 'gn_dom_sgd', 'gn_bulk_sgd', 'bulk_sgd', 'norm-sgd','adam', 'adamw', 'federated',
@@ -665,7 +671,7 @@ if __name__ == "__main__":
     parser.add_argument("--vit_patch_size", type=int, default=8, help="patch size for ViT")
 
     # lora
-    parser.add_argument("--apply_lora", type=bool, default=False, help="use peft methods to update model")
+    parser.add_argument("--apply_lora", action='store_true', help="use peft methods to update model")
     parser.add_argument("--lora_rank", type=int, default=-1)
     parser.add_argument("--lora_alpha", type=int, default=16)
 
@@ -833,7 +839,7 @@ if __name__ == "__main__":
     
     exp_avg, exp_avg_sq            = None, None
 
-    opt_params["hf_model"]         = args.dataset in ["glue"] or model_name in ["google/vit-base-patch16-224-in21k"]
+    opt_params["hf_model"]         = args.dataset in ["glue"] or model_name in ["google/vit-base-patch16-224-in21k", "gpt2"]
     opt_params["cub_data"]         = args.dataset in ["cub"]
     opt_params["wild_data"]        = args.dataset in ["wilds"]
 
@@ -976,7 +982,7 @@ if __name__ == "__main__":
     elif dataset_name == "20newsgroups":
         if opt_name == "federated":
             from data.newsgroups import load_20newsgroups_federated
-            train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, C, data_params = load_20newsgroups_federated(batch_size=batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
+            train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_20newsgroups_federated(loss=loss_name, batch_size=batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
             model_params = model_params | {"non_iid": opt_params["non_iid"]}
         else:
             raise NotImplementedError
@@ -1082,6 +1088,9 @@ if __name__ == "__main__":
         assert C == 1
         model = scalarized_conv(width, sp_patch_dim)
         model_params = {"nfilters": width} | model_params
+    elif model_name == "gpt2":
+        from transformers import AutoModelForSequenceClassification
+        model = AutoModelForSequenceClassification.from_pretrained(model_name,num_labels=C,pad_token_id=50256)
     elif model_name == "google/vit-base-patch16-224-in21k":
         #reference "https://colab.research.google.com/github/NielsRogge/Transformers-Tutorials/blob/master/VisionTransformer/Fine_tuning_the_Vision_Transformer_on_CIFAR_10_with_the_%F0%9F%A4%97_Trainer.ipynb#scrollTo=fZpqx7giniv8"
         from transformers import ViTForImageClassification

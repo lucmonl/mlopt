@@ -69,6 +69,7 @@ def generate_20newsgroups_dump():
 def load_20newsgroups_federated(loss: str, batch_size: int, client_num=1, alpha=0.1):
     data_params = {"compute_acc": True}
     C = 20
+    transform_to_one_hot = True
     trainset, clients, _, testset = build_20newsgroups(client_num, alpha, seed=42)
     analysis_size = max(batch_size, 128)
     analysis = torch.utils.data.Subset(trainset, range(analysis_size))
@@ -89,4 +90,4 @@ def load_20newsgroups_federated(loss: str, batch_size: int, client_num=1, alpha=
     analysis_test_loader = torch.utils.data.DataLoader(
         analysis_test,
         batch_size=analysis_size, shuffle=False)
-    return train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, C, data_params
+    return train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
