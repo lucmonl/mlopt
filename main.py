@@ -667,7 +667,7 @@ if __name__ == "__main__":
     # lora
     parser.add_argument("--apply_lora", type=bool, default=False, help="use peft methods to update model")
     parser.add_argument("--lora_rank", type=int, default=-1)
-    parser.add_argument("--lora_alpha", type=float, default=1.0)
+    parser.add_argument("--lora_alpha", type=int, default=16)
 
     parser.add_argument("--loss",  type=str, choices=LOSSES, help="Training Loss")
     parser.add_argument("--opt",  type=str, choices=OPTIMIZERS, help="Training Optimizer")
@@ -973,6 +973,13 @@ if __name__ == "__main__":
         train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_icl_data(batch_size, dim=sp_feat_dim, length=sp_patch_dim, train_size = sp_train_size)
         model_params = model_params | {"patch_dim": sp_patch_dim, "feat_dim": sp_feat_dim, "train_size": sp_train_size}
         analysis_params = analysis_params | data_params
+    elif dataset_name == "20newsgroups":
+        if opt_name == "federated":
+            from data.newsgroups import load_20newsgroups_federated
+            train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, C, data_params = load_20newsgroups_federated(batch_size=batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
+            model_params = model_params | {"non_iid": opt_params["non_iid"]}
+        else:
+            raise NotImplementedError
 
     opt_params["num_classes"] = C
 
@@ -1222,6 +1229,7 @@ if __name__ == "__main__":
         add_adapters_dataset(dataset_name, model, lora_rank, lora_alpha)
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"Training {trainable_params} parameters ({100*trainable_params/total_params:.2f}% of original {total_params})")
+        model_params = model_params | {"lora_rank": lora_rank, "lora_alpha": lora_alpha}
     else:
         print("number of parameters:", len(parameters_to_vector(model.parameters())))
     # analysis parameters
