@@ -9,19 +9,22 @@ def load_optimizer_param(opt_name, model, lr, momentum, weight_decay, lr_decay, 
 
     if opt_name == "federated":
         opt_name = kwargs["server_opt_name"]
+        cls_lr = kwargs['cls_lr']
+        model_params = model_params | {"cls_lr": kwargs['cls_lr'], 'server_opt': kwargs['server_opt_name'], 'client_opt': kwargs['client_opt_name'], 'client_lr': kwargs['client_lr'], 'client_momentum': kwargs['client_momentum'],
+                                       "client_weight_decay": kwargs['client_weight_decay'], "client_num": kwargs['client_num'], 'client_epoch': kwargs['client_epoch'], 'sketch_size': kwargs['sketch_size']}
+    else:
+        cls_lr = lr
 
     cls_params = list(map(lambda x: x[1],list(filter(lambda kv: kwargs["output_layer_name"] in kv[0] and kv[1].requires_grad, model.named_parameters()))))
     base_params = list(map(lambda x: x[1],list(filter(lambda kv: kwargs["output_layer_name"] not in kv[0] and kv[1].requires_grad, model.named_parameters()))))
 
     if opt_name == "sgd" or opt_name == "gd":
-        optimizer = optim.SGD([{'params': base_params}, {'params': cls_params, 'lr': kwargs['cls_lr']}],
+        optimizer = optim.SGD([{'params': base_params}, {'params': cls_params, 'lr': cls_lr}],
                             lr=lr,
                             momentum=momentum,
                             weight_decay=weight_decay)
     else:
         raise NotImplementedError
-    
-    model_params = model_params | {"cls_lr": kwargs['cls_lr']}
 
     if kwargs["scheduler_name"] == "cosine":
         lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=kwargs["epoch"], eta_min=kwargs["lr_min"])
