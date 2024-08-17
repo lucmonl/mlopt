@@ -31,7 +31,18 @@ def partition_dirichlet(Y, n_clients, alpha, seed):
         # will be empty subset if all examples have been exhausted
     return clients
 
-def build_20newsgroups(n_clients, alpha, seed):
+def build_20newsgroups():
+    train_pt = f"{DATA}/20newsgroups/20newsgroups_train.pt"
+    test_pt = f"{DATA}/20newsgroups/20newsgroups_test.pt"
+    if not os.path.exists(train_pt) or not os.path.exists(test_pt):
+        generate_20newsgroups_dump()
+    tr_d = torch.load(train_pt)
+    ev_d = torch.load(test_pt)
+    trainset = list(zip(tr_d['X'], tr_d['Y']))
+    testset = list(zip(ev_d['X'], ev_d['Y']))
+    return trainset, testset
+
+def build_20newsgroups_federated(n_clients, alpha, seed):
     train_pt = f"{DATA}/20newsgroups/20newsgroups_train.pt"
     test_pt = f"{DATA}/20newsgroups/20newsgroups_test.pt"
     if not os.path.exists(train_pt) or not os.path.exists(test_pt):
@@ -70,7 +81,7 @@ def load_20newsgroups_federated(loss: str, batch_size: int, client_num=1, alpha=
     data_params = {"compute_acc": True}
     C = 20
     transform_to_one_hot = True
-    trainset, clients, _, testset = build_20newsgroups(client_num, alpha, seed=42)
+    trainset, clients, _, testset = build_20newsgroups_federated(client_num, alpha, seed=42)
     analysis_size = max(batch_size, 128)
     analysis = torch.utils.data.Subset(trainset, range(analysis_size))
     analysis_test = torch.utils.data.Subset(testset, range(analysis_size))
@@ -91,3 +102,29 @@ def load_20newsgroups_federated(loss: str, batch_size: int, client_num=1, alpha=
         analysis_test,
         batch_size=analysis_size, shuffle=False)
     return train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
+
+
+def load_20newsgroups(loss: str, batch_size: int):
+    data_params = {"compute_acc": True}
+    C = 20
+    transform_to_one_hot = True
+    trainset, testset = build_20newsgroups()
+    analysis_size = max(batch_size, 128)
+    analysis = torch.utils.data.Subset(trainset, range(analysis_size))
+    analysis_test = torch.utils.data.Subset(testset, range(analysis_size))
+
+    test_loader = DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=1)
+
+    train_loader = torch.utils.data.DataLoader(
+        trainset,
+        batch_size=batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(
+        testset,
+        batch_size=batch_size, shuffle=False)
+    analysis_loader = torch.utils.data.DataLoader(
+        analysis,
+        batch_size=analysis_size, shuffle=False)
+    analysis_test_loader = torch.utils.data.DataLoader(
+        analysis_test,
+        batch_size=analysis_size, shuffle=False)
+    return train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params

@@ -1,6 +1,38 @@
 import torch
 import torch.optim as optim
 import warmup_scheduler
+import sys
+
+def load_optimizer_param(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, warm_start, model_params, **kwargs):
+    if kwargs['cls_lr'] == -1:
+        return load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, warm_start, model_params, **kwargs)
+
+    if opt_name == "federated":
+        opt_name = kwargs["server_opt_name"]
+
+    cls_params = list(map(lambda x: x[1],list(filter(lambda kv: kwargs["output_layer_name"] in kv[0] and kv[1].requires_grad, model.named_parameters()))))
+    base_params = list(map(lambda x: x[1],list(filter(lambda kv: kwargs["output_layer_name"] not in kv[0] and kv[1].requires_grad, model.named_parameters()))))
+
+    if opt_name == "sgd" or opt_name == "gd":
+        optimizer = optim.SGD([{'params': base_params}, {'params': cls_params, 'lr': kwargs['cls_lr']}],
+                            lr=lr,
+                            momentum=momentum,
+                            weight_decay=weight_decay)
+    else:
+        raise NotImplementedError
+    
+    model_params = model_params | {"cls_lr": kwargs['cls_lr']}
+
+    if kwargs["scheduler_name"] == "cosine":
+        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=kwargs["epoch"], eta_min=kwargs["lr_min"])
+        model_params = model_params | {"scheduler": "cosine", "lr_min": kwargs["lr_min"]} 
+    elif kwargs["scheduler_name"] == "multistep":
+        lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=epochs_lr_decay, gamma=lr_decay)
+        model_params = model_params | {"scheduler": "cosine", "lr_decay": lr_decay}
+    else:
+        lr_scheduler = None
+    return optimizer, lr_scheduler, model_params
+
 
 def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, warm_start, model_params, **kwargs):
     if opt_name == "federated":
@@ -177,7 +209,7 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         lr_scheduler = None
     #self.scheduler = warmup_scheduler.GradualWarmupScheduler(self.optimizer, multiplier=1., total_epoch=self.hparams.warmup_epoch, after_scheduler=self.base_scheduler)
     #if warm_start:
-    #    lr_scheduler = warmup_scheduler.GradualWarmupScheduler(optimizer, multiplier=1., total_epoch=5, after_scheduler=lr_scheduler)
+    #    lr_scheduler = warmup_scheduler.GradualWarmupScheduler(optimizer, multiplier=1., total_epoch=5, after_scheduler=lr_scheduler)    
     return optimizer, lr_scheduler, model_params
 
 def load_fake_scheduler(lr, **kwargs):

@@ -1,4 +1,4 @@
-
+import sys
 
 def add_adapters_dataset(dataset, model, lora_rank, lora_alpha):
     if dataset == 'cifar10':
@@ -8,6 +8,7 @@ def add_adapters_dataset(dataset, model, lora_rank, lora_alpha):
         # add_adapters(model, lora_rank, lora_alpha, 'classifier', ['convolution'])
     elif dataset == '20newsgroups':
         add_adapters(model, lora_rank, lora_alpha, "score", ["c_attn", "c_proj", "c_fc"])
+        return "score"
     elif dataset == 'reddit':
         add_adapters(model, lora_rank, lora_alpha, None, ["c_attn", "c_proj", "c_fc"])
 
@@ -30,4 +31,8 @@ def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules
                 p.requires_grad = True
             else:
                 p.requires_grad = False
+
     # if lora_rank == -1: full fine-tune
+    #for name, param in model.named_parameters():
+    #    print(name, param.shape, param.requires_grad)
+    #sys.exit()

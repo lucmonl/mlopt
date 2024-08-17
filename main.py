@@ -674,6 +674,7 @@ if __name__ == "__main__":
     parser.add_argument("--apply_lora", action='store_true', help="use peft methods to update model")
     parser.add_argument("--lora_rank", type=int, default=-1)
     parser.add_argument("--lora_alpha", type=int, default=16)
+    parser.add_argument("--cls_lr", type=float, default=-1, help="specific learning rate for the output layer")
 
     parser.add_argument("--loss",  type=str, choices=LOSSES, help="Training Loss")
     parser.add_argument("--opt",  type=str, choices=OPTIMIZERS, help="Training Optimizer")
@@ -772,7 +773,7 @@ if __name__ == "__main__":
 
     vit_patch_size      = args.vit_patch_size
     #vit_head_num        = args.vit_head_num
-    #vit_depth           = args.vit_depth
+    #vit_depth           = args.vit_depthload_optimizer
 
     # lora parameters
     apply_lora          = args.apply_lora
@@ -804,6 +805,7 @@ if __name__ == "__main__":
     opt_params["epoch"]               = args.epoch
     opt_params["scheduler_name"]      = args.scheduler
     opt_params["lr_min"]              = args.lr_min
+    opt_params["cls_lr"]              = args.cls_lr
 
     #hyperparameters for dom_sgd
     opt_params["eig_start"]           = args.eig_start
@@ -985,7 +987,8 @@ if __name__ == "__main__":
             train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_20newsgroups_federated(loss=loss_name, batch_size=batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
             model_params = model_params | {"non_iid": opt_params["non_iid"]}
         else:
-            raise NotImplementedError
+            from data.newsgroups import load_20newsgroups
+            train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_20newsgroups(loss=loss_name, batch_size=batch_size)
 
     opt_params["num_classes"] = C
 
@@ -1091,6 +1094,10 @@ if __name__ == "__main__":
     elif model_name == "gpt2":
         from transformers import AutoModelForSequenceClassification
         model = AutoModelForSequenceClassification.from_pretrained(model_name,num_labels=C,pad_token_id=50256)
+    elif model_name == "bert-base-uncased":
+        from transformers import AutoTokenizer, AutoModelForMaskedLM
+        tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-uncased")
+        model = AutoModelForMaskedLM.from_pretrained("google-bert/bert-base-uncased")
     elif model_name == "google/vit-base-patch16-224-in21k":
         #reference "https://colab.research.google.com/github/NielsRogge/Transformers-Tutorials/blob/master/VisionTransformer/Fine_tuning_the_Vision_Transformer_on_CIFAR_10_with_the_%F0%9F%A4%97_Trainer.ipynb#scrollTo=fZpqx7giniv8"
         from transformers import ViTForImageClassification
@@ -1234,11 +1241,15 @@ if __name__ == "__main__":
 
     if apply_lora:
         from arch.lora import add_adapters_dataset
+        from optimizer.load_optimizer import load_optimizer_param
+
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        add_adapters_dataset(dataset_name, model, lora_rank, lora_alpha)
+        output_layer_name = add_adapters_dataset(dataset_name, model, lora_rank, lora_alpha)
+        opt_params["output_layer_name"] = output_layer_name
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"Training {trainable_params} parameters ({100*trainable_params/total_params:.2f}% of original {total_params})")
         model_params = model_params | {"lora_rank": lora_rank, "lora_alpha": lora_alpha}
+        load_optimizer = load_optimizer_param
     else:
         print("number of parameters:", len(parameters_to_vector(model.parameters())))
     # analysis parameters
