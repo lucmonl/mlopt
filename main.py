@@ -183,6 +183,94 @@ def federated_train_1(model, loss_name, criterion, device, num_classes, train_lo
     vector_to_parameters(new_params.detach(), model.parameters())
     return exp_avg, exp_avg_sq
 
+def federated_lora(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
+    if opt_params["fedlora_avg"] == "avg":
+        return federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch)
+
+    import copy
+    client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
+    
+    adapter_names = []
+    adapter_weights = {}
+    output_weights = 0
+    for name, param in model.named_parameters():
+        # select lora_A and lora_B
+        if param.requires_grad:
+            adapter_names.append(name)
+            adapter_weights[name] = param
+    output_layer_name = adapter_names[-1]
+    base_names = []
+    base_weights = {}
+    base_adapter_names = {}
+    for i in range(0, len(adapter_names)-1, 2):
+        lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
+        lora_A_param, lora_B_param = adapter_weights[lora_A_name], adapter_weights[lora_B_name]
+        base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
+        base_weights[base_weight_name] = lora_B_param @ lora_A_param
+        base_names.append(base_weight_name)
+        base_adapter_names[base_weight_name] = [lora_A_name, lora_B_name]
+
+    lora_params = {}
+    aggregated_weights = {}
+    for client_id in range(client_num):
+        # update client models
+        client_model = copy.deepcopy(model)
+
+        client_model.train()
+        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], lr_decay, epochs_lr_decay, False, model_params, **opt_params)
+        for epoch in range(client_epoch):
+            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, opt_params)
+
+        
+        for name, param in client_model.named_parameters():
+            #print(name, param.shape)
+            if param.requires_grad:
+                #param_names.append(name)
+                if name == output_layer_name:
+                    output_weights += param.data / client_num
+                elif name in lora_params:
+                    lora_params[name].append(param.data)
+                else:
+                    lora_params[name] = [param.data]
+
+    for i in range(0, len(adapter_names)-1, 2):
+        # A: r * input; B: output * r
+        lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
+        lora_A_param, lora_B_param = torch.cat(lora_params[lora_A_name], dim=0), torch.cat(lora_params[lora_B_name], dim=1)
+        lora_matrix = lora_B_param @ lora_A_param / client_num
+        
+        base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
+        aggregated_weights[base_weight_name] = lora_matrix
+    
+
+    model.zero_grad()
+    for name, param in model.named_parameters():
+        if name in aggregated_weights.keys():
+            param.requires_grad = True # going to update dense weights
+            param.grad = (base_weights[name] - aggregated_weights[name]).T
+        elif name == output_layer_name:
+            param.grad = param.data - output_weights
+
+    server_optimizer.step()
+
+    for name, param in model.named_parameters():
+        if name in aggregated_weights.keys():
+            param.requires_grad = False # turn off updates in dense weights
+            # SVD
+            U, S, Vh = torch.linalg.svd(param.data, full_matrices=False)
+            U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], S[:lora_rank], Vh[:lora_rank, :]
+            #print(name)
+            #print(U.shape, Vh.shape)
+            #print(S)
+            lora_A_name, lora_B_name = base_adapter_names[name]
+            #print(lora_A_name, lora_B_name)
+            #print("====")
+            #print(adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
+            adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T
+            adapter_weights[lora_B_name].data = Vh_truncate.T
+            #print(adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
+        
+
 def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
     #client_num, client_opt_name, client_lr, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_lr"], opt_params["client_epoch"]
@@ -734,9 +822,10 @@ if __name__ == "__main__":
     parser.add_argument("--client_momentum", type=float, default=0.0, help="momentum of clients")
     parser.add_argument("--client_weight_decay", type=float, default=0.0, help="momentum of clients")
     parser.add_argument("--client_epoch", type=int, default=200, help="total epochs of client training")
-    parser.add_argument("--sketch_size", type=int, default=1000, help="sketch size in communication")
+    parser.add_argument("--sketch_size", type=int, default=-1, help="sketch size in communication")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=1.0, help="clip tau in clipping method")
+    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "fd"], default="avg", help="methods to average A and B matrix in federated lora")
 
     #llm hyperparameters
     parser.add_argument("--task_name", type=str, default="mrpc", help="task name")
@@ -838,6 +927,7 @@ if __name__ == "__main__":
     opt_params["client_weight_decay"]  = args.client_weight_decay
     opt_params["non_iid"]          = args.non_iid_alpha
     opt_params["clip_tau"]         = args.clip_tau
+    opt_params["fedlora_avg"]         = args.fedlora_avg
     
     exp_avg, exp_avg_sq            = None, None
 
@@ -1243,12 +1333,18 @@ if __name__ == "__main__":
         from arch.lora import add_adapters_dataset
         from optimizer.load_optimizer import load_optimizer_param
 
+        #for name, _ in model.named_parameters():
+        #    print(name)
+        #print("=====")
+
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         output_layer_name = add_adapters_dataset(dataset_name, model, lora_rank, lora_alpha)
         opt_params["output_layer_name"] = output_layer_name
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"Training {trainable_params} parameters ({100*trainable_params/total_params:.2f}% of original {total_params})")
         model_params = model_params | {"lora_rank": lora_rank, "lora_alpha": lora_alpha}
+        if opt_params["fedlora_avg"] != 'avg':
+            model_params = model_params | {"fedlora_avg": opt_params["fedlora_avg"]}
         load_optimizer = load_optimizer_param
     else:
         print("number of parameters:", len(parameters_to_vector(model.parameters())))
@@ -1402,7 +1498,10 @@ if __name__ == "__main__":
                 #federated_train(model, loss_name, criterion, device, client_loaders, optimizer, None, client_lr, opt_params, epoch)
                 #client_lr_scheduler.step()
                 #print(client_lr)
-                federated_train(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params["client_lr"], opt_params, epoch)
+                if apply_lora:
+                    federated_lora(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params["client_lr"], opt_params, epoch)
+                else:
+                    federated_train(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params["client_lr"], opt_params, epoch)
             else:
                 train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params)
                 #lr_scheduler.step()

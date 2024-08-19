@@ -909,7 +909,7 @@ def vector_to_grads(vec: torch.Tensor, parameters: Iterable[torch.Tensor]) -> No
         num_param = param.numel()
         # Slice the vector, reshape it, and replace the old data of the parameter
         param.grad = vec[pointer:pointer + num_param].view_as(param).data
-        print(param.requires_grad, torch.norm(param.grad).item())
+        #print(param.requires_grad, torch.norm(param.grad).item())
 
         # Increment the pointer
         pointer += num_param
