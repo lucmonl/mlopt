@@ -201,14 +201,19 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     output_layer_name = adapter_names[-1]
     base_names = []
     base_weights = {}
+    base_adapter_weights = {}
     base_adapter_names = {}
     for i in range(0, len(adapter_names)-1, 2):
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
         lora_A_param, lora_B_param = adapter_weights[lora_A_name], adapter_weights[lora_B_name]
         base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
-        base_weights[base_weight_name] = lora_B_param @ lora_A_param
+        base_adapter_weights[base_weight_name] = lora_B_param @ lora_A_param
         base_names.append(base_weight_name)
         base_adapter_names[base_weight_name] = [lora_A_name, lora_B_name]
+
+    for name, param in model.named_parameters():
+        if name in base_names:
+            base_weights[name] = torch.clone(param.data)
 
     lora_params = {}
     aggregated_weights = {}
@@ -247,7 +252,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     for name, param in model.named_parameters():
         if name in aggregated_weights.keys():
             param.requires_grad = True # going to update dense weights
-            param.grad = (base_weights[name] - aggregated_weights[name]).T
+            param.grad = (base_adapter_weights[name] - aggregated_weights[name]).T
         elif name == output_layer_name:
             param.grad = param.data - output_weights
 
@@ -269,7 +274,9 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
             adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T
             adapter_weights[lora_B_name].data = Vh_truncate.T
             #print(adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
-        
+        elif name in base_names:
+            # recover to original model 
+            param.data = base_weights[name]
 
 def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
