@@ -212,15 +212,18 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         base_adapter_names[base_weight_name] = [lora_A_name, lora_B_name]
 
     for name, param in model.named_parameters():
-        if name in base_names:
+        if name == output_layer_name:
             base_weights[name] = torch.clone(param.data)
+
+    #print(1)
+    #for name in opt_params["server_params"]:
+    #    print(name, torch.norm(opt_params["server_params"][name]).item())
 
     lora_params = {}
     aggregated_weights = {}
     for client_id in range(client_num):
         # update client models
         client_model = copy.deepcopy(model)
-
         client_model.train()
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], lr_decay, epochs_lr_decay, False, model_params, **opt_params)
         for epoch in range(client_epoch):
@@ -246,23 +249,24 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         
         base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
         aggregated_weights[base_weight_name] = lora_matrix
-    
 
-    model.zero_grad()
-    for name, param in model.named_parameters():
+
+    server_optimizer.zero_grad()
+    #for name, param in model.named_parameters():
+    for name in opt_params["server_params"]:
         if name in aggregated_weights.keys():
-            param.requires_grad = True # going to update dense weights
-            param.grad = (base_adapter_weights[name] - aggregated_weights[name]).T
+            #param.requires_grad = True # going to update dense weights
+            opt_params["server_params"][name].grad = (base_adapter_weights[name] - aggregated_weights[name]).T
         elif name == output_layer_name:
-            param.grad = param.data - output_weights
-
+            opt_params["server_params"][name].grad = base_weights[name].data - output_weights
     server_optimizer.step()
 
     for name, param in model.named_parameters():
         if name in aggregated_weights.keys():
-            param.requires_grad = False # turn off updates in dense weights
+            #param.requires_grad = False # turn off updates in dense weights
             # SVD
-            U, S, Vh = torch.linalg.svd(param.data, full_matrices=False)
+            U, S, Vh = torch.linalg.svd(opt_params["server_params"][name].data, full_matrices=False)
+            #print(S)
             U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], S[:lora_rank], Vh[:lora_rank, :]
             #print(name)
             #print(U.shape, Vh.shape)
@@ -274,9 +278,8 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
             adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T
             adapter_weights[lora_B_name].data = Vh_truncate.T
             #print(adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
-        elif name in base_names:
-            # recover to original model 
-            param.data = base_weights[name]
+        elif name == output_layer_name:
+            param.data = opt_params["server_params"][name]
 
 def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
@@ -1338,7 +1341,7 @@ if __name__ == "__main__":
 
     if apply_lora:
         from arch.lora import add_adapters_dataset
-        from optimizer.load_optimizer import load_optimizer_param
+        #from optimizer.load_optimizer import load_optimizer_param
 
         #for name, _ in model.named_parameters():
         #    print(name)
@@ -1352,7 +1355,7 @@ if __name__ == "__main__":
         model_params = model_params | {"lora_rank": lora_rank, "lora_alpha": lora_alpha}
         if opt_params["fedlora_avg"] != 'avg':
             model_params = model_params | {"fedlora_avg": opt_params["fedlora_avg"]}
-        load_optimizer = load_optimizer_param
+        #load_optimizer = load_optimizer_param
     else:
         print("number of parameters:", len(parameters_to_vector(model.parameters())))
     # analysis parameters
@@ -1465,11 +1468,16 @@ if __name__ == "__main__":
     opt_params["criterion_summed"] = criterion_summed
 
     optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, model_params, **opt_params)
+    
     if not no_train:
         train_graphs = graphs()
         if opt_name == "federated":
             from optimizer.load_optimizer import load_fake_scheduler
             client_lr_scheduler = load_fake_scheduler(opt_params["client_lr"], **opt_params)
+            if apply_lora and opt_params["fedlora_avg"] != "avg":
+                from arch.lora import load_server_optimizer
+                optimizer, lr_scheduler, opt_params["server_params"] = load_server_optimizer(opt_params["server_opt_name"], model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, **opt_params)
+                    
 
         load_from_epoch = 0
         if not run_from_scratch:

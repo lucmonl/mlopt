@@ -1,4 +1,6 @@
 import sys
+import torch
+import torch.optim as optim
 
 def add_adapters_dataset(dataset, model, lora_rank, lora_alpha):
     if dataset == 'cifar10':
@@ -35,5 +37,46 @@ def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules
     #for name, param in model.named_parameters():
     #    print(name, param.shape, param.requires_grad)
     #sys.exit()
+
+def load_server_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, **kwargs):
+    from torch.nn.parameter import Parameter
+    parameters = {}
+    adapter_names = []
+    base_names = []
+    for name, param in model.named_parameters():
+        # select lora_A and lora_B
+        if param.requires_grad:
+            adapter_names.append(name)
+    output_layer_name = adapter_names[-1]
+
+    for i in range(0, len(adapter_names)-1, 2):
+        lora_A_name = adapter_names[i]
+        base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
+        base_names.append(base_weight_name)
+
+    for name, param in model.named_parameters():
+        if name in base_names:
+            parameters[name] = Parameter(torch.zeros_like(param).to(kwargs["device"]))
+        elif name == output_layer_name:
+            parameters[name] = param
+
+    if opt_name == "sgd" or opt_name == "gd":
+        from torch.optim import SGD
+        optimizer = SGD(parameters.values(),
+                            lr=lr,
+                            momentum=momentum,
+                            weight_decay=weight_decay)
+    elif opt_name == "adam":
+        from torch.optim import Adam
+        optimizer = Adam(parameters.values(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
+
+    if kwargs["scheduler_name"] == "cosine":
+        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=kwargs["epoch"], eta_min=kwargs["lr_min"])
+        model_params = model_params | {"scheduler": "cosine", "lr_min": kwargs["lr_min"]} 
+    elif kwargs["scheduler_name"] == "multistep":
+        lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=epochs_lr_decay, gamma=lr_decay)
+        model_params = model_params | {"scheduler": "cosine", "lr_decay": lr_decay}
+    else:
+        lr_scheduler = None
     
-                
+    return optimizer, lr_scheduler, parameters
