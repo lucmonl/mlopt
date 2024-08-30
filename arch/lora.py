@@ -69,6 +69,9 @@ def load_server_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay,
     elif opt_name == "adam":
         from torch.optim import Adam
         optimizer = Adam(parameters.values(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
+    elif opt_name == "adamw":
+        from torch.optim import AdamW
+        optimizer = AdamW(parameters.values(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
 
     if kwargs["scheduler_name"] == "cosine":
         lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=kwargs["epoch"], eta_min=kwargs["lr_min"])

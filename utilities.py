@@ -1000,3 +1000,9 @@ def get_esd_plot(ax, eigenvalues, weights, title, ylabel=False):
     ax.set_xlim(np.min(eigenvalues) - 1, np.max(eigenvalues) + 1)
     #plt.tight_layout()
     ax.set_title("Epoch: " + str(title-1))
+
+def get_cls_head_name_from_model(model_name):
+    if model_name == "gpt2":
+        return "score.weight"
+    else:
+        raise NotImplementedError

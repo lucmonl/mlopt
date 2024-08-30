@@ -266,7 +266,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
             #param.requires_grad = False # turn off updates in dense weights
             # SVD
             U, S, Vh = torch.linalg.svd(opt_params["server_params"][name].data, full_matrices=False)
-            #print(S)
+            print(S[:lora_rank+5])
             U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], S[:lora_rank], Vh[:lora_rank, :]
             #print(name)
             #print(U.shape, Vh.shape)
@@ -754,6 +754,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset",  type=str, choices=DATASETS, help="which dataset to train")
     parser.add_argument("--model",  type=str, choices=MODELS, help="which model to train")
     parser.add_argument("--pretrain", type=str, default="none", help="use pretrained model")
+    parser.add_argument("--pretrain_epoch", type=int, default=-1, help="the epoch number for pretrained model")
     parser.add_argument("--pretrain_aug", type=str, default="none", choices=["none", "sam", "clip", "sbb"], help="augmentation used in pretrained model.")
 
     #model
@@ -1210,7 +1211,7 @@ if __name__ == "__main__":
         from path_manage import vit_directory, pretain_num_classes
         model = vit_small(patch_size=vit_patch_size, num_classes=pretain_num_classes(args.pretrain)).to(device)
         #model = vit_small(patch_size=vit_patch_size, num_classes=10).to(device)
-        if args.pretrain != 'none':
+        if args.pretrain != 'from':
             pretrain_file = vit_directory("small", args.vit_patch_size, 224, opt_name=args.pretrain_aug, pretrain=args.pretrain)
             with open(pretrain_file, "rb") as f:
                 tensors = torch.load(f, map_location="cpu")
@@ -1218,6 +1219,7 @@ if __name__ == "__main__":
             model_params = {"pretrain": args.pretrain}
             if args.pretrain_aug != "none":
                 model_params = {"aug": args.pretrain_aug} | model_params
+        
         #if args.pretrain == "timm":
         #    
         #else:
@@ -1466,6 +1468,27 @@ if __name__ == "__main__":
 
     opt_params["criterion"] = criterion
     opt_params["criterion_summed"] = criterion_summed
+
+    if args.pretrain == 'from':
+        pretrain_model_params = {"pretrain": "cls_head"} | model_params
+        pretrain_file = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, args.pretrain_epoch, multi_run, **model_params)
+        with open(pretrain_file, "rb") as f:
+            tensors = torch.load(f, map_location="cpu")
+        model.load_state_dict(tensors, strict=False)
+        model_params = {"pretrain": args.pretrain, "pretrain_epoch": args.pretrain_epoch} | model_params
+    elif args.pretrain == 'cls_head':
+        from utilities import get_cls_head_name_from_model
+        output_layer_name = get_cls_head_name_from_model(model_name)
+        total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        for name, param in model.named_parameters():
+            if name == output_layer_name:
+                print(param.shape)
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
+        model_params = {"pretrain": args.pretrain} | model_params
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"Training {trainable_params} parameters ({100*trainable_params/total_params:.2f}% of original {total_params})")
 
     optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, model_params, **opt_params)
     
