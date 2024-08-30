@@ -1341,25 +1341,6 @@ if __name__ == "__main__":
         model_params = {"depth": depth}
         analysis_params = analysis_params |  {"num_register": args.num_register, "topk": args.topk}
 
-    if apply_lora:
-        from arch.lora import add_adapters_dataset
-        #from optimizer.load_optimizer import load_optimizer_param
-
-        #for name, _ in model.named_parameters():
-        #    print(name)
-        #print("=====")
-
-        total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        output_layer_name = add_adapters_dataset(dataset_name, model, lora_rank, lora_alpha)
-        opt_params["output_layer_name"] = output_layer_name
-        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        print(f"Training {trainable_params} parameters ({100*trainable_params/total_params:.2f}% of original {total_params})")
-        model_params = model_params | {"lora_rank": lora_rank, "lora_alpha": lora_alpha}
-        if opt_params["fedlora_avg"] != 'avg':
-            model_params = model_params | {"fedlora_avg": opt_params["fedlora_avg"]}
-        #load_optimizer = load_optimizer_param
-    else:
-        print("number of parameters:", len(parameters_to_vector(model.parameters())))
     # analysis parameters
     """
     epoch_list          = [1,   2,   3,   4,   5,   6,   7,   8,   9,   10,   11,
@@ -1471,8 +1452,10 @@ if __name__ == "__main__":
 
     if args.pretrain == 'from':
         pretrain_model_params = {"pretrain": "cls_head"} | model_params
-        pretrain_file = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, args.pretrain_epoch, multi_run, **model_params)
-        with open(pretrain_file, "rb") as f:
+        _, _, pretrain_model_params = load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, pretrain_model_params, **opt_params)
+        pretrain_file = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, args.pretrain_epoch, multi_run, **pretrain_model_params)
+        print(pretrain_file)
+        with open(pretrain_file+"/model.ckpt", "rb") as f:
             tensors = torch.load(f, map_location="cpu")
         model.load_state_dict(tensors, strict=False)
         model_params = {"pretrain": args.pretrain, "pretrain_epoch": args.pretrain_epoch} | model_params
@@ -1489,6 +1472,26 @@ if __name__ == "__main__":
         model_params = {"pretrain": args.pretrain} | model_params
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"Training {trainable_params} parameters ({100*trainable_params/total_params:.2f}% of original {total_params})")
+
+    if apply_lora:
+        from arch.lora import add_adapters_dataset
+        #from optimizer.load_optimizer import load_optimizer_param
+
+        #for name, _ in model.named_parameters():
+        #    print(name)
+        #print("=====")
+
+        total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        output_layer_name = add_adapters_dataset(dataset_name, model, lora_rank, lora_alpha)
+        opt_params["output_layer_name"] = output_layer_name
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"Training {trainable_params} parameters ({100*trainable_params/total_params:.2f}% of original {total_params})")
+        model_params = model_params | {"lora_rank": lora_rank, "lora_alpha": lora_alpha}
+        if opt_params["fedlora_avg"] != 'avg':
+            model_params = model_params | {"fedlora_avg": opt_params["fedlora_avg"]}
+        #load_optimizer = load_optimizer_param
+    else:
+        print("number of parameters:", len(parameters_to_vector(model.parameters())))
 
     optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, model_params, **opt_params)
     
