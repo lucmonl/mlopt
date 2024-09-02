@@ -773,6 +773,7 @@ if __name__ == "__main__":
     parser.add_argument("--apply_lora", action='store_true', help="use peft methods to update model")
     parser.add_argument("--lora_rank", type=int, default=-1)
     parser.add_argument("--lora_alpha", type=int, default=16)
+    parser.add_argument("--lora_freeze_a", action='store_true', help="freeze A matrix in lora")
     parser.add_argument("--cls_lr", type=float, default=-1, help="specific learning rate for the output layer")
 
     parser.add_argument("--loss",  type=str, choices=LOSSES, help="Training Loss")
@@ -1482,11 +1483,13 @@ if __name__ == "__main__":
         #print("=====")
 
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        output_layer_name = add_adapters_dataset(dataset_name, model, lora_rank, lora_alpha)
+        output_layer_name = add_adapters_dataset(dataset_name, model, lora_rank, lora_alpha, lora_freeze_a=args.lora_freeze_a)
         opt_params["output_layer_name"] = output_layer_name
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"Training {trainable_params} parameters ({100*trainable_params/total_params:.2f}% of original {total_params})")
         model_params = model_params | {"lora_rank": lora_rank, "lora_alpha": lora_alpha}
+        if args.lora_freeze_a:
+            model_params = model_params | {"lora_freeze": "a"}
         if opt_params["fedlora_avg"] != 'avg':
             model_params = model_params | {"fedlora_avg": opt_params["fedlora_avg"]}
         #load_optimizer = load_optimizer_param

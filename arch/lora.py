@@ -2,19 +2,19 @@ import sys
 import torch
 import torch.optim as optim
 
-def add_adapters_dataset(dataset, model, lora_rank, lora_alpha):
+def add_adapters_dataset(dataset, model, lora_rank, lora_alpha, lora_freeze_a=False):
     if dataset == 'cifar10':
         add_adapters(model, lora_rank, lora_alpha, "classifier", ["query", "value"])
     elif dataset == 'flair':
         add_adapters(model, lora_rank, lora_alpha, "classifier", ["query", "value"])
         # add_adapters(model, lora_rank, lora_alpha, 'classifier', ['convolution'])
     elif dataset == '20newsgroups':
-        add_adapters(model, lora_rank, lora_alpha, "score", ["c_attn", "c_proj", "c_fc"])
+        add_adapters(model, lora_rank, lora_alpha, "score", ["c_attn", "c_proj", "c_fc"], freeze_a=lora_freeze_a)
         return "score"
     elif dataset == 'reddit':
         add_adapters(model, lora_rank, lora_alpha, None, ["c_attn", "c_proj", "c_fc"])
 
-def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules):
+def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules, freeze_a=False):
     from peft import LoraConfig, get_peft_model
 
     if lora_rank > 0:
@@ -27,6 +27,10 @@ def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules
             modules_to_save=[output_layer_name] if output_layer_name is not None else [],
         )
         model = get_peft_model(model, config)
+        if freeze_a:
+            for n, p in model.named_parameters():
+                if "lora_A" in n:
+                    p.requires_grad=False
     elif lora_rank == 0: # linear fine-tune
         for n,p in model.named_parameters():
             if output_layer_name in n:
