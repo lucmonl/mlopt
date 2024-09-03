@@ -264,20 +264,27 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     for name, param in model.named_parameters():
         if name in aggregated_weights.keys():
             #param.requires_grad = False # turn off updates in dense weights
-            # SVD
-            U, S, Vh = torch.linalg.svd(opt_params["server_params"][name].data, full_matrices=False)
-            print(S[:lora_rank+5])
-            U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], S[:lora_rank], Vh[:lora_rank, :]
-            #print(name)
-            #print(U.shape, Vh.shape)
-            #print(S)
-            lora_A_name, lora_B_name = base_adapter_names[name]
-            #print(lora_A_name, lora_B_name)
-            #print("====")
-            #print(adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
-            adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T
-            adapter_weights[lora_B_name].data = Vh_truncate.T
-            #print(adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
+            if opt_params["fedlora_avg"] == "svd":
+                # SVD
+                U, S, Vh = torch.linalg.svd(opt_params["server_params"][name].data, full_matrices=False)
+                print(S[:lora_rank+5])
+                U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], S[:lora_rank], Vh[:lora_rank, :]
+                #print(name)
+                #print(U.shape, Vh.shape)
+                #print(S)
+                lora_A_name, lora_B_name = base_adapter_names[name]
+                #print(lora_A_name, lora_B_name)
+                #print("====")
+                #print(adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
+                adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T
+                adapter_weights[lora_B_name].data = Vh_truncate.T
+                #print(adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
+            elif opt_params["fedlora_avg"] == "sketch":
+                # sketching
+                m, _ = param.shape
+                Q = torch.rand(m, lora_rank).to(param) / torch.sqrt(lora_rank)
+                adapter_weights[lora_A_name].data = Q.T
+                adapter_weights[lora_B_name].data = param.detach().T @ Q
         elif name == output_layer_name:
             param.data = opt_params["server_params"][name]
 
@@ -403,7 +410,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
 
 
 
-def train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params):
+def train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params):    
     #old_params = parameters_to_vector(model.parameters())
     model.train()
     
