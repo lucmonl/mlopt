@@ -282,7 +282,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
             elif opt_params["fedlora_avg"] == "sketch":
                 # sketching
                 m, _ = param.shape
-                Q = torch.rand(m, lora_rank).to(param) / torch.sqrt(lora_rank)
+                Q = torch.rand(m, lora_rank).to(param) / (lora_rank**0.5)
                 adapter_weights[lora_A_name].data = Q.T
                 adapter_weights[lora_B_name].data = param.detach().T @ Q
         elif name == output_layer_name:
