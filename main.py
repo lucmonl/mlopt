@@ -284,8 +284,12 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 m, _ = param.shape
                 #Q = torch.rand(m, lora_rank).to(param) / (lora_rank**0.5)
                 Q = torch.normal(0, 1/(lora_rank**0.5), (m, lora_rank)).to(param)
+                
+                lora_A_name, lora_B_name = base_adapter_names[name]
                 adapter_weights[lora_A_name].data = Q.T
                 adapter_weights[lora_B_name].data = param.detach().T @ Q
+                #print(param.shape, lora_A_name, adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
+                #adapter_weights[lora_B_name].data = param.detach() @ Q
         elif name == output_layer_name:
             param.data = opt_params["server_params"][name]
 
@@ -411,7 +415,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
 
 
 
-def train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params):    
+def train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params):   
     #old_params = parameters_to_vector(model.parameters())
     model.train()
     
