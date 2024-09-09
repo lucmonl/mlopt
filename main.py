@@ -245,11 +245,16 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         # A: r * input; B: output * r
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
         lora_A_param, lora_B_param = torch.cat(lora_params[lora_A_name], dim=0), torch.cat(lora_params[lora_B_name], dim=1)
-        lora_matrix = lora_B_param @ lora_A_param / client_num
-        
+        lora_matrix = lora_B_param @ lora_A_param / client_num        
         base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
         aggregated_weights[base_weight_name] = lora_matrix
 
+        U, S, Vh = torch.linalg.svd(lora_matrix, full_matrices=False)
+        U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], S[:lora_rank], Vh[:lora_rank, :]
+        from utilities import project_to_orth_space
+    if opt_params["train_stats"]:
+        train_graphs["fedlora_A_align"].append(project_to_orth_space(lora_A_param.T / client_num, Vh_truncate.T))
+        train_graphs["fedlora_B_align"].append(project_to_orth_space(lora_B_param.T / client_num, U_truncate))
 
     server_optimizer.zero_grad()
     #for name, param in model.named_parameters():
@@ -295,6 +300,9 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 #adapter_weights[lora_B_name].data = param.detach() @ Q
         elif name == output_layer_name:
             param.data = opt_params["server_params"][name]
+
+    if opt_params["train_stats"]:
+        graph_update(train_graphs, track_train_stats, normalizer=len(train_loader))
     sys.exit()
 
 def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):

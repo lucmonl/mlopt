@@ -110,3 +110,7 @@ class graphs:
         self.output_norm        = []
         self.layer_cls_train_score = {}
         self.layer_cls_test_score  = {}
+
+        #fedlora
+        self.fedlora_A_align    = []
+        self.fedlora_B_align    = []

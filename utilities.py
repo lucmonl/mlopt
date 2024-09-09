@@ -1006,3 +1006,8 @@ def get_cls_head_name_from_model(model_name):
         return "score.weight"
     else:
         raise NotImplementedError
+
+def project_to_orth_space(vecs, eigvecs):
+    # eigvecs: d * N; vecs: d * M
+    dom_vecs = eigvecs @ (eigvecs.T @ vecs)
+    return dom_vecs, torch.norm(dom_vecs) / torch.norm(vecs)
