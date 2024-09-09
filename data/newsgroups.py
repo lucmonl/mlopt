@@ -11,7 +11,8 @@ from scipy import stats
 from PIL import Image
 #from train_utils import test_batch_cls, test_batch_nwp
 
-DATA = "/projects/dali/data/" 
+#DATA = "/projects/dali/data/" 
+DATA = "/u/lucmon/lucmon/data"
 
 def partition_dirichlet(Y, n_clients, alpha, seed):
     clients = []

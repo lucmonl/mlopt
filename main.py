@@ -226,8 +226,10 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         client_model = copy.deepcopy(model)
         client_model.train()
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], lr_decay, epochs_lr_decay, False, model_params, **opt_params)
+        client_opt_params = copy.deepcopy(opt_params)
+        client_opt_params["train_stats"] = False
         for epoch in range(client_epoch):
-            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, opt_params)
+            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
 
         
         for name, param in client_model.named_parameters():
@@ -253,8 +255,10 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], S[:lora_rank], Vh[:lora_rank, :]
         from utilities import project_to_orth_space
     if opt_params["train_stats"]:
-        train_graphs["fedlora_A_align"].append(project_to_orth_space(lora_A_param.T / client_num, Vh_truncate.T))
-        train_graphs["fedlora_B_align"].append(project_to_orth_space(lora_B_param.T / client_num, U_truncate))
+        train_graphs.fedlora_A_align.append(project_to_orth_space(lora_A_param.T, Vh_truncate.T)[-1].item())
+        train_graphs.fedlora_B_align.append(project_to_orth_space(lora_B_param, U_truncate)[-1].item())
+        print(train_graphs.fedlora_A_align[::5])
+        print(train_graphs.fedlora_B_align[::5])
 
     server_optimizer.zero_grad()
     #for name, param in model.named_parameters():
@@ -272,7 +276,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
             if opt_params["fedlora_avg"] == "svd":
                 # SVD
                 U, S, Vh = torch.linalg.svd(opt_params["server_params"][name].data, full_matrices=False)
-                print(S[:lora_rank+5])
+                #print(S[:lora_rank+5])
                 U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], S[:lora_rank], Vh[:lora_rank, :]
                 #print(name)
                 #print(U.shape, Vh.shape)
@@ -301,9 +305,6 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         elif name == output_layer_name:
             param.data = opt_params["server_params"][name]
 
-    if opt_params["train_stats"]:
-        graph_update(train_graphs, track_train_stats, normalizer=len(train_loader))
-    sys.exit()
 
 def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
