@@ -38,9 +38,8 @@ def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules
             else:
                 p.requires_grad = False
     #if lora_rank == -1: full fine-tune
-    #for name, param in model.named_parameters():
-    #    print(name, param.shape, param.requires_grad)
-    #sys.exit()
+    for name, param in model.named_parameters():
+        print(name, param.shape, param.requires_grad)
 
 def load_server_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, **kwargs):
     from torch.nn.parameter import Parameter

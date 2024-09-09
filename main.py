@@ -278,6 +278,9 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 #print(adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
                 adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T
                 adapter_weights[lora_B_name].data = Vh_truncate.T
+                #print(opt_params["server_params"][name].shape, U_truncate.shape, Vh_truncate.shape)
+                #print(lora_A_name, adapter_weights[lora_A_name].data.shape)
+                #print(lora_B_name, adapter_weights[lora_B_name].data.shape)
                 #print(adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
             elif opt_params["fedlora_avg"] == "sketch":
                 # sketching
@@ -292,6 +295,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 #adapter_weights[lora_B_name].data = param.detach() @ Q
         elif name == output_layer_name:
             param.data = opt_params["server_params"][name]
+    sys.exit()
 
 def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
@@ -1517,6 +1521,7 @@ if __name__ == "__main__":
             client_lr_scheduler = load_fake_scheduler(opt_params["client_lr"], **opt_params)
             if apply_lora and opt_params["fedlora_avg"] != "avg":
                 from arch.lora import load_server_optimizer
+                # apply server optimizer to original weight matrices
                 optimizer, lr_scheduler, opt_params["server_params"] = load_server_optimizer(opt_params["server_opt_name"], model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, **opt_params)
                     
 
