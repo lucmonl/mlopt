@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from torchvision import datasets, transforms
 
 DATASETS_FOLDER = "/projects/dali/data/" #os.environ["DATASETS"]
+DATASETS_FOLDER = "/u/lucmon/lucmon/data"
 
 def take_first(dataset: TensorDataset, num_to_keep: int):
     return TensorDataset(dataset.tensors[0][0:num_to_keep], dataset.tensors[1][0:num_to_keep])
@@ -127,6 +128,7 @@ def load_cifar(loss: str, batch_size: int, train_size = -1, augment: int = 0, ti
     return train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params
 
 def load_cifar_vit(model_name, batch_size, tiny_analysis=False):
+    """***deprecated"""
     data_params = {"compute_acc": True}
     transform_to_one_hot = True
     C = 10
@@ -347,7 +349,6 @@ def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num
         batch_size=analysis_size, shuffle=False)
     return train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params
 
-
 def load_cifar_vit_federated(model_name: str, batch_size: int, train_size = -1, client_num=1, alpha=0.0):
     data_params = {"compute_acc": True}
     transform_to_one_hot = True
@@ -527,6 +528,72 @@ def load_cifar100_federated(loss: str, batch_size: int, train_size = -1, client_
     return train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params
 
 def load_cifar100_vit_federated(model_name: str, batch_size: int, train_size = -1, client_num=1, alpha=0.0):
+    #def load_cifar100_vit_federated(n_clients, alpha, seed):
+    seed = 42
+    data_params = {"compute_acc": True}
+    transform_to_one_hot = True
+    C = 100
+    from data.dirichlet import partition_dirichlet
+    normalize = transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+    transform = transforms.Compose([
+        transforms.RandomResizedCrop(224),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        normalize,
+    ])
+    test_transform = transforms.Compose([
+        transforms.Resize(224),
+        transforms.ToTensor(),
+        normalize,
+    ])
+    trainset = datasets.CIFAR100(root=DATASETS_FOLDER, train=True, download=True, transform=transform)
+    id2label = {} # {id:label for id, label in enumerate(trainset.features['fine_label'].names)}
+    label2id = {} # {label:id for id,label in id2label.items()}
+    N = len(trainset)
+    trainidx = np.arange(0, int(N*0.8))
+    Y_tr = np.array([trainset.targets[i] for i in trainidx])
+    clientidx = partition_dirichlet(Y_tr, client_num, alpha, seed)
+    clients = [torch.utils.data.Subset(trainset, trainidx[cidx]) for cidx in clientidx]
+    validx = np.arange(int(N*0.8), N)
+    #valset = torch.utils.data.Subset(trainset, validx)
+    testset = datasets.CIFAR100(root=DATASETS_FOLDER, train=False, download=True, transform=test_transform)
+    #return clients, valset, testset
+    """
+    def collate_fn(examples):
+        pixel_values = torch.stack([example["pixel_values"] for example in examples])
+        labels = torch.tensor([example["fine_label"] for example in examples])
+        return {"pixel_values": pixel_values, "labels": labels}
+    """
+    client_loaders = [torch.utils.data.DataLoader(
+                        client_train,
+                        #collate_fn=collate_fn, 
+                        batch_size=batch_size, shuffle=True) for client_train in clients]
+    if client_num != 1:
+        batch_size = 512
+    analysis_size = max(batch_size, 128)
+    analysis = torch.utils.data.Subset(trainset, range(analysis_size))
+    analysis_test = torch.utils.data.Subset(testset, range(analysis_size))
+    train_loader = torch.utils.data.DataLoader(
+        trainset,
+        #collate_fn=collate_fn, 
+        batch_size=batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(
+        testset,
+        #collate_fn=collate_fn, 
+        batch_size=batch_size, shuffle=False)
+    analysis_loader = torch.utils.data.DataLoader(
+        analysis,
+        #collate_fn=collate_fn, 
+        batch_size=analysis_size, shuffle=False)
+    analysis_test_loader = torch.utils.data.DataLoader(
+        analysis_test,
+        #collate_fn=collate_fn, 
+        batch_size=analysis_size, shuffle=False)
+    return train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params
+
+
+def load_cifar100_vit_federated_deprecated(model_name: str, batch_size: int, train_size = -1, client_num=1, alpha=0.0):
+    """*** deprecated"""
     data_params = {"compute_acc": True}
     transform_to_one_hot = True
     C = 100

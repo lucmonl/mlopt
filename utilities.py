@@ -1011,3 +1011,13 @@ def project_to_orth_space(vecs, eigvecs):
     # eigvecs: d * N; vecs: d * M
     dom_vecs = eigvecs @ (eigvecs.T @ vecs)
     return dom_vecs, torch.norm(dom_vecs) / torch.norm(vecs)
+
+def cosine_similarity_batch(u, v, ret_abs=False):
+    #u,v shape: d * r
+    u_norm, v_norm = torch.norm(u, dim=0), torch.norm(v, dim=0)
+    inner_product = torch.sum(u*v, dim=0)
+    cosine =  inner_product / (u_norm * v_norm)
+    if ret_abs:
+        return torch.abs(cosine).mean()
+    else:
+        return cosine.mean()

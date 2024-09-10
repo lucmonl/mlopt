@@ -2,16 +2,17 @@ import sys
 import torch
 import torch.optim as optim
 
-def add_adapters_dataset(dataset, model, lora_rank, lora_alpha, lora_freeze_a=False):
-    if dataset == 'cifar10':
+def add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a=False):
+    if model_name == "google/vit-base-patch16-224-in21k":
         add_adapters(model, lora_rank, lora_alpha, "classifier", ["query", "value"])
-    elif dataset == 'flair':
+        return 'classifier'
+    elif model_name == 'flair':
         add_adapters(model, lora_rank, lora_alpha, "classifier", ["query", "value"])
         # add_adapters(model, lora_rank, lora_alpha, 'classifier', ['convolution'])
-    elif dataset == '20newsgroups':
+    elif model_name == 'gpt2':
         add_adapters(model, lora_rank, lora_alpha, "score", ["c_attn", "c_proj", "c_fc"], freeze_a=lora_freeze_a)
         return "score"
-    elif dataset == 'reddit':
+    elif model_name == 'reddit':
         add_adapters(model, lora_rank, lora_alpha, None, ["c_attn", "c_proj", "c_fc"])
 
 def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules, freeze_a=False):
@@ -46,13 +47,15 @@ def load_server_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay,
     parameters = {}
     adapter_names = []
     base_names = []
+
+    output_layer_name = kwargs["output_layer_name"]
     for name, param in model.named_parameters():
         # select lora_A and lora_B
         if param.requires_grad:
             adapter_names.append(name)
-    output_layer_name = adapter_names[-1]
+    #output_layer_name = adapter_names[-1]
 
-    for i in range(0, len(adapter_names)-1, 2):
+    for i in range(0, len(adapter_names), 2):
         lora_A_name = adapter_names[i]
         base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
         base_names.append(base_weight_name)
@@ -60,7 +63,7 @@ def load_server_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay,
     for name, param in model.named_parameters():
         if name in base_names:
             parameters[name] = Parameter(torch.zeros_like(param).to(kwargs["device"]))
-        elif name == output_layer_name:
+        elif output_layer_name in name:
             parameters[name] = param
 
     if opt_name == "sgd" or opt_name == "gd":

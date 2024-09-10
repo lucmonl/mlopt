@@ -192,18 +192,22 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     
     adapter_names = []
     adapter_weights = {}
-    output_weights = 0
+    output_weights = {}
+
+    output_layer_name = opt_params["output_layer_name"]
     for name, param in model.named_parameters():
         # select lora_A and lora_B
-        if param.requires_grad:
+        if param.requires_grad and output_layer_name not in name: # exclude the cls_head
             adapter_names.append(name)
             adapter_weights[name] = param
-    output_layer_name = adapter_names[-1]
+        if output_layer_name in name:
+            output_weights[name]= 0
+
     base_names = []
     base_weights = {}
     base_adapter_weights = {}
     base_adapter_names = {}
-    for i in range(0, len(adapter_names)-1, 2):
+    for i in range(0, len(adapter_names), 2):
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
         lora_A_param, lora_B_param = adapter_weights[lora_A_name], adapter_weights[lora_B_name]
         base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
@@ -212,7 +216,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         base_adapter_names[base_weight_name] = [lora_A_name, lora_B_name]
 
     for name, param in model.named_parameters():
-        if name == output_layer_name:
+        if output_layer_name in name:
             base_weights[name] = torch.clone(param.data)
 
     #print(1)
@@ -236,29 +240,37 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
             #print(name, param.shape)
             if param.requires_grad:
                 #param_names.append(name)
-                if name == output_layer_name:
-                    output_weights += param.data / client_num
+                if output_layer_name in name:
+                    output_weights[name] += param.data / client_num
                 elif name in lora_params:
                     lora_params[name].append(param.data)
                 else:
                     lora_params[name] = [param.data]
 
-    for i in range(0, len(adapter_names)-1, 2):
+    for i in range(0, len(adapter_names), 2):
         # A: r * input; B: output * r
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
         lora_A_param, lora_B_param = torch.cat(lora_params[lora_A_name], dim=0), torch.cat(lora_params[lora_B_name], dim=1)
+        lora_A_avg, lora_B_avg = torch.mean(torch.stack(lora_params[lora_A_name]), dim=0), torch.mean(torch.stack(lora_params[lora_B_name]), dim=0)
         lora_matrix = lora_B_param @ lora_A_param / client_num        
         base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
         aggregated_weights[base_weight_name] = lora_matrix
 
         U, S, Vh = torch.linalg.svd(lora_matrix, full_matrices=False)
         U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], S[:lora_rank], Vh[:lora_rank, :]
-        from utilities import project_to_orth_space
+        
     if opt_params["train_stats"]:
+        from utilities import project_to_orth_space
         train_graphs.fedlora_A_align.append(project_to_orth_space(lora_A_param.T, Vh_truncate.T)[-1].item())
         train_graphs.fedlora_B_align.append(project_to_orth_space(lora_B_param, U_truncate)[-1].item())
         print(train_graphs.fedlora_A_align[::5])
         print(train_graphs.fedlora_B_align[::5])
+        print("======")
+        from utilities import cosine_similarity_batch
+        train_graphs.fedlora_A_cosine.append(cosine_similarity_batch(lora_A_param.T, torch.tile(lora_A_avg.T, (1,client_num)), ret_abs=True).item())
+        train_graphs.fedlora_B_cosine.append(cosine_similarity_batch(lora_B_param, torch.tile(lora_B_avg, (1,client_num)), ret_abs=True).item())
+        print(train_graphs.fedlora_A_cosine[::5])
+        print(train_graphs.fedlora_B_cosine[::5])
 
     server_optimizer.zero_grad()
     #for name, param in model.named_parameters():
@@ -266,8 +278,8 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         if name in aggregated_weights.keys():
             #param.requires_grad = True # going to update dense weights
             opt_params["server_params"][name].grad = (base_adapter_weights[name] - aggregated_weights[name]).T
-        elif name == output_layer_name:
-            opt_params["server_params"][name].grad = base_weights[name].data - output_weights
+        elif output_layer_name in name:
+            opt_params["server_params"][name].grad = base_weights[name].data - output_weights[name]
     server_optimizer.step()
 
     for name, param in model.named_parameters():
@@ -302,7 +314,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 adapter_weights[lora_B_name].data = param.detach().T @ Q
                 #print(param.shape, lora_A_name, adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
                 #adapter_weights[lora_B_name].data = param.detach() @ Q
-        elif name == output_layer_name:
+        elif output_layer_name in name:
             param.data = opt_params["server_params"][name]
 
 
@@ -1009,6 +1021,7 @@ if __name__ == "__main__":
                 model_params = model_params | {"augment": args.augment}
     elif dataset_name == "cifar100":
         if opt_name == "federated":
+            """
             if opt_params["non_iid"] == 0:
                 if opt_params["hf_model"]:
                     from data.cifar import load_cifar100_vit_federated
@@ -1019,6 +1032,15 @@ if __name__ == "__main__":
             else:
                 from data.cifar import load_cifar100_federated_non_iid
                 train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar100_federated_non_iid(loss_name, batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
+                model_params = model_params | {"non_iid": opt_params["non_iid"]}
+            """
+            if opt_params["hf_model"]:
+                from data.cifar import load_cifar100_vit_federated
+                train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params = load_cifar100_vit_federated(model_name =model_name, batch_size= batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
+            else:
+                from data.cifar import load_cifar100_federated
+                train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar100_federated(loss_name, batch_size, client_num=opt_params["client_num"])
+            if opt_params["non_iid"] != 0:
                 model_params = model_params | {"non_iid": opt_params["non_iid"]}
         else:
             from data.cifar import load_cifar100
@@ -1227,11 +1249,12 @@ if __name__ == "__main__":
         model = AutoModelForMaskedLM.from_pretrained("google-bert/bert-base-uncased")
     elif model_name == "google/vit-base-patch16-224-in21k":
         #reference "https://colab.research.google.com/github/NielsRogge/Transformers-Tutorials/blob/master/VisionTransformer/Fine_tuning_the_Vision_Transformer_on_CIFAR_10_with_the_%F0%9F%A4%97_Trainer.ipynb#scrollTo=fZpqx7giniv8"
-        from transformers import ViTForImageClassification
-        model = ViTForImageClassification.from_pretrained('google/vit-base-patch16-224-in21k',
-                                                        id2label=id2label,
-                                                        label2id=label2id)
-        model.init_weights()
+        from transformers import AutoModelForImageClassification
+        #model = ViTForImageClassification.from_pretrained('google/vit-base-patch16-224-in21k',
+        #                                                id2label=id2label,
+        #                                                label2id=label2id)
+        model = AutoModelForImageClassification.from_pretrained('google/vit-base-patch16-224-in21k', num_labels=C)
+        #model.init_weights()
     elif model_name == "vit_small":
         from arch.dino_vit import vit_small
         from path_manage import vit_directory, pretain_num_classes
@@ -1508,7 +1531,7 @@ if __name__ == "__main__":
         #print("=====")
 
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        output_layer_name = add_adapters_dataset(dataset_name, model, lora_rank, lora_alpha, lora_freeze_a=args.lora_freeze_a)
+        output_layer_name = add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a=args.lora_freeze_a)
         opt_params["output_layer_name"] = output_layer_name
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"Training {trainable_params} parameters ({100*trainable_params/total_params:.2f}% of original {total_params})")

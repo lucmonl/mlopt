@@ -114,3 +114,5 @@ class graphs:
         #fedlora
         self.fedlora_A_align    = []
         self.fedlora_B_align    = []
+        self.fedlora_A_cosine   = []
+        self.fedlora_B_cosine   = []
