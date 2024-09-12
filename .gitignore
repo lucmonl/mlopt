@@ -1,6 +1,13 @@
-results/
+#results/
 __pycache__/
 plots/
 *.bash
 *.sbatch
 data/camelyon17_v1.0
+results/**/*.ckpt
+results/**/*.json
+results/**/*.pt
+results/**/*.bin
+results/**/*.txt
+results/**/*.pth
+results/**/*.md
