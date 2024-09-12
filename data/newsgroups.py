@@ -8,7 +8,7 @@ import os
 import json
 import numpy as np
 from PIL import Image
-from dirichlet import partition_dirichlet
+from data.dirichlet import partition_dirichlet
 #from train_utils import test_batch_cls, test_batch_nwp
 
 #DATA = "/projects/dali/data/" 

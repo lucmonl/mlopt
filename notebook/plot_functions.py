@@ -376,7 +376,8 @@ def plot_attr(ax, train_graphs, attr, start=None, end=None):
         ax.fill_between(xaxis[:-1], yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
     elif attr in ['cos_descent_ascent', 'progress_dir', 'ascent_semi_cos', \
                   'ascent_step_diff', 'descent_step_diff', 'descent_norm', \
-                  'dominant_alignment', 'batch_loss']:
+                  'dominant_alignment', 'batch_loss', "fedlora_A_align", "fedlora_B_align", \
+                  "fedlora_A_cosine", "fedlora_B_cosine"]:
         if hasattr(train_graph, attr):
             #yaxis = getattr(train_graphs, attr)[start:end]
             line = plot_y(ax=ax, yaxis=yaxis, name=attr)

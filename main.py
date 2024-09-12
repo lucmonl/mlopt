@@ -247,11 +247,14 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 else:
                     lora_params[name] = [param.data]
 
+    adapter_weights_avg = {}
     for i in range(0, len(adapter_names), 2):
         # A: r * input; B: output * r
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
         lora_A_param, lora_B_param = torch.cat(lora_params[lora_A_name], dim=0), torch.cat(lora_params[lora_B_name], dim=1)
         lora_A_avg, lora_B_avg = torch.mean(torch.stack(lora_params[lora_A_name]), dim=0), torch.mean(torch.stack(lora_params[lora_B_name]), dim=0)
+        adapter_weights_avg[lora_A_name], adapter_weights_avg[lora_B_name] = lora_A_avg, lora_B_avg
+
         lora_matrix = lora_B_param @ lora_A_param / client_num        
         base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
         aggregated_weights[base_weight_name] = lora_matrix
@@ -271,6 +274,17 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         train_graphs.fedlora_B_cosine.append(cosine_similarity_batch(lora_B_param, torch.tile(lora_B_avg, (1,client_num)), ret_abs=True).item())
         print(train_graphs.fedlora_A_cosine[::5])
         print(train_graphs.fedlora_B_cosine[::5])
+
+        norm_A_diff, norm_B_diff = 0, 0 
+        norm_A, norm_B = 0, 0 
+        for name in adapter_weights:
+            if 'lora_A' in name:
+                norm_A += torch.norm(adapter_weights[name]) ** 2
+                norm_A_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
+            elif 'lora_B' in name:
+                norm_B += torch.norm(adapter_weights[name]) ** 2
+                norm_B_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
+        print("param norms: ", norm_A.item(), norm_B.item(), norm_A_diff.item(), norm_B_diff.item())
 
     server_optimizer.zero_grad()
     #for name, param in model.named_parameters():
@@ -709,7 +723,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
 def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params):    
     if 'loss' in analysis_list:
         from analysis.loss import compute_loss
-        compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, train_loader, test_loader, opt_params, compute_acc, compute_model_output='output' in analysis_list)
+        compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, analysis_loader, test_loader, opt_params, compute_acc, compute_model_output='output' in analysis_list)
 
     if 'eigs' in analysis_list:
         from analysis.eigs import compute_eigenvalues
