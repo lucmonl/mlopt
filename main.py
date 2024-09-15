@@ -183,9 +183,124 @@ def federated_train_1(model, loss_name, criterion, device, num_classes, train_lo
     vector_to_parameters(new_params.detach(), model.parameters())
     return exp_avg, exp_avg_sq
 
+
+def federated_lora_grad(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
+    import copy
+    client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
+
+    adapter_names = []
+    adapter_weights = {}
+    output_weights = {}
+
+    output_layer_name = opt_params["output_layer_name"]
+    for name, param in model.named_parameters():
+        # select lora_A and lora_B
+        if param.requires_grad and output_layer_name not in name: # exclude the cls_head
+            adapter_names.append(name)
+            adapter_weights[name] = param
+        if output_layer_name in name:
+            output_weights[name]= 0
+
+    base_names = []
+    base_weights = {}
+    base_adapter_weights = {}
+    base_adapter_names = {}
+    for i in range(0, len(adapter_names), 2):
+        lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
+        lora_A_param, lora_B_param = adapter_weights[lora_A_name], adapter_weights[lora_B_name]
+        base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
+        base_adapter_weights[base_weight_name] = lora_B_param @ lora_A_param
+        base_names.append(base_weight_name)
+        base_adapter_names[base_weight_name] = [lora_A_name, lora_B_name]
+
+    for name, param in model.named_parameters():
+        if output_layer_name in name:
+            base_weights[name] = param
+
+    #print(1)
+    #for name in opt_params["server_params"]:
+    #    print(name, torch.norm(opt_params["server_params"][name]).item())
+
+    lora_params = {}
+    aggregated_weights = {}
+    for client_id in range(client_num):
+        # update client models
+        client_model = copy.deepcopy(model)
+        client_model.train()
+        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], lr_decay, epochs_lr_decay, False, model_params, **opt_params)
+        client_opt_params = copy.deepcopy(opt_params)
+        client_opt_params["train_stats"] = False
+        for epoch in range(client_epoch):
+            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
+
+        
+        for name, param in client_model.named_parameters():
+            #print(name, param.shape)
+            if param.requires_grad:
+                #param_names.append(name)
+                if output_layer_name in name:
+                    output_weights[name] += param.data / client_num
+                elif name in lora_params:
+                    lora_params[name].append(param.data)
+                else:
+                    lora_params[name] = [param.data]
+
+    for i in range(0, len(adapter_names), 2):
+        # A: r * input; B: output * r
+        lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
+        lora_A_param, lora_B_param = torch.cat(lora_params[lora_A_name], dim=0), torch.cat(lora_params[lora_B_name], dim=1)
+        lora_matrix = lora_B_param @ lora_A_param / client_num        
+        base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
+        aggregated_weights[base_weight_name] = lora_matrix
+
+        #U, S, Vh = torch.linalg.svd(lora_matrix, full_matrices=False)
+        #U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], S[:lora_rank], Vh[:lora_rank, :]
+    """
+    if opt_params["train_stats"]:
+        from utilities import project_to_orth_space
+        train_graphs.fedlora_A_align.append(project_to_orth_space(lora_A_param.T, Vh_truncate.T)[-1].item())
+        train_graphs.fedlora_B_align.append(project_to_orth_space(lora_B_param, U_truncate)[-1].item())
+        print(train_graphs.fedlora_A_align[::5])
+        print(train_graphs.fedlora_B_align[::5])
+        print("======")
+        from utilities import cosine_similarity_batch
+        train_graphs.fedlora_A_cosine.append(cosine_similarity_batch(lora_A_param.T, torch.tile(lora_A_avg.T, (1,client_num)), ret_abs=True).item())
+        train_graphs.fedlora_B_cosine.append(cosine_similarity_batch(lora_B_param, torch.tile(lora_B_avg, (1,client_num)), ret_abs=True).item())
+        print(train_graphs.fedlora_A_cosine[::5])
+        print(train_graphs.fedlora_B_cosine[::5])
+
+        norm_A_diff, norm_B_diff = 0, 0 
+        norm_A, norm_B = 0, 0 
+        for name in adapter_weights:
+            if 'lora_A' in name:
+                norm_A += torch.norm(adapter_weights[name]) ** 2
+                norm_A_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
+            elif 'lora_B' in name:
+                norm_B += torch.norm(adapter_weights[name]) ** 2
+                norm_B_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
+        print("param norms: ", norm_A.item(), norm_B.item(), norm_A_diff.item(), norm_B_diff.item())
+    """
+    server_optimizer.zero_grad()
+    #for name, param in model.named_parameters():
+    for name in base_adapter_weights:
+        lora_A_name, lora_B_name = base_adapter_names[name]
+        pseudo_gradient = (base_adapter_weights[name] - aggregated_weights[name]).T
+        U, S, Vh = torch.linalg.svd(pseudo_gradient, full_matrices=False)
+        U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], S[:lora_rank], Vh[:lora_rank, :]
+        print(S[:lora_rank+5])
+        adapter_weights[lora_A_name].grad = (U_truncate * S_truncate).T
+        adapter_weights[lora_B_name].grad = Vh_truncate.T
+
+    for name in base_weights:
+        base_weights[name].grad = base_weights[name].data - output_weights[name]
+    server_optimizer.step()
+
 def federated_lora(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
     if opt_params["fedlora_avg"] == "avg":
         return federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch)
+    
+    if opt_params["fedlora_avg"] == "svd_grad":
+        return federated_lora_grad(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch)
 
     import copy
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
@@ -888,7 +1003,7 @@ if __name__ == "__main__":
     parser.add_argument("--sketch_size", type=int, default=-1, help="sketch size in communication")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=1.0, help="clip tau in clipping method")
-    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "fd", "sketch"], default="avg", help="methods to average A and B matrix in federated lora")
+    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_grad", "fd", "sketch"], default="avg", help="methods to average A and B matrix in federated lora")
 
     #llm hyperparameters
     parser.add_argument("--task_name", type=str, default="mrpc", help="task name")
@@ -1565,7 +1680,7 @@ if __name__ == "__main__":
         if opt_name == "federated":
             from optimizer.load_optimizer import load_fake_scheduler
             client_lr_scheduler = load_fake_scheduler(opt_params["client_lr"], **opt_params)
-            if apply_lora and opt_params["fedlora_avg"] != "avg":
+            if apply_lora and opt_params["fedlora_avg"] == "svd":
                 from arch.lora import load_server_optimizer
                 # apply server optimizer to original weight matrices
                 optimizer, lr_scheduler, opt_params["server_params"] = load_server_optimizer(opt_params["server_opt_name"], model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, **opt_params)
