@@ -400,6 +400,8 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 norm_B += torch.norm(adapter_weights[name]) ** 2
                 norm_B_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
         print("param norms: ", norm_A.item(), norm_B.item(), norm_A_diff.item(), norm_B_diff.item())
+        train_graphs.lora_A_norm.append(norm_A.item())
+        train_graphs.lora_B_norm.append(norm_B.item())
 
     server_optimizer.zero_grad()
     #for name, param in model.named_parameters():
@@ -443,6 +445,22 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 adapter_weights[lora_B_name].data = param.detach().T @ Q
                 #print(param.shape, lora_A_name, adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
                 #adapter_weights[lora_B_name].data = param.detach() @ Q
+            elif opt_params["fedlora_avg"] == "sketch_v2":
+                """from paper https://arxiv.org/pdf/1609.00048"""
+                A = opt_params["server_params"][name].data # m*n
+                row_A, col_A = A.shape[0], A.shape[1]
+                col_k, row_l = lora_rank, lora_rank
+                Omega, Phi = torch.randn(col_A, col_k).to(A), torch.randn(row_l, row_A).to(A)
+                Omega, _ = torch.linalg.qr(Omega)
+                Phi = torch.linalg.qr(Phi.T)[0].T
+                Y, W = A @ Omega, Phi @ A
+                Q, _ = torch.linalg.qr(Y) # m*k
+                U, T = torch.linalg.qr(Phi @ Q)
+                X = torch.linalg.solve_triangular(T, U.T @ W, upper=True)
+                lora_A_name, lora_B_name = base_adapter_names[name]
+                adapter_weights[lora_A_name].data = Q.T
+                adapter_weights[lora_B_name].data = X.T
+
         elif output_layer_name in name:
             param.data = opt_params["server_params"][name]
 
@@ -1003,7 +1021,7 @@ if __name__ == "__main__":
     parser.add_argument("--sketch_size", type=int, default=-1, help="sketch size in communication")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=1.0, help="clip tau in clipping method")
-    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_grad", "fd", "sketch"], default="avg", help="methods to average A and B matrix in federated lora")
+    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_grad", "fd", "sketch", "sketch_v2"], default="avg", help="methods to average A and B matrix in federated lora")
 
     #llm hyperparameters
     parser.add_argument("--task_name", type=str, default="mrpc", help="task name")
@@ -1680,7 +1698,7 @@ if __name__ == "__main__":
         if opt_name == "federated":
             from optimizer.load_optimizer import load_fake_scheduler
             client_lr_scheduler = load_fake_scheduler(opt_params["client_lr"], **opt_params)
-            if apply_lora and opt_params["fedlora_avg"] == "svd":
+            if apply_lora and opt_params["fedlora_avg"] in ["svd", "sketch", "sketch_v2"]:
                 from arch.lora import load_server_optimizer
                 # apply server optimizer to original weight matrices
                 optimizer, lr_scheduler, opt_params["server_params"] = load_server_optimizer(opt_params["server_opt_name"], model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, **opt_params)
