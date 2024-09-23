@@ -83,7 +83,7 @@ def federated_train_1(model, loss_name, criterion, device, num_classes, train_lo
         client_model = copy.deepcopy(model)
 
         client_model.train()
-        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], weight_decay, lr_decay, epochs_lr_decay, model_params, **opt_params)
+        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], weight_decay, lr_decay, epochs_lr_decay, model_params, opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
             train(client_model, loss_name, criterion, device, num_classes, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, opt_params)
@@ -227,7 +227,7 @@ def federated_lora_grad(model, loss_name, criterion, device, train_loaders, serv
         # update client models
         client_model = copy.deepcopy(model)
         client_model.train()
-        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], lr_decay, epochs_lr_decay, False, model_params, **opt_params)
+        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], lr_decay, epochs_lr_decay, False, model_params, opt_params)
         client_opt_params = copy.deepcopy(opt_params)
         client_opt_params["train_stats"] = False
         for epoch in range(client_epoch):
@@ -359,7 +359,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         # update client models
         client_model = copy.deepcopy(model)
         client_model.train()
-        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], lr_decay, epochs_lr_decay, False, model_params, **opt_params)
+        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], lr_decay, epochs_lr_decay, False, model_params, opt_params)
         client_opt_params = copy.deepcopy(opt_params)
         client_opt_params["train_stats"] = False
         for epoch in range(client_epoch):
@@ -530,7 +530,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         client_model = copy.deepcopy(model)
 
         client_model.train()
-        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], lr_decay, epochs_lr_decay, False, model_params, **opt_params)
+        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], lr_decay, epochs_lr_decay, False, model_params, opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
             train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, opt_params)
@@ -552,6 +552,10 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 sketch = CSVec(d=p, c=sketch_size, r=5, device=vector_m_true.device, numBlocks=20)
                 sketch.accumulateVec(vector_m_true)
                 vector_m += sketch.table
+            elif opt_params["server_opt_name"] == "onebit":   
+                vector_m_sign = torch.sign(vector_m_true)     
+                vector_m += vector_m_sign
+                opt_params["client_error_feedback"][client_id] += vector_m_true - vector_m_sign
             else:
                 from hadamard_transform import hadamard_transform, pad_to_power_of_2 
                 new_params_pad = pad_to_power_of_2((old_params - new_params).detach())
@@ -564,20 +568,25 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     if opt_params["server_opt_name"] == "fetchsgd":
         model.avg_sketch = vector_m.detach()
     #vector_v = vector_v / client_num #deprecated
-    if sketch_size != -1 and opt_params["server_opt_name"] != "fetchsgd":
-        vector_m = sub_sample_row.T @ vector_m
-        vector_m = hadamard_transform(vector_m) * D
-        print("sketch error:", torch.norm(vector_m - new_params_pad), torch.norm(new_params_pad))
-        vector_m = vector_m[:p]
+    if sketch_size != -1:
+        if opt_params["server_opt_name"] == "onebit":
+            vector_m_old = vector_m.clone()
+            vector_m = torch.sign(vector_m + opt_params["server_error_feedback"])
+            opt_params["server_error_feedback"] += vector_m_old - vector_m
+        elif opt_params["server_opt_name"] != "fetchsgd":
+            vector_m = sub_sample_row.T @ vector_m
+            vector_m = hadamard_transform(vector_m) * D
+            print("sketch error:", torch.norm(vector_m - new_params_pad), torch.norm(new_params_pad))
+            vector_m = vector_m[:p]
 
-        #vector_v = sub_sample_row_sq.T @ vector_v
-        #vector_v = hadamard_transform(vector_v) * D_sq
-        """ #deprecated
-        vector_v = sub_sample_row.T @ vector_v
-        vector_v = hadamard_transform(vector_v) * D
-        print("sketch error:", torch.norm(vector_v - new_params_pad**2), torch.norm(new_params_pad**2))
-        vector_v = vector_v[:p]
-        """
+            #vector_v = sub_sample_row_sq.T @ vector_v
+            #vector_v = hadamard_transform(vector_v) * D_sq
+            """ #deprecated
+            vector_v = sub_sample_row.T @ vector_v
+            vector_v = hadamard_transform(vector_v) * D
+            print("sketch error:", torch.norm(vector_v - new_params_pad**2), torch.norm(new_params_pad**2))
+            vector_v = vector_v[:p]
+            """
 
     server_optimizer.zero_grad()
     if opt_params["server_opt_name"] == "clip_sgd":
@@ -1037,7 +1046,7 @@ if __name__ == "__main__":
     parser.add_argument("--zero_out_selfattn", type=int, default=0, help="if 0 preserves self attention, if 1 zero out self attention")
 
     #federated learning hyperparameters
-    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd"], help="optimizer of server")
+    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd", "onebit"], help="optimizer of server")
     parser.add_argument("--client_num", type=int, default=1, help="number of clients")
     parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd", "adam"], help="optimizer of clients")
     parser.add_argument("--client_lr", type=float, default=0.01, help="lr of clients")
@@ -1674,7 +1683,7 @@ if __name__ == "__main__":
 
     if args.pretrain == 'from':
         pretrain_model_params = {"pretrain": "cls_head"} | model_params
-        _, _, pretrain_model_params = load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, pretrain_model_params, **opt_params)
+        _, _, pretrain_model_params = load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, pretrain_model_params, opt_params)
         pretrain_file = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, args.pretrain_epoch, multi_run, **pretrain_model_params)
         print(pretrain_file)
         with open(pretrain_file+"/model.ckpt", "rb") as f:
@@ -1717,7 +1726,7 @@ if __name__ == "__main__":
     else:
         print("number of parameters:", len(parameters_to_vector(model.parameters())))
 
-    optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, model_params, **opt_params)
+    optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, model_params, opt_params)
     
     if not no_train:
         train_graphs = graphs()

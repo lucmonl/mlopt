@@ -37,7 +37,7 @@ def load_optimizer_param(opt_name, model, lr, momentum, weight_decay, lr_decay, 
     return optimizer, lr_scheduler, model_params
 
 
-def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, warm_start, model_params, **kwargs):
+def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, warm_start, model_params, kwargs):
     if opt_name == "federated":
         if kwargs["server_opt_name"] == "clip_sgd":
             opt_name = "sgd"
@@ -195,6 +195,13 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
     elif opt_name == "fetchsgd":
         from optimizer.fetchsgd import fetchSGD
         optimizer = fetchSGD(model, model.parameters(), lr=lr, sketch_size=kwargs["sketch_size"], momentum=momentum)
+    elif opt_name == "onebit":
+        from torch.nn.utils import parameters_to_vector
+        p = len(parameters_to_vector(model.parameters()))
+        from torch.optim import Adam
+        optimizer = Adam(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
+        kwargs["server_error_feedback"] = 0
+        kwargs["client_error_feedback"] = torch.zeros(kwargs["client_num"], p).to(kwargs["device"])
     else:
         raise NotImplementedError
     """
