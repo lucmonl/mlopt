@@ -9,8 +9,8 @@ from torch import Tensor
 import torch.nn.functional as F
 from torchvision import datasets, transforms
 
-DATASETS_FOLDER = "/projects/dali/data/" #os.environ["DATASETS"]
-#DATASETS_FOLDER = "/u/lucmon/lucmon/data"
+#DATASETS_FOLDER = "/projects/dali/data/" #os.environ["DATASETS"]
+DATASETS_FOLDER = "/u/lucmon/lucmon/data"
 
 def take_first(dataset: TensorDataset, num_to_keep: int):
     return TensorDataset(dataset.tensors[0][0:num_to_keep], dataset.tensors[1][0:num_to_keep])
