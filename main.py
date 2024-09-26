@@ -83,7 +83,7 @@ def federated_train_1(model, loss_name, criterion, device, num_classes, train_lo
         client_model = copy.deepcopy(model)
 
         client_model.train()
-        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], weight_decay, lr_decay, epochs_lr_decay, model_params, opt_params)
+        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], weight_decay, lr_decay, epochs_lr_decay, False, {}, opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
             train(client_model, loss_name, criterion, device, num_classes, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, opt_params)
@@ -547,31 +547,32 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             #vector_m_norm.append(torch.norm(old_params - new_params).item())
         else:
             vector_m_true = (old_params - new_params).detach()
-            if opt_params["server_opt_name"] == "fetchsgd":
+
+            if server_epoch < opt_params["switch_epoch"]:
+                vector_m += vector_m_true
+            elif opt_params["server_opt_name"] == "fetchsgd":
                 from csvec import CSVec
                 sketch = CSVec(d=p, c=sketch_size, r=5, device=vector_m_true.device, numBlocks=20)
                 sketch.accumulateVec(vector_m_true)
                 vector_m += sketch.table
             elif opt_params["server_opt_name"] == "onebit":
-                if server_epoch < opt_params["switch_epoch"]:
-                    vector_m += vector_m_true
-                else:
-                    vector_m_true = vector_m_true+opt_params["client_error_feedback"][client_id]
-                    vector_m_scale = torch.linalg.norm(vector_m_true) / np.sqrt(torch.numel(vector_m_true))
-                    vector_m_sign = torch.sign(vector_m_true) * vector_m_scale
-                    opt_params["client_error_feedback"][client_id] = vector_m_true - vector_m_sign
+                vector_m_true = vector_m_true+opt_params["client_error_feedback"][client_id]
+                vector_m_scale = torch.linalg.norm(vector_m_true) / np.sqrt(torch.numel(vector_m_true))
+                vector_m_sign = torch.sign(vector_m_true) * vector_m_scale
+                opt_params["client_error_feedback"][client_id] = vector_m_true - vector_m_sign
 
-                    vector_m += vector_m_sign
-                    """
-                    vector_m_sign = torch.sign(vector_m_true+opt_params["client_error_feedback"][client_id])
-                    #vector_m_sign = torch.sign(vector_m_true)   
-                    vector_m += vector_m_sign
-                    opt_params["client_error_feedback"][client_id] += vector_m_true - vector_m_sign
-                    """
+                vector_m += vector_m_sign
+                """
+                vector_m_sign = torch.sign(vector_m_true+opt_params["client_error_feedback"][client_id])
+                #vector_m_sign = torch.sign(vector_m_true)   
+                vector_m += vector_m_sign
+                opt_params["client_error_feedback"][client_id] += vector_m_true - vector_m_sign
+                """
             else:
                 from hadamard_transform import hadamard_transform, pad_to_power_of_2 
                 new_params_pad = pad_to_power_of_2((old_params - new_params).detach())
                 hadamard_params_pad = hadamard_transform(D*new_params_pad)
+
                 vector_m += sub_sample_row @ hadamard_params_pad
             #hadamard_params_pad = hadamard_transform(D*(new_params_pad ** 2)) #deprecated
             #vector_v += sub_sample_row @ hadamard_params_pad
@@ -580,7 +581,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     if opt_params["server_opt_name"] == "fetchsgd":
         model.avg_sketch = vector_m.detach()
     #vector_v = vector_v / client_num #deprecated
-    if sketch_size != -1:
+    if sketch_size != -1 and server_epoch >= opt_params["switch_epoch"]:
         if opt_params["server_opt_name"] == "onebit":
             if server_epoch < opt_params["switch_epoch"]:
                 pass
