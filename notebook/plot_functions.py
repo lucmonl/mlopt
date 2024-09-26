@@ -705,7 +705,7 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attr, start=None
 
         axs[ax_ptr].legend(legend)
         ax_ptr += 1
-    #axs[0].set_ylabel("Test Err")
+    axs[0].set_ylabel("Test Error")
     plt.tight_layout()
     if save_dir:
         plt.savefig(save_dir)

@@ -1,6 +1,5 @@
 results/
 __pycache__/
-plots/
 *.bash
 *.sbatch
 data/camelyon17_v1.0

@@ -546,16 +546,28 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             vector_v += ((old_params - new_params) ** 2).detach()
             #vector_m_norm.append(torch.norm(old_params - new_params).item())
         else:
-            vector_m_true += (old_params - new_params).detach()
+            vector_m_true = (old_params - new_params).detach()
             if opt_params["server_opt_name"] == "fetchsgd":
                 from csvec import CSVec
                 sketch = CSVec(d=p, c=sketch_size, r=5, device=vector_m_true.device, numBlocks=20)
                 sketch.accumulateVec(vector_m_true)
                 vector_m += sketch.table
-            elif opt_params["server_opt_name"] == "onebit":   
-                vector_m_sign = torch.sign(vector_m_true)     
-                vector_m += vector_m_sign
-                opt_params["client_error_feedback"][client_id] += vector_m_true - vector_m_sign
+            elif opt_params["server_opt_name"] == "onebit":
+                if server_epoch < opt_params["switch_epoch"]:
+                    vector_m += vector_m_true
+                else:
+                    vector_m_true = vector_m_true+opt_params["client_error_feedback"][client_id]
+                    vector_m_scale = torch.linalg.norm(vector_m_true) / np.sqrt(torch.numel(vector_m_true))
+                    vector_m_sign = torch.sign(vector_m_true) * vector_m_scale
+                    opt_params["client_error_feedback"][client_id] = vector_m_true - vector_m_sign
+
+                    vector_m += vector_m_sign
+                    """
+                    vector_m_sign = torch.sign(vector_m_true+opt_params["client_error_feedback"][client_id])
+                    #vector_m_sign = torch.sign(vector_m_true)   
+                    vector_m += vector_m_sign
+                    opt_params["client_error_feedback"][client_id] += vector_m_true - vector_m_sign
+                    """
             else:
                 from hadamard_transform import hadamard_transform, pad_to_power_of_2 
                 new_params_pad = pad_to_power_of_2((old_params - new_params).detach())
@@ -570,9 +582,25 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     #vector_v = vector_v / client_num #deprecated
     if sketch_size != -1:
         if opt_params["server_opt_name"] == "onebit":
-            vector_m_old = vector_m.clone()
-            vector_m = torch.sign(vector_m + opt_params["server_error_feedback"])
-            opt_params["server_error_feedback"] += vector_m_old - vector_m
+            if server_epoch < opt_params["switch_epoch"]:
+                pass
+            else:
+                vector_m = vector_m + opt_params["server_error_feedback"]
+                vector_m_scale = torch.linalg.norm(vector_m) / np.sqrt(torch.numel(vector_m))
+                vector_m_sign = torch.sign(vector_m) * vector_m_scale
+                opt_params["server_error_feedback"] = vector_m - vector_m_sign
+                vector_m = vector_m_sign
+
+                for group in server_optimizer.param_groups:
+                    group['betas']= (group['betas'][0], 1.0)
+                """
+                vector_m_old = vector_m.clone()
+                vector_m = torch.sign(vector_m + opt_params["server_error_feedback"])
+                opt_params["server_error_feedback"] += vector_m_old - vector_m
+                for group in server_optimizer.param_groups:
+                    group['betas']= (group['betas'][0], 1.0)
+                """
+
         elif opt_params["server_opt_name"] != "fetchsgd":
             vector_m = sub_sample_row.T @ vector_m
             vector_m = hadamard_transform(vector_m) * D
@@ -1030,6 +1058,7 @@ if __name__ == "__main__":
     parser.add_argument("--eig_start", type=int, default=0, help="dom_sgd: eig to preserve starts from")
     parser.add_argument("--eig_end", type=int, default=-1, help="dom_sgd: eig to preserve ends at; -1 means num_classes")
     parser.add_argument("--eigs_pattern", type=str, default="LM", choices=["LM", "SM", "LA", "SA", "BE"], help="eig pattern")
+    parser.add_argument("--switch_epoch", type=int, default=-1, help="the epoch to switch algorithm")
 
     # analysis hyperparameters
     parser.add_argument("--adv_eta", type=float, default=0.01, help="eta for adversarial perturbation")
@@ -1126,6 +1155,7 @@ if __name__ == "__main__":
     opt_params["scheduler_name"]      = args.scheduler
     opt_params["lr_min"]              = args.lr_min
     opt_params["cls_lr"]              = args.cls_lr
+    opt_params["switch_epoch"]        = args.switch_epoch
 
     #hyperparameters for dom_sgd
     opt_params["eig_start"]           = args.eig_start

@@ -198,10 +198,11 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
     elif opt_name == "onebit":
         from torch.nn.utils import parameters_to_vector
         p = len(parameters_to_vector(model.parameters()))
-        from torch.optim import Adam
-        optimizer = Adam(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
+        from optimizer.onebit_adam import OneBit_Adam
+        optimizer = OneBit_Adam(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
         kwargs["server_error_feedback"] = 0
         kwargs["client_error_feedback"] = torch.zeros(kwargs["client_num"], p).to(kwargs["device"])
+        model_params = model_params | {"switch_epoch": kwargs["switch_epoch"]}
     else:
         raise NotImplementedError
     """
