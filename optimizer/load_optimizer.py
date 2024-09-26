@@ -38,10 +38,13 @@ def load_optimizer_param(opt_name, model, lr, momentum, weight_decay, lr_decay, 
 
 
 def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, warm_start, model_params, kwargs):
+    if kwargs["clip_tau"] != -1:
+        model_params = model_params | {'clip': kwargs['clip_tau']}
     if opt_name == "federated":
         if kwargs["server_opt_name"] == "clip_sgd":
             opt_name = "sgd"
-            model_params = model_params | {'clip': kwargs['clip_tau']}
+            assert kwargs["clip_tau"] != -1
+            #model_params = model_params | {'clip': kwargs['clip_tau']}
         else:
             opt_name = kwargs["server_opt_name"]
         #opt_name = "sgd" if kwargs["server_opt_name"] == "clip_sgd" else kwargs["server_opt_name"] 

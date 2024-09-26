@@ -637,6 +637,8 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         model.D = D
     else:
         vector_to_grads(vector_m, model.parameters())
+        if opt_params["clip_tau"]:
+            torch.nn.utils.clip_grad_value_(model.parameters(), 1.0)
         #vector_to_grads_sq(vector_v, model.parameters()) #deprecated
     server_optimizer.step()
 
@@ -1084,7 +1086,7 @@ if __name__ == "__main__":
     parser.add_argument("--client_epoch", type=int, default=200, help="total epochs of client training")
     parser.add_argument("--sketch_size", type=int, default=-1, help="sketch size in communication")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
-    parser.add_argument("--clip_tau", type=float, default=1.0, help="clip tau in clipping method")
+    parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
     parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2"], default="avg", help="methods to average A and B matrix in federated lora")
 
     #llm hyperparameters
