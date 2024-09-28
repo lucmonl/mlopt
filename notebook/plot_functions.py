@@ -316,8 +316,8 @@ def plot_xy(ax, xaxis, yaxis, name, alpha=1.0):
     ax.set_title(name)
     return line
 
-def plot_xlogy(ax, xaxis, yaxis, name):
-    line = ax.semilogy(xaxis, yaxis)[0]
+def plot_xlogy(ax, xaxis, yaxis, name, alpha=1.0):
+    line = ax.semilogy(xaxis, yaxis, alpha=alpha)[0]
     ax.set_xlabel('Epoch')
     ax.set_title(name)
     return line
@@ -700,8 +700,8 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attr, start=None
                 plot_test_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_accuracy[start:end])
 
             if 'test_err' == attr:
+                plot_xlogy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-1*np.array(train_graphs.test_accuracy[start:end]), name=title, alpha=alpha)
                 axs[ax_ptr].yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1, decimals=0))
-                plot_xy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-1*np.array(train_graphs.test_accuracy[start:end]), name=title, alpha=alpha)
 
         axs[ax_ptr].legend(legend)
         ax_ptr += 1

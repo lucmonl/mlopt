@@ -12,7 +12,6 @@ import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
-import torchvision.models as models
 
 from tqdm import tqdm
 from collections import OrderedDict
@@ -1374,6 +1373,7 @@ if __name__ == "__main__":
         model = get_mlp(num_pixels, width, C, depth)
         model_params = {"width": width, "depth": depth} | model_params
     elif model_name == "resnet18":
+        import torchvision.models as models
         model = models.resnet18(pretrained=False, num_classes=C)
         model_params = {} | model_params
         if dataset_name == "mnist":
