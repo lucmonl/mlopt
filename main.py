@@ -550,6 +550,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             if server_epoch < opt_params["switch_epoch"]:
                 vector_m += vector_m_true
             elif opt_params["server_opt_name"] == "fetchsgd":
+                """CountSketch lib https://github.com/nikitaivkin/csh"""
                 from csvec import CSVec
                 sketch = CSVec(d=p, c=sketch_size, r=5, device=vector_m_true.device, numBlocks=20)
                 sketch.accumulateVec(vector_m_true)
@@ -572,7 +573,8 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 new_params_pad = pad_to_power_of_2((old_params - new_params).detach())
                 hadamard_params_pad = hadamard_transform(D*new_params_pad)
                 sketch_vector_m = sub_sample_row @ hadamard_params_pad
-            
+                vector_m += sketch_vector_m
+                """
                 unsketch_vector_m = sub_sample_row.T @ sketch_vector_m
                 unsketch_vector_m = hadamard_transform(unsketch_vector_m) * D
                 unsketch_vector_m = unsketch_vector_m[:p]
@@ -580,6 +582,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 vector_m_scale = torch.linalg.norm(new_params_pad) / torch.linalg.norm(unsketch_vector_m)
 
                 vector_m += sketch_vector_m * vector_m_scale
+                """
             #hadamard_params_pad = hadamard_transform(D*(new_params_pad ** 2)) #deprecated
             #vector_v += sub_sample_row @ hadamard_params_pad
 
@@ -644,7 +647,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         model.D = D
     else:
         vector_to_grads(vector_m, model.parameters())
-        if opt_params["clip_tau"]:
+        if opt_params["clip_tau"] != -1:
             torch.nn.utils.clip_grad_value_(model.parameters(), 1.0)
         #vector_to_grads_sq(vector_v, model.parameters()) #deprecated
     server_optimizer.step()
@@ -729,7 +732,9 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 else:
                     accuracy = torch.mean((out*target > 0).float()).item()
 
-        
+        if opt_params["clip_tau"] != -1:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), opt_params["clip_tau"])
+
         if opt_name in ["sam", "sam_on", "adams_v1"]:
             if opt_params["train_stats"]:
                 from analysis.grad_norm import get_grad_norm
@@ -892,6 +897,23 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
         if debug and batch_idx > 2:
             break
 
+        if batch_idx % opt_params["hess_interval"] == 1:
+            data, target = input
+            data, target = data.to(device), target.to(device)
+            optimizer.zero_grad()
+            out = model(data)
+
+            samp_dist = torch.distributions.Categorical(logits=out)
+            y_sample = samp_dist.sample()
+            loss = F.cross_entropy(out.view(-1, out.size(-1)), y_sample.view(-1), ignore_index=-1)
+            loss.backward()
+
+            if opt_params["clip_tau"] != -1:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), opt_params["clip_tau"])
+
+            optimizer.update_hessian()
+            optimizer.zero_grad()
+
     if opt_name == "gd":
         optimizer.step()
         optimizer.zero_grad()
@@ -1002,7 +1024,7 @@ if __name__ == "__main__":
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'dom_sgd', 'gn_dom_sgd', 'gn_bulk_sgd', 'bulk_sgd', 'norm-sgd','adam', 'adamw', 'federated',
-                  'replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam', 'adams_v1']
+                  'replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam', 'adams_v1', 'sophia']
     BASE_OPTIMIZERS = ['sgd','adam']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")
@@ -1064,6 +1086,8 @@ if __name__ == "__main__":
     parser.add_argument("--sam_alpha", type=float, default=1.0, help="alpha for LookSAM/AlternateSAM/AdamS")
     parser.add_argument("--gold_delta", type=float, default=1, help="delta for goldstein")
     parser.add_argument("--norm_sgd_lr", type=float, default=1e-3, help="learning rate for normalized sgd when overfit")
+    parser.add_argument("--sophia_rho", type=float, default=0.04, help="clipping param for sophia")
+    parser.add_argument("--hess_interval", type=int, default=10, help="interval for hessian updates")
     parser.add_argument("--eig_start", type=int, default=0, help="dom_sgd: eig to preserve starts from")
     parser.add_argument("--eig_end", type=int, default=-1, help="dom_sgd: eig to preserve ends at; -1 means num_classes")
     parser.add_argument("--eigs_pattern", type=str, default="LM", choices=["LM", "SM", "LA", "SA", "BE"], help="eig pattern")
@@ -1181,6 +1205,10 @@ if __name__ == "__main__":
     opt_params["train_stats"]         = args.train_stats
     opt_params["forward_backward"]    = opt_name not in ["replay_sam"]
     opt_params["opt_first_step"]      = True
+
+    #hyperparameters for sophia
+    opt_params["sophia_rho"]          = args.sophia_rho
+    opt_params["hess_interval"]       = args.hess_interval
 
     # analysis hyperparameters
     analysis_params["adv_eta"]        = args.adv_eta

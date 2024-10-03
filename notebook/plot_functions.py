@@ -700,7 +700,7 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attr, start=None
                 plot_test_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_accuracy[start:end])
 
             if 'test_err' == attr:
-                plot_xlogy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-1*np.array(train_graphs.test_accuracy[start:end]), name=title, alpha=alpha)
+                plot_xy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-1*np.array(train_graphs.test_accuracy[start:end]), name=title, alpha=alpha)
                 axs[ax_ptr].yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1, decimals=0))
 
         axs[ax_ptr].legend(legend)
@@ -780,7 +780,7 @@ def plot_eigen_density(model_param, opt_param, start=None, end=None, save_dir=No
     cur_epochs = eval_graphs.log_epochs
     density_eigens, density_weights = eval_graphs.density_eigen, eval_graphs.density_weight
     density_eigens, density_weights, epochs = density_eigens[start:end], density_weights[start:end], cur_epochs[start:end]
-    rows, cols = (len(density_eigens)-1) // 6 + 1, min(len(density_eigens), 6)
+    rows, cols = (len(density_eigens)-1) // 4 + 1, min(len(density_eigens), 4)
     fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
     axs = axs.reshape(-1)
     for i in range(len(density_eigens)):

@@ -68,6 +68,10 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         from optimizer.sam_adam import AdamS_v1
         optimizer = AdamS_v1(model.parameters(), alpha=kwargs["sam_alpha"], lr=lr, momentum=momentum, weight_decay=weight_decay)
         model_params = model_params | {"alpha":kwargs["sam_alpha"], "sam_rho": kwargs["sam_rho"]} 
+    elif opt_name == "sophia":
+        from optimizer.sophia import SophiaG
+        optimizer = SophiaG(model.parameters(), lr=lr,betas=(momentum, 0.99),rho=kwargs["sophia_rho"], weight_decay=weight_decay)
+        model_params = model_params | {'sophia_rho': kwargs['sophia_rho'], 'hess_interval': kwargs['hess_interval']}
     elif opt_name == "dom_sgd":
         """from paper Does SGD really happen in tiny subspaces? https://arxiv.org/pdf/2405.16002"""
         from optimizer.subspace_sgd import DOM_SGD
