@@ -5,9 +5,9 @@ from torch.optim.optimizer import Optimizer
 from typing import List, Optional
 
 
-class SophiaG(Optimizer):
+class Sophus(Optimizer):
     def __init__(self, params, lr=1e-4, betas=(0.965, 0.99), rho = 0.04,
-         weight_decay=1e-1, *, maximize: bool = False,
+         weight_decay=1e-1, rank=-1, *, maximize: bool = False,
          capturable: bool = False):
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
@@ -19,10 +19,12 @@ class SophiaG(Optimizer):
             raise ValueError("Invalid rho parameter at index 1: {}".format(rho))
         if not 0.0 <= weight_decay:
             raise ValueError("Invalid weight_decay value: {}".format(weight_decay))
+        if not 1.0 <= rank:
+            raise ValueError("Invalid rank value: {}".format(rank))
         defaults = dict(lr=lr, betas=betas, rho=rho, 
-                        weight_decay=weight_decay, 
+                        weight_decay=weight_decay, rank=rank,
                         maximize=maximize, capturable=capturable)
-        super(SophiaG, self).__init__(params, defaults)
+        super(Sophus, self).__init__(params, defaults)
 
     def __setstate__(self, state):
         super().__setstate__(state)
@@ -36,9 +38,20 @@ class SophiaG(Optimizer):
                 s['step'] = torch.tensor(float(s['step']))
     
     @torch.no_grad()
+    def update_fd(self, U, Lambda, grad, rank, beta2):
+        from utilities import lanczos
+
+        def matrix_vector(v):
+            return beta2 * U @ (torch.diag(Lambda) @ (U.T @ v)) + (1-beta2) * grad @ (grad.T @ v)
+        Lambda, U = lanczos(matrix_vector=matrix_vector, dim=U.shape[0], neigs=rank)
+        return U, Lambda
+
+    @torch.no_grad()
     def update_hessian(self):
+        print("update hessian")
         for group in self.param_groups:
             beta1, beta2 = group['betas']
+            rank = group['rank']
             for p in group['params']:
                 if p.grad is None:
                     continue
@@ -48,16 +61,24 @@ class SophiaG(Optimizer):
                     state['step'] = torch.zeros((1,), dtype=torch.float, device=p.device) \
                         if self.defaults['capturable'] else torch.tensor(0.)
                     state['exp_avg'] = torch.zeros_like(p, memory_format=torch.preserve_format)
-                    state['hessian'] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    state['fd'] = torch.zeros((p.numel(), rank), dtype=torch.float, device=p.device)
+                    state['lambda'] = torch.zeros((rank, ), dtype=torch.float, device=p.device)
+                    state['lambda_truncated'] = 0
+                    #state['hessian'] = torch.zeros_like(p, memory_format=torch.preserve_format)
                 
-                if 'hessian' not in state.keys():
-                    state['hessian'] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                #if 'hessian' not in state.keys():
+                #    state['hessian'] = torch.zeros_like(p, memory_format=torch.preserve_format)
 
-                state['hessian'].mul_(beta2).addcmul_(p.grad, p.grad, value=1 - beta2)
+                #state['hessian'].mul_(beta2).addcmul_(p.grad, p.grad, value=1 - beta2)
 
+                state['fd'], eigs = self.update_fd(state['fd'], state['lambda'], p.grad.view(-1), beta2)
+                state['lambda_truncated'] += eigs[-1]
+                state['lambda'] = eigs - eigs[-1]
+            
 
     @torch.no_grad()
     def step(self, closure=None, bs=5120):
+        print("step")
         loss = None
         if closure is not None:
             with torch.enable_grad():
@@ -69,7 +90,9 @@ class SophiaG(Optimizer):
             exp_avgs = []
             state_steps = []
             hessian = []
+            fds, lambdas, lambdas_truncated = [], [], []
             beta1, beta2 = group['betas']
+            rank = group['rank']
 
             for p in group['params']:
                 if p.grad is None:
@@ -85,22 +108,30 @@ class SophiaG(Optimizer):
                     state['step'] = torch.zeros((1,), dtype=torch.float, device=p.device) \
                         if self.defaults['capturable'] else torch.tensor(0.)
                     state['exp_avg'] = torch.zeros_like(p, memory_format=torch.preserve_format)
-                    state['hessian'] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    #state['hessian'] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    state['fd'] = torch.zeros((p.numel(), rank), dtype=torch.float, device=p.device)
+                    state['lambda'] = torch.zeros((rank, ), dtype=torch.float, device=p.device)
+                    state['lambda_truncated'] = torch.zeros((1, ), dtype=torch.float, device=p.device)
                 
-                if 'hessian' not in state.keys():
-                    state['hessian'] = torch.zeros_like(p, memory_format=torch.preserve_format)                
+                #if 'hessian' not in state.keys():
+                #    state['hessian'] = torch.zeros_like(p, memory_format=torch.preserve_format)                
 
                 exp_avgs.append(state['exp_avg'])
                 state_steps.append(state['step'])
-                hessian.append(state['hessian'])
+                fds.append(state['fd'])
+                lambdas.append(state['lambda'])
+                lambdas_truncated.append(state['lambda_truncated'])
+
+                #hessian.append(state['hessian'])
                 
                 if self.defaults['capturable']:
                     bs = torch.ones((1,), dtype=torch.float, device=p.device) * bs
 
-            sophiag(params_with_grad,
+            sophus(params_with_grad,
                   grads,
                   exp_avgs,
                   hessian,
+                  fds, lambdas, lambdas_truncated,
                   state_steps,
                   bs=bs,
                   beta1=beta1,
@@ -113,10 +144,11 @@ class SophiaG(Optimizer):
 
         return loss
 
-def sophiag(params: List[Tensor],
+def sophus(params: List[Tensor],
           grads: List[Tensor],
           exp_avgs: List[Tensor],
           hessian: List[Tensor],
+          fds, lambdas, lambdas_truncated,
           state_steps: List[Tensor],
           capturable: bool = False,
           *,
@@ -132,12 +164,13 @@ def sophiag(params: List[Tensor],
         raise RuntimeError("API has changed, `state_steps` argument must contain a list of singleton tensors")
 
     
-    func = _single_tensor_sophiag
+    func = _single_tensor_sophus
 
     func(params,
          grads,
          exp_avgs,
          hessian,
+         fds, lambdas, lambdas_truncated,
          state_steps,
          bs=bs,
          beta1=beta1,
@@ -148,10 +181,11 @@ def sophiag(params: List[Tensor],
          maximize=maximize,
          capturable=capturable)
 
-def _single_tensor_sophiag(params: List[Tensor],
+def _single_tensor_sophus(params: List[Tensor],
                          grads: List[Tensor],
                          exp_avgs: List[Tensor],
                          hessian: List[Tensor],
+                         fds, lambdas, lambdas_truncated,
                          state_steps: List[Tensor],
                          *,
                          bs: int,
@@ -166,7 +200,7 @@ def _single_tensor_sophiag(params: List[Tensor],
     for i, param in enumerate(params):
         grad = grads[i] if not maximize else -grads[i]
         exp_avg = exp_avgs[i]
-        hess = hessian[i]
+        #hess = hessian[i]
         step_t = state_steps[i]
 
         if capturable:
@@ -175,7 +209,7 @@ def _single_tensor_sophiag(params: List[Tensor],
         if torch.is_complex(param):
             grad = torch.view_as_real(grad)
             exp_avg = torch.view_as_real(exp_avg)
-            hess = torch.view_as_real(hess)
+            #hess = torch.view_as_real(hess)
             param = torch.view_as_real(param)
 
         # update step
@@ -188,6 +222,7 @@ def _single_tensor_sophiag(params: List[Tensor],
         exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
         
         if capturable:
+            assert False
             step_size = lr 
             step_size_neg = step_size.neg()
 
@@ -195,12 +230,14 @@ def _single_tensor_sophiag(params: List[Tensor],
             param.addcmul_(exp_avg.sign(), ratio, value=step_size_neg)
         else:
             step_size_neg = - lr 
-            ratio = (exp_avg.abs() / (rho * bs * hess + 1e-15)).clamp(None,1)
-            print(torch.norm(grad))
-            print(torch.norm(exp_avg.abs()))
-            print(torch.norm(hess))
-            print(torch.norm(ratio))
-            print("=====")
-            param.addcmul_(exp_avg.sign(), ratio, value=step_size_neg)
-    import sys
-    sys.exit()
+
+            hess_inv_appox = sqrt_inv(fds[i], lambdas[i], lambdas_truncated[i]) / (rho * bs)
+            original_size = exp_avg.size()
+            ratio = (hess_inv_appox @ exp_avg.view(-1)).view(original_size)
+            #ratio = (exp_avg.abs() / (rho * bs * hess + 1e-15)).clamp(None,1)
+            #param.addcmul_(exp_avg.sign(), ratio, value=step_size_neg)
+            param.add_(ratio, alpha=step_size_neg)
+
+def sqrt_inv(U, Sigma, rho):
+    rho += 1e-15
+    return (rho**-0.5).clamp(None, 1)*torch.eye(U.size(0)).to(U) - U @ torch.diag((rho**-0.5 - (Sigma+rho)**-0.5).clamp(None, 1)) @ U.T

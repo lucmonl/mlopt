@@ -897,7 +897,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
         if debug and batch_idx > 2:
             break
 
-        if batch_idx % opt_params["hess_interval"] == 1:
+        if opt_name in ["sophia", "sophus"] and batch_idx % opt_params["hess_interval"] == 1:
             data, target = input
             data, target = data.to(device), target.to(device)
             optimizer.zero_grad()
@@ -1024,7 +1024,8 @@ if __name__ == "__main__":
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'dom_sgd', 'gn_dom_sgd', 'gn_bulk_sgd', 'bulk_sgd', 'norm-sgd','adam', 'adamw', 'federated',
-                  'replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam', 'adams_v1', 'sophia']
+                  'replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam', 'adams_v1', 
+                  'sophia', 'sophus']
     BASE_OPTIMIZERS = ['sgd','adam']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")
@@ -1087,6 +1088,8 @@ if __name__ == "__main__":
     parser.add_argument("--gold_delta", type=float, default=1, help="delta for goldstein")
     parser.add_argument("--norm_sgd_lr", type=float, default=1e-3, help="learning rate for normalized sgd when overfit")
     parser.add_argument("--sophia_rho", type=float, default=0.04, help="clipping param for sophia")
+    parser.add_argument("--sophus_rank", type=int, default=-1, help="number of frequent directions for sophus")
+
     parser.add_argument("--hess_interval", type=int, default=10, help="interval for hessian updates")
     parser.add_argument("--eig_start", type=int, default=0, help="dom_sgd: eig to preserve starts from")
     parser.add_argument("--eig_end", type=int, default=-1, help="dom_sgd: eig to preserve ends at; -1 means num_classes")
@@ -1208,6 +1211,7 @@ if __name__ == "__main__":
 
     #hyperparameters for sophia
     opt_params["sophia_rho"]          = args.sophia_rho
+    opt_params["sophus_rank"]         = args.sophus_rank
     opt_params["hess_interval"]       = args.hess_interval
 
     # analysis hyperparameters
