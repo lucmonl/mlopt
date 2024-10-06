@@ -325,9 +325,11 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         real_opt_params = copy.deepcopy(opt_params)
         real_opt_params["train_stats"] = False
         return federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, real_opt_params, server_epoch)
-    
-    if opt_params["fedlora_avg"] == "svd_grad":
+    elif opt_params["fedlora_avg"] == "svd_grad":
         return federated_lora_grad(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch)
+    elif opt_params["fedlora_avg"] == "svd_het":
+        from optimizer.fedlora import federated_lora_het
+        return federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
 
     
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
@@ -693,7 +695,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             if opt_params["mixup"] == "cut":
                 data, target, rand_target, lambda_= cutmix((data, target))
 
-            if opt_name != "gd":
+            if opt_params["opt_name"] != "gd":
                 optimizer.zero_grad()
             out = model(data)
             if opt_params["mixup"] == "none":
@@ -704,7 +706,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 assert False
         else:
             #print(input)
-            if opt_name != "gd":
+            if opt_params["opt_name"] != "gd":
                 optimizer.zero_grad()
 
             if type(input).__name__ == "list":
@@ -718,12 +720,12 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             loss, out = output.loss, output.logits
 
         if opt_params["forward_backward"]:
-            if opt_name == "adahessian":
+            if opt_params["opt_name"] == "adahessian":
                 loss.backward(create_graph=True)
             else:
                 loss.backward()
 
-            if compute_acc:
+            if opt_params["compute_acc"]:
                 if out.dim() > 1:
                     if out.shape != target.shape:
                         accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
@@ -735,7 +737,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
         if opt_params["clip_tau"] != -1:
             torch.nn.utils.clip_grad_norm_(model.parameters(), opt_params["clip_tau"])
 
-        if opt_name in ["sam", "sam_on", "adams_v1"]:
+        if opt_params["opt_name"] in ["sam", "sam_on", "adams_v1"]:
             if opt_params["train_stats"]:
                 from analysis.grad_norm import get_grad_norm
                 grad_norm = get_grad_norm(model, ascent=True)
@@ -765,7 +767,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             map_update(track_train_stats, train_stats, reduction="sum")
             #cos_descent_ascent += optimizer.second_step(zero_grad=True)
             enable_running_stats(model)
-        elif opt_name == "replay_sam":
+        elif opt_params["opt_name"] == "replay_sam":
             disable_running_stats(model)
             if not (epoch == 1 and batch_idx==1):
                 train_stats = optimizer.first_step(zero_grad=True)
@@ -776,7 +778,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             loss.backward()
             optimizer.second_step(zero_grad=True)
             enable_running_stats(model)
-        elif opt_name.startswith("look_sam"):
+        elif opt_params["opt_name"].startswith("look_sam"):
             disable_running_stats(model)
             if not (batch_idx-1) % 10:
             #if True:
@@ -795,7 +797,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 else:
                     optimizer.normal_step(zero_grad=True)
             enable_running_stats(model)
-        elif opt_name == "alternate_sam":
+        elif opt_params["opt_name"] == "alternate_sam":
             disable_running_stats(model)
             if opt_params["forward_backward"]: # in odd step
                 optimizer.odd_step(zero_grad=True)
@@ -808,7 +810,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 optimizer.even_second_step(zero_grad=True)
                 opt_params["forward_backward"] = True
             enable_running_stats(model)
-        elif opt_name == "alternate_sam_v2":
+        elif opt_params["opt_name"] == "alternate_sam_v2":
             disable_running_stats(model)
             if opt_params["forward_backward"]: # in odd step
                 if opt_params["opt_first_step"]:
@@ -826,7 +828,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 optimizer.even_second_step(zero_grad=True)
                 opt_params["forward_backward"] = True
             enable_running_stats(model)
-        elif opt_name == "alternate_sam_v3":
+        elif opt_params["opt_name"] == "alternate_sam_v3":
             disable_running_stats(model)
             if epoch == 1 and batch_idx == 1:
                 optimizer.initial_first_step(zero_grad=True)
@@ -846,7 +848,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                     optimizer.even_second_step(zero_grad=True)
                     opt_params["forward_backward"] = True
             enable_running_stats(model)
-        elif opt_name == "goldstein":
+        elif opt_params["opt_name"] == "goldstein":
             gold_iters = 0
             while gold_iters < 1:
                 gold_iters += 1
@@ -859,19 +861,19 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 optimizer.second_step(zero_grad=False)
             optimizer.third_step(zero_grad=True)
             enable_running_stats(model)
-        elif opt_name in ["dom_sgd", "gn_dom_sgd", "gn_bulk_sgd", "bulk_sgd"]:
+        elif opt_params["opt_name"] in ["dom_sgd", "gn_dom_sgd", "gn_bulk_sgd", "bulk_sgd"]:
             dominant_alignment = optimizer.step(epoch, batch_idx, batch=input, zero_grad=True, train_stats=opt_params["train_stats"])
             if opt_params["train_stats"]:
                 map_update(track_train_stats, dominant_alignment, reduction = "append")
                 map_update(track_train_stats, {"batch_loss": loss.item()}, reduction = "append")
-        elif opt_name == "norm-sgd":
+        elif opt_params["opt_name"] == "norm-sgd":
             if loss_name == 'MSELoss':
                 optimizer.step(loss=loss)
             elif loss_name in ['CrossEntropyLoss', 'BCELoss']:
                 optimizer.step(accuracy=accuracy)
             else:
                 raise NotImplementedError
-        elif opt_name == "gd":
+        elif opt_params["opt_name"] == "gd":
             pass
         else:
             if opt_params["train_stats"]:
@@ -894,10 +896,10 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 loss.item(),
                 accuracy))
         
-        if debug and batch_idx > 2:
+        if opt_params["debug"] and batch_idx > 2:
             break
 
-        if opt_name in ["sophia", "sophus"] and batch_idx % opt_params["hess_interval"] == 1:
+        if opt_params["opt_name"] in ["sophia", "sophus"] and batch_idx % opt_params["hess_interval"] == 1:
             data, target = input
             data, target = data.to(device), target.to(device)
             optimizer.zero_grad()
@@ -914,7 +916,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             optimizer.update_hessian()
             optimizer.zero_grad()
 
-    if opt_name == "gd":
+    if opt_params["opt_name"] == "gd":
         optimizer.step()
         optimizer.zero_grad()
     
@@ -1121,7 +1123,7 @@ if __name__ == "__main__":
     parser.add_argument("--sketch_size", type=int, default=-1, help="sketch size in communication")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
-    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2"], default="avg", help="methods to average A and B matrix in federated lora")
+    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het"], default="avg", help="methods to average A and B matrix in federated lora")
 
     #llm hyperparameters
     parser.add_argument("--task_name", type=str, default="mrpc", help="task name")
@@ -1131,7 +1133,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
 
-    debug               = args.debug # Only runs 10 batches per epoch for debugging
+    
     no_train            = args.no_train
     do_eval             = args.do_eval
     multi_run           = args.multiple_run
@@ -1140,6 +1142,8 @@ if __name__ == "__main__":
     model_params = {}
     opt_params = {}
     analysis_params = {}
+
+    opt_params["debug"] = args.debug # Only runs 10 batches per epoch for debugging
 
     # dataset parameters
     dataset_name        = args.dataset #"spurious" #"cifar"\
@@ -1169,6 +1173,7 @@ if __name__ == "__main__":
     # loss_name = 'CrossEntropyLoss'
     loss_name           = args.loss
     opt_name            = args.opt
+    opt_params["opt_name"]          = opt_name
     analysis_list       = args.analysis if args.analysis else [] # ['loss', 'eigs'] #['loss','eigs','nc',''weight_norm']
     analysis_interval   = args.log_interval
     tiny_analysis  = 'gn_eigs' in analysis_list # avoid endless running time in computing gauss newton matrix
@@ -1177,6 +1182,8 @@ if __name__ == "__main__":
     lr_decay            = args.lr_decay #1# 0.1
     epochs              = args.epoch
     epochs_lr_decay     = [epochs//3, epochs*2//3]
+    opt_params["lr_decay"]            = lr_decay
+    opt_params["epochs_lr_decay"]     = epochs_lr_decay
 
     batch_size          = args.batch_size #512 # 128
 
@@ -1237,7 +1244,7 @@ if __name__ == "__main__":
     opt_params["cub_data"]         = args.dataset in ["cub"]
     opt_params["wild_data"]        = args.dataset in ["wilds"]
 
-    if debug:
+    if opt_params["debug"]:
         torch.autograd.set_detect_anomaly(True)
     if not multi_run:
         torch.manual_seed(32)
@@ -1254,7 +1261,7 @@ if __name__ == "__main__":
         from data.cifar import load_cifar
         #if opt_name == 'gd':
         #    train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot = load_cifar(loss_name, batch_size, sp_train_size)
-        if opt_name == "federated":
+        if opt_params["opt_name"] == "federated":
             if not opt_params["hf_model"]:
                 from data.cifar import load_cifar_federated
                 train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar_federated(loss_name, batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
@@ -1273,7 +1280,7 @@ if __name__ == "__main__":
             if args.augment != 0:
                 model_params = model_params | {"augment": args.augment}
     elif dataset_name == "cifar100":
-        if opt_name == "federated":
+        if opt_params["opt_name"] == "federated":
             """
             if opt_params["non_iid"] == 0:
                 if opt_params["hf_model"]:
@@ -1307,7 +1314,7 @@ if __name__ == "__main__":
         if sp_train_size != -1:
             model_params = model_params | {"train_size": sp_train_size}
     elif dataset_name == "emnist":
-        if opt_name == "federated":
+        if opt_params["opt_name"] == "federated":
             from data.emnist import load_emnist_federated
             train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_emnist_federated(loss_name, batch_size, client_num=opt_params["client_num"])
         else:
@@ -1360,7 +1367,7 @@ if __name__ == "__main__":
         model_params = {"task_name": args.task_name, "seq_length": args.max_seq_length}
         if args.sp_train_size != -1:
             model_params = model_params | {"train_size": args.sp_train_size}
-        if opt_name == "federated":
+        if opt_params["opt_name"] == "federated":
             from data.glue import load_glue_federated
             model, train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_glue_federated(model_name, batch_size, opt_params["client_num"], model_params)
         else:
@@ -1372,7 +1379,7 @@ if __name__ == "__main__":
         model_params = model_params | {"target": args.target_name, "confounder": args.confounder_names}
     elif dataset_name == "wilds":
         model_params = model_params | {"task_name": args.task_name} 
-        if opt_name == "federated":
+        if opt_params["opt_name"] == "federated":
             from data.wilds import load_wilds_federated
             train_loader, test_loader, analysis_loader, analysis_test_loader, client_loaders, C, transform_to_one_hot, data_params = load_wilds_federated(batch_size, args.task_name, client_num=opt_params["client_num"])
         else:
@@ -1384,7 +1391,7 @@ if __name__ == "__main__":
         model_params = model_params | {"patch_dim": sp_patch_dim, "feat_dim": sp_feat_dim, "train_size": sp_train_size}
         analysis_params = analysis_params | data_params
     elif dataset_name == "20newsgroups":
-        if opt_name == "federated":
+        if opt_params["opt_name"] == "federated":
             from data.newsgroups import load_20newsgroups_federated
             train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_20newsgroups_federated(loss=loss_name, batch_size=batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
             model_params = model_params | {"non_iid": opt_params["non_iid"]}
@@ -1394,7 +1401,7 @@ if __name__ == "__main__":
 
     opt_params["num_classes"] = C
 
-    compute_acc = data_params["compute_acc"]
+    opt_params["compute_acc"] = data_params["compute_acc"]
     if args.mixup == "cut":
         from data.data_process import CutMix
         cutmix = CutMix(int(np.sqrt(num_pixels/input_ch)), beta=1)
@@ -1411,7 +1418,7 @@ if __name__ == "__main__":
         if dataset_name == "mnist":
             model.conv1 = nn.Conv2d(input_ch, model.conv1.weight.shape[0], 3, 1, 1, bias=False) # Small dataset filter size used by He et al. (2015)
             model.maxpool = nn.MaxPool2d(kernel_size=1, stride=1, padding=0)
-        if opt_name == "federated":
+        if opt_params["opt_name"] == "federated":
             for name, module in model.named_modules():
                 if isinstance(module, nn.modules.batchnorm.BatchNorm2d):
                     module.track_running_stats = False
@@ -1755,8 +1762,8 @@ if __name__ == "__main__":
 
     if args.pretrain == 'from':
         pretrain_model_params = {"pretrain": "cls_head"} | model_params
-        _, _, pretrain_model_params = load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, pretrain_model_params, opt_params)
-        pretrain_file = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, args.pretrain_epoch, multi_run, **pretrain_model_params)
+        _, _, pretrain_model_params = load_optimizer(opt_params["opt_name"], model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, pretrain_model_params, opt_params)
+        pretrain_file = get_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, args.pretrain_epoch, multi_run, **pretrain_model_params)
         print(pretrain_file)
         with open(pretrain_file+"/model.ckpt", "rb") as f:
             tensors = torch.load(f, map_location="cpu")
@@ -1798,7 +1805,7 @@ if __name__ == "__main__":
     else:
         print("number of parameters:", len(parameters_to_vector(model.parameters())))
 
-    optimizer, lr_scheduler, model_params= load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, model_params, opt_params)
+    optimizer, lr_scheduler, model_params= load_optimizer(opt_params["opt_name"], model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, model_params, opt_params)
     
     if not no_train:
         train_graphs = graphs()
@@ -1813,12 +1820,12 @@ if __name__ == "__main__":
 
         load_from_epoch = 0
         if not run_from_scratch:
-            load_from_epoch = continue_training(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
+            load_from_epoch = continue_training(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
         epoch_list = np.arange(load_from_epoch+1, epochs+1, analysis_interval).tolist()
         if load_from_epoch != 0:
             from utilities import optimizer_to
             print("loading from trained epoch {}".format(load_from_epoch))
-            load_from_dir = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, load_from_epoch, multi_run, **model_params)
+            load_from_dir = get_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, load_from_epoch, multi_run, **model_params)
             model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))
             optimizer.load_state_dict(torch.load(os.path.join(load_from_dir, "optimizer.ckpt")))
             if hasattr(optimizer, "base_optimizer"):
@@ -1831,7 +1838,7 @@ if __name__ == "__main__":
                 train_graphs = pickle.load(f)
         model = model.to(device)
 
-        directory = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
+        directory = get_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
         os.makedirs(directory, exist_ok=True)
         print(directory)
 
@@ -1839,7 +1846,7 @@ if __name__ == "__main__":
 
         cur_epochs = []
         for epoch in range(load_from_epoch+1, epochs + 1):
-            if opt_name == "federated":
+            if opt_params["opt_name"] == "federated":
                 #exp_avg, exp_avg_sq = federated_train(model, loss_name, criterion, device, C, client_loaders, exp_avg, exp_avg_sq, opt_params, epoch)
                 #client_lr = client_lr_scheduler.get_last_lr()[0]
                 #federated_train(model, loss_name, criterion, device, client_loaders, optimizer, None, client_lr, opt_params, epoch)
@@ -1857,7 +1864,7 @@ if __name__ == "__main__":
                 #print("Epoch: ", epoch)
                 train_graphs.log_epochs.append(epoch)
                 #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
-                analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc,train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
+                analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, opt_params["compute_acc"],train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
                 
             if epoch in epoch_list or epoch == epochs:
                 pickle.dump(train_graphs, open(f"{directory}/train_graphs.pk", "wb"))
@@ -1871,7 +1878,7 @@ if __name__ == "__main__":
                     
 
     if do_eval:
-        directory = get_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
+        directory = get_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
         if lr != 0:
             print("loading pretrained model..")
             model.load_state_dict(torch.load(os.path.join(directory, "model.ckpt")))
@@ -1885,7 +1892,7 @@ if __name__ == "__main__":
                 copy_graph(eval_graphs, eval_graphs_exist)
 
         if 'model_average' in analysis_list:
-            running_directory = get_running_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, epochs, **model_params)
+            running_directory = get_running_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, epochs, **model_params)
             epoch_list = np.arange(1, epochs+1, analysis_interval).tolist()
             for epoch in epoch_list:
                 eval_graphs.log_epochs.append(epoch)
@@ -1899,7 +1906,7 @@ if __name__ == "__main__":
                 model.load_state_dict(sdB)
                 model = model.to(device)
 
-                analysis(eval_graphs, analysis_list, model, model_name, criterion_summed, device, C, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
+                analysis(eval_graphs, analysis_list, model, model_name, criterion_summed, device, C, opt_params["compute_acc"], train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
                 
             os.makedirs(f"{running_directory}/avg_{model_average[0]}{model_average[1]}", exist_ok=True)
             pickle.dump(eval_graphs, open(f"{running_directory}/avg_{model_average[0]}{model_average[1]}/eval_graphs.pk", "wb"))
