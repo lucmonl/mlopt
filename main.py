@@ -1812,10 +1812,10 @@ if __name__ == "__main__":
         if opt_name == "federated":
             from optimizer.load_optimizer import load_fake_scheduler
             client_lr_scheduler = load_fake_scheduler(opt_params["client_lr"], **opt_params)
-            if apply_lora and opt_params["fedlora_avg"] in ["svd", "svd_v2", "sketch", "sketch_v2"]:
+            if apply_lora and opt_params["fedlora_avg"] in ["svd", "svd_v2", "sketch", "sketch_v2", "svd_het"]:
                 from arch.lora import load_server_optimizer
                 # apply server optimizer to original weight matrices
-                optimizer, lr_scheduler, opt_params["server_params"] = load_server_optimizer(opt_params["server_opt_name"], model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, **opt_params)
+                optimizer, lr_scheduler, opt_params["server_params"] = load_server_optimizer(model, lr, momentum, weight_decay, **opt_params)
                     
 
         load_from_epoch = 0
