@@ -127,8 +127,16 @@ def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, dev
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
         base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
         if server_epoch != 1:
-            opt_params["lora_param"][lora_A_name] = (opt_params["lora_param"][lora_A_name].T / (idx_cnt[base_weight_name] + 1e-6)).T
-            opt_params["lora_param"][lora_B_name] = opt_params["lora_param"][lora_B_name] / (idx_cnt[base_weight_name] + 1e-6)
+            #print(torch.norm(opt_params["lora_param"][lora_A_name]))
+            #print(torch.norm(opt_params["lora_param"][lora_A_name].T[:,16:]))
+            nz_idx = torch.where(idx_cnt[base_weight_name] >0.1)[0]
+            # only preserve the non-zero index
+            opt_params["lora_param"][lora_A_name] = (opt_params["lora_param"][lora_A_name][nz_idx, :].T / (idx_cnt[base_weight_name][nz_idx] + 1e-6)).T
+            opt_params["lora_param"][lora_B_name] = opt_params["lora_param"][lora_B_name][:, nz_idx] / (idx_cnt[base_weight_name][nz_idx] + 1e-6)
+            print(idx_cnt[base_weight_name][:20])
+            print(torch.norm(opt_params["lora_param"][lora_A_name]))
+            #print(torch.norm(opt_params["lora_param"][lora_A_name].T[:,16:]))
+            #print("===")
         aggregated_weights[base_weight_name] = opt_params["lora_param"][lora_B_name] @ opt_params["lora_param"][lora_A_name]
 
 
