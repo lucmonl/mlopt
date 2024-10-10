@@ -38,6 +38,7 @@ def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, dev
     base_adapter_names = {}
     if "lora_param" not in opt_params:
         opt_params["lora_param"] = {}
+        opt_params["lora_idx"] = {}
     for i in range(0, len(adapter_names), 2):
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
         lora_A_param, lora_B_param = adapter_weights[lora_A_name], adapter_weights[lora_B_name]
@@ -67,8 +68,10 @@ def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, dev
 
                     #samp_dist = torch.distributions.Categorical(logits=S)
                     #client_idx = samp_dist.sample(sample_shape=(lora_rank))
-                    client_idx = torch.multinomial(input=S, replacement=False, num_samples=lora_rank)
+                    #client_idx = torch.multinomial(input=S, replacement=False, num_samples=lora_rank)
+                    client_idx = torch.arange(lora_rank).to(U).long()
                     #count the number of indices used for clients
+                    opt_params["lora_idx"][name] = client_idx
                     if name not in idx_cnt:
                         idx_cnt[name] = 0
                     idx_cnt[name] += torch.sum(F.one_hot(client_idx, num_classes=S.shape[0]), dim=0)
@@ -97,8 +100,12 @@ def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, dev
                     elif name in opt_params["lora_param"]:
                         #lora_params[name].append(param.data)
                         if 'lora_A' in name:
+                            base_name = name.replace("lora_A.default", "base_layer")
+                            client_idx = opt_params["lora_idx"][base_name]
                             opt_params["lora_param"][name][client_idx,:] += param.data
                         elif 'lora_B' in name:
+                            base_name = name.replace("lora_B.default", "base_layer")
+                            client_idx = opt_params["lora_idx"][base_name]
                             opt_params["lora_param"][name][:, client_idx] += param.data
                         else: assert False
                     else:
@@ -162,7 +169,7 @@ def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, dev
             U, S, Vh = torch.linalg.svd(opt_params["server_params"][name].data, full_matrices=False)
             if "U" not in opt_params:
                 opt_params["U"], opt_params["S"], opt_params["Vh"] = {}, {}, {}
-            opt_params["U"][name], opt_params["S"][name], opt_params["Vh"][name] = U, S, Vh
+            opt_params["U"][name], opt_params["S"][name], opt_params["Vh"][name] = U, torch.sqrt(S), Vh
             lora_A_name, lora_B_name = base_adapter_names[name]
             opt_params["lora_param"][lora_A_name] = torch.zeros_like(U.T)
             opt_params["lora_param"][lora_B_name] = torch.zeros_like(Vh.T)
