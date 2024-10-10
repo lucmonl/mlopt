@@ -455,8 +455,8 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 #print(lora_A_name, lora_B_name)
                 #print("====")
                 #print(adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
-                adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T
-                adapter_weights[lora_B_name].data = Vh_truncate.T * S_truncate
+                adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T * opt_params["fedlora_uba"]
+                adapter_weights[lora_B_name].data = Vh_truncate.T * S_truncate / opt_params["fedlora_uba"]
                 #print(opt_params["server_params"][name].shape, U_truncate.shape, Vh_truncate.shape)
                 #print(lora_A_name, adapter_weights[lora_A_name].data.shape)
                 #print(lora_B_name, adapter_weights[lora_B_name].data.shape)
@@ -1124,6 +1124,7 @@ if __name__ == "__main__":
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
     parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het"], default="avg", help="methods to average A and B matrix in federated lora")
+    parser.add_argument("--fedlora_uba", type=float, default=1, help="the scale of unbalance in fedlora_svd")
 
     #llm hyperparameters
     parser.add_argument("--task_name", type=str, default="mrpc", help="task name")
@@ -1236,7 +1237,8 @@ if __name__ == "__main__":
     opt_params["client_weight_decay"]  = args.client_weight_decay
     opt_params["non_iid"]          = args.non_iid_alpha
     opt_params["clip_tau"]         = args.clip_tau
-    opt_params["fedlora_avg"]         = args.fedlora_avg
+    opt_params["fedlora_avg"]      = args.fedlora_avg
+    opt_params["fedlora_uba"]      = args.fedlora_uba
     
     exp_avg, exp_avg_sq            = None, None
 
@@ -1801,6 +1803,8 @@ if __name__ == "__main__":
             model_params = model_params | {"lora_freeze": "a"}
         if opt_params["fedlora_avg"] != 'avg':
             model_params = model_params | {"fedlora_avg": opt_params["fedlora_avg"]}
+        if opt_params["fedlora_avg"] == "svd":
+            model_params = model_params | {"fedlora_uba": opt_params["fedlora_uba"]}
         #load_optimizer = load_optimizer_param
     else:
         print("number of parameters:", len(parameters_to_vector(model.parameters())))

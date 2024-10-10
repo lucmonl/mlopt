@@ -158,9 +158,6 @@ def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, dev
         elif output_layer_name in name:
             opt_params["server_params"][name].grad = base_weights[name].data - output_weights[name]
     
-    if opt_params["train_stats"]:
-        train_graphs.grad_norm.append(grad_norm.item())
-        print("grad norm:", train_graphs.grad_norm[-1])
     server_optimizer.step()
     server_optimizer.zero_grad()
 
