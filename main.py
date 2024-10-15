@@ -323,7 +323,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     
     if opt_params["fedlora_avg"] == "avg":
         real_opt_params = copy.deepcopy(opt_params)
-        real_opt_params["train_stats"] = False
+        real_opt_params["train_stats"] = True
         return federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, real_opt_params, server_epoch)
     elif opt_params["fedlora_avg"] == "svd_grad":
         return federated_lora_grad(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch)
@@ -526,6 +526,8 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
 
     
     #running_stats = {}
+    client_opt_params = copy.deepcopy(opt_params)
+    client_opt_params["train_stats"] = False
     for client_id in range(client_num):
         # update client models
         client_model = copy.deepcopy(model)
@@ -534,7 +536,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], lr_decay, epochs_lr_decay, False, model_params, opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
-            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, opt_params)
+            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
             
         new_params = parameters_to_vector(client_model.parameters())
         if opt_params["server_opt_name"] == "clip_sgd":
@@ -652,6 +654,11 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         if opt_params["clip_tau"] != -1:
             torch.nn.utils.clip_grad_value_(model.parameters(), 1.0)
         #vector_to_grads_sq(vector_v, model.parameters()) #deprecated
+
+    if opt_params["train_stats"]:
+        train_graphs.grad_norm.append(torch.norm(vector_m).item()**2)
+        print("grad norm:", train_graphs.grad_norm[-1])
+
     server_optimizer.step()
 
     if server_lr_scheduler is not None:

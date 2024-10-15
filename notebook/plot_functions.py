@@ -377,7 +377,7 @@ def plot_attr(ax, train_graphs, attr, start=None, end=None):
     elif attr in ['cos_descent_ascent', 'progress_dir', 'ascent_semi_cos', \
                   'ascent_step_diff', 'descent_step_diff', 'descent_norm', \
                   'dominant_alignment', 'batch_loss', "fedlora_A_align", "fedlora_B_align", \
-                  "fedlora_A_cosine", "fedlora_B_cosine", "lora_A_norm", "lora_B_norm"]:
+                  "fedlora_A_cosine", "fedlora_B_cosine", "lora_A_norm", "lora_B_norm", "grad_norm"]:
         if hasattr(train_graph, attr):
             #yaxis = getattr(train_graphs, attr)[start:end]
             line = plot_y(ax=ax, yaxis=yaxis, name=attr)
