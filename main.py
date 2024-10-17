@@ -322,9 +322,10 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         train_graphs.lora_B_norm.append(norm_B.item())
     
     if opt_params["fedlora_avg"] == "avg":
+        from optimizer.fedlora import federated_lora_avg
         real_opt_params = copy.deepcopy(opt_params)
         real_opt_params["train_stats"] = True
-        return federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, real_opt_params, server_epoch)
+        return federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
     elif opt_params["fedlora_avg"] == "svd_grad":
         return federated_lora_grad(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch)
     elif opt_params["fedlora_avg"] == "svd_het":
@@ -656,10 +657,16 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         #vector_to_grads_sq(vector_v, model.parameters()) #deprecated
 
     if opt_params["train_stats"]:
+        print(vector_m.numel())
+        print(torch.sum(torch.abs(vector_m) ==0.0))
         train_graphs.grad_norm.append(torch.norm(vector_m).item()**2)
         print("grad norm:", train_graphs.grad_norm[-1])
 
     server_optimizer.step()
+
+    for name, param in model.named_parameters():
+        if "lora_B" in name:
+            print(torch.linalg.svd(param, full_matrices=False)[1])
 
     if server_lr_scheduler is not None:
         server_lr_scheduler.step()
@@ -1810,7 +1817,7 @@ if __name__ == "__main__":
             model_params = model_params | {"lora_freeze": "a"}
         if opt_params["fedlora_avg"] != 'avg':
             model_params = model_params | {"fedlora_avg": opt_params["fedlora_avg"]}
-        if opt_params["fedlora_avg"] == "svd":
+        if opt_params["fedlora_avg"] in ["svd", "avg"]:
             model_params = model_params | {"fedlora_uba": opt_params["fedlora_uba"]}
         #load_optimizer = load_optimizer_param
     else:

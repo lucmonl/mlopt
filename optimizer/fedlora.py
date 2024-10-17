@@ -3,6 +3,115 @@ from optimizer.load_optimizer import load_optimizer
 import copy
 import torch.nn.functional as F
 
+#def federated_lora_avg(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
+def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
+    client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
+    import copy
+    import math
+    from utilities import vector_to_grads, vector_to_grads_sq
+    from main import train
+
+    adapter_names = []
+    adapter_weights = {}
+    output_weights = {}
+    output_layer_name = opt_params["output_layer_name"]
+    for name, param in model.named_parameters():
+        # select lora_A and lora_B
+        if param.requires_grad and output_layer_name not in name: # exclude the cls_head
+            adapter_names.append(name)
+            adapter_weights[name] = torch.zeros_like(param)
+        if output_layer_name in name:
+            output_weights[name]= 0
+
+    #from utilities import state_dict_to_vector, vector_to_state_dict
+    # initialize client models, optimizers
+        
+    #running_stats = {}
+    client_opt_params = copy.deepcopy(opt_params)
+    client_opt_params["train_stats"] = False
+    for client_id in range(client_num):
+        # update client models
+        client_model = copy.deepcopy(model)
+
+        client_model.train()
+        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], opt_params["lr_decay"], opt_params["epochs_lr_decay"], False, model_params, opt_params)
+        #vector_to_parameters(old_params, client_model.parameters())
+        for epoch in range(client_epoch):
+            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
+            
+            for name, param in client_model.named_parameters():
+                #print(name, param.shape)
+                if param.requires_grad:
+                    #param_names.append(name)
+                    if output_layer_name in name:
+                        output_weights[name] += param.data / client_num
+                    elif name in adapter_weights:
+                        #lora_params[name].append(param.data)
+                        if 'lora_A' in name:
+                            base_name = name.replace("lora_A.default", "base_layer")
+                            adapter_weights[name] += param.data/client_num
+                        elif 'lora_B' in name:
+                            base_name = name.replace("lora_B.default", "base_layer")
+                            adapter_weights[name] += param.data/client_num
+                        else: assert False
+                    else:
+                        assert False
+
+    server_optimizer.zero_grad()
+
+    if opt_params["train_stats"]:
+        grad_norm = 0
+
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            if output_layer_name in name:
+                param.grad = param.data - output_weights[name]
+            elif name in adapter_weights:
+                param.grad = param.data - adapter_weights[name]
+            else:
+                assert False
+
+            if opt_params["train_stats"]:
+                grad_norm += torch.norm(param.grad).item()**2
+    
+    if opt_params["train_stats"]:
+        train_graphs.grad_norm.append(grad_norm ** 0.5)
+        print("grad norm:", train_graphs.grad_norm[-1])
+
+    server_optimizer.step()
+
+    # rescale A and B matrices
+    base_adapter_weights = {}
+    for name, param in model.named_parameters():
+        if 'lora_A' in name:
+            base_name = name.replace("lora_A.default", "base_layer")
+            base_adapter_weights[base_name] = {}
+            base_adapter_weights[base_name]["A"] = param.data
+        elif 'lora_B' in name:
+            base_name = name.replace("lora_B.default", "base_layer")
+            base_adapter_weights[base_name]["B"] = param.data
+        
+            
+            base_full = (base_adapter_weights[base_name]["B"] @ base_adapter_weights[base_name]["A"]).T
+        
+            U, S, Vh = torch.linalg.svd(base_full, full_matrices=False)
+            U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
+            lora_A_name, lora_B_name = name.replace("lora_B.default", "lora_A.default"), name
+            adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T * opt_params["fedlora_uba"]
+            adapter_weights[lora_B_name].data = Vh_truncate.T * S_truncate / opt_params["fedlora_uba"]
+    
+    # assign new param to model
+    for name, param in model.named_parameters():
+        if 'lora_A' in name or 'lora_B' in name:
+            param.data = adapter_weights[name].data
+            #print(torch.norm(param.data))
+
+    if server_lr_scheduler is not None:
+        server_lr_scheduler.step()
+
+    for group in server_optimizer.param_groups:
+        print("server lr", group['lr'])
+
 def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     from main import train
     
