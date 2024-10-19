@@ -295,6 +295,10 @@ def federated_lora_grad(model, loss_name, criterion, device, train_loaders, serv
     server_optimizer.step()
 
 def federated_lora(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
+    if lora_rank <= 0:
+        # full finetuning
+        return federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch)
+    
     import copy
     
     adapter_names = []
@@ -1068,7 +1072,7 @@ if __name__ == "__main__":
 
     # lora
     parser.add_argument("--apply_lora", action='store_true', help="use peft methods to update model")
-    parser.add_argument("--lora_rank", type=int, default=-1)
+    parser.add_argument("--lora_rank", type=int, default=-2, help="0: linear finetuning; -1: full finetuning")
     parser.add_argument("--lora_alpha", type=int, default=16)
     parser.add_argument("--lora_freeze_a", action='store_true', help="freeze A matrix in lora")
     parser.add_argument("--cls_lr", type=float, default=-1, help="specific learning rate for the output layer")
@@ -1819,7 +1823,7 @@ if __name__ == "__main__":
             model_params = model_params | {"lora_freeze": "a"}
         if opt_params["fedlora_avg"] != 'avg':
             model_params = model_params | {"fedlora_avg": opt_params["fedlora_avg"]}
-        if opt_params["fedlora_avg"] in ["svd", "avg"]:
+        if opt_params["fedlora_avg"] in ["svd", "avg"] and lora_rank >= 0:
             model_params = model_params | {"fedlora_uba": opt_params["fedlora_uba"]}
         #load_optimizer = load_optimizer_param
     else:

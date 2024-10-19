@@ -16,7 +16,7 @@ def add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a
         add_adapters(model, lora_rank, lora_alpha, None, ["c_attn", "c_proj", "c_fc"])
 
 def add_ft(model, output_layer_name, target_modules):
-    for n, p in model.names_parameters():
+    for n, p in model.named_parameters():
         if output_layer_name in n:
             p.requires_grad = True
         else:
@@ -50,7 +50,8 @@ def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules
                 p.requires_grad = True
             else:
                 p.requires_grad = False
-    #if lora_rank == -1: full fine-tune
+    elif lora_rank == -1: #full fine-tune
+        add_ft(model, output_layer_name, target_modules)
     for name, param in model.named_parameters():
         print(name, param.shape, param.requires_grad)
 
