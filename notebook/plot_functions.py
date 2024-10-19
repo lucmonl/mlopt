@@ -342,22 +342,35 @@ def get_attr_from_graph(train_graph, attr):
 def plot_attr(ax, train_graphs, attr, start=None, end=None):
     data = []
     xaxis = None
-    for train_graph in train_graphs:
-        cur_epochs = train_graph.log_epochs
-        if xaxis and len(cur_epochs) == len(xaxis):
-            data.append(get_attr_from_graph(train_graph, attr)[start: end])
-        elif xaxis is None:
-            xaxis = train_graph.log_epochs
-            data.append(get_attr_from_graph(train_graph, attr)[start: end])
-        else:
-            # still running
-            continue
-    xaxis = xaxis[start: end]
-    yaxis = np.mean(np.array(data), axis=0).reshape(-1)
-    stds = np.std(np.array(data), axis=0).reshape(-1)
+    
+    if attr == "gen_loss":
+        for train_graph in train_graphs:
+            cur_epochs = train_graph.log_epochs
+            if xaxis and len(cur_epochs) == len(xaxis):
+                data.append(np.array(get_attr_from_graph(train_graph, 'test_loss')[start: end]) - np.array(get_attr_from_graph(train_graph, 'loss')[start: end]))
+            elif xaxis is None:
+                xaxis = train_graph.log_epochs
+                data.append(np.array(get_attr_from_graph(train_graph, 'test_loss')[start: end]) - np.array(get_attr_from_graph(train_graph, 'loss')[start: end]))
+            else:
+                # still running
+                continue
+    else:
+        for train_graph in train_graphs:
+            cur_epochs = train_graph.log_epochs
+            if xaxis and len(cur_epochs) == len(xaxis):
+                data.append(get_attr_from_graph(train_graph, attr)[start: end])
+            elif xaxis is None:
+                xaxis = train_graph.log_epochs
+                data.append(get_attr_from_graph(train_graph, attr)[start: end])
+            else:
+                # still running
+                continue
     #if attr == "loss":
     #    print(data)
     #plt.plot(x, means, label="Estimated Mean")
+    xaxis = xaxis[start: end]
+    yaxis = np.mean(np.array(data), axis=0).reshape(-1)
+    stds = np.std(np.array(data), axis=0).reshape(-1)
 
     if attr in ['test_err']:
         #yaxis = 1- np.array(getattr(train_graphs, "test_accuracy")[start:end])
@@ -367,7 +380,7 @@ def plot_attr(ax, train_graphs, attr, start=None, end=None):
         #yaxis = getattr(train_graphs, attr)[start:end]
         line = plot_xlogy(ax, xaxis, yaxis, name=attr)
         ax.fill_between(xaxis, yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
-    elif attr in ['accuracy',  'test_accuracy', 'wn_grad_loss_ratio', 'wn_norm_min', "grad_evecs_cos", "residuals", 'eigs',  'eigs_test']:
+    elif attr in ['accuracy',  'test_accuracy', 'wn_grad_loss_ratio', 'wn_norm_min', "grad_evecs_cos", "residuals", 'eigs',  'eigs_test', 'gen_loss']:
         #yaxis = getattr(train_graphs, attr)[start:end]
         line = plot_xy(ax, xaxis, yaxis, name=attr)
         ax.fill_between(xaxis, yaxis - stds, yaxis + stds, alpha=0.3, label="Confidence Interval")
@@ -377,7 +390,7 @@ def plot_attr(ax, train_graphs, attr, start=None, end=None):
     elif attr in ['cos_descent_ascent', 'progress_dir', 'ascent_semi_cos', \
                   'ascent_step_diff', 'descent_step_diff', 'descent_norm', \
                   'dominant_alignment', 'batch_loss', "fedlora_A_align", "fedlora_B_align", \
-                  "fedlora_A_cosine", "fedlora_B_cosine", "lora_A_norm", "lora_B_norm", "grad_norm"]:
+                  "fedlora_A_cosine", "fedlora_B_cosine", "lora_A_norm", "lora_B_norm", "grad_norm", "truncate_err"]:
         if hasattr(train_graph, attr):
             #yaxis = getattr(train_graphs, attr)[start:end]
             line = plot_y(ax=ax, yaxis=yaxis, name=attr)

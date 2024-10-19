@@ -15,6 +15,18 @@ def add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a
     elif model_name == 'reddit':
         add_adapters(model, lora_rank, lora_alpha, None, ["c_attn", "c_proj", "c_fc"])
 
+def add_ft(model, output_layer_name, target_modules):
+    for n, p in model.names_parameters():
+        if output_layer_name in n:
+            p.requires_grad = True
+        else:
+            require_grad = False
+            for module_name in target_modules:
+                if module_name in n and not require_grad:
+                    require_grad = True
+            p.requires_grad = require_grad
+                
+
 def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules, freeze_a=False):
     from peft import LoraConfig, get_peft_model
 

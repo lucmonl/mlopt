@@ -118,3 +118,4 @@ class graphs:
         self.fedlora_B_cosine   = []
         self.lora_A_norm        = []
         self.lora_B_norm        = []
+        self.truncate_err       = []

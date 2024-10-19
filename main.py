@@ -441,6 +441,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         print("grad norm:", train_graphs.grad_norm[-1])
     server_optimizer.step()
 
+    truncate_err = 0
     for name, param in model.named_parameters():
         if name in aggregated_weights.keys():
             #param.requires_grad = False # turn off updates in dense weights
@@ -449,6 +450,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 U, S, Vh = torch.linalg.svd(opt_params["server_params"][name].data, full_matrices=False)
                 #print(S[:lora_rank+5])
                 U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
+                truncate_err += torch.sum(S[lora_rank:]).item()
                 #print(name)
                 #print(U.shape, Vh.shape)
                 #print(S)
@@ -491,7 +493,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
 
         elif output_layer_name in name:
             param.data = opt_params["server_params"][name]
-
+    train_graphs.truncate_err.append(truncate_err)
 
 def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
