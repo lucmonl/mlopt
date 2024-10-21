@@ -453,9 +453,10 @@ def plot_single_attr(opts, model_params, opt_params, attr, savefig=None, title=N
 
 
 def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, end=None, eval=False):
-    rows, cols = (len(attrs) - 1) // 6 + 1, min(len(attrs), 6)
+    rows, cols = (len(attrs) - 1) // 2 + 1, min(len(attrs), 2)
     cols = 2 if cols == 1 else cols # avoid error in subplots
-    fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
+    dpi_scale = 1
+    fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5*dpi_scale, rows*2*dpi_scale), dpi=500)
     axs = axs.reshape(-1)
     lines = []
     for opt_name in opts:

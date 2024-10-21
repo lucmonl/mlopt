@@ -1144,7 +1144,7 @@ if __name__ == "__main__":
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
     parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het"], default="avg", help="methods to average A and B matrix in federated lora")
-    parser.add_argument("--fedlora_uba", type=float, default=1, help="the scale of unbalance in fedlora_svd")
+    parser.add_argument("--fedlora_uba", type=float, default=0.0, help="the scale of unbalance in fedlora_svd")
 
     #llm hyperparameters
     parser.add_argument("--task_name", type=str, default="mrpc", help="task name")

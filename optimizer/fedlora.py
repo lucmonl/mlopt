@@ -80,31 +80,33 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
 
     server_optimizer.step()
 
-    # rescale A and B matrices
-    base_adapter_weights = {}
-    for name, param in model.named_parameters():
-        if 'lora_A' in name:
-            base_name = name.replace("lora_A.default", "base_layer")
-            base_adapter_weights[base_name] = {}
-            base_adapter_weights[base_name]["A"] = param.data
-        elif 'lora_B' in name:
-            base_name = name.replace("lora_B.default", "base_layer")
-            base_adapter_weights[base_name]["B"] = param.data
-        
+    if opt_params["fedlora_uba"] >= 0:
+        # rescale A and B matrices
+        base_adapter_weights = {}
+        for name, param in model.named_parameters():
+            if 'lora_A' in name:
+                base_name = name.replace("lora_A.default", "base_layer")
+                base_adapter_weights[base_name] = {}
+                base_adapter_weights[base_name]["A"] = param.data
+            elif 'lora_B' in name:
+                base_name = name.replace("lora_B.default", "base_layer")
+                base_adapter_weights[base_name]["B"] = param.data
             
-            base_full = (base_adapter_weights[base_name]["B"] @ base_adapter_weights[base_name]["A"]).T
+                
+                base_full = (base_adapter_weights[base_name]["B"] @ base_adapter_weights[base_name]["A"]).T
+            
+                U, S, Vh = torch.linalg.svd(base_full, full_matrices=False)
+                U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
+                lora_A_name, lora_B_name = name.replace("lora_B.default", "lora_A.default"), name
+                adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T * opt_params["fedlora_uba"]
+                adapter_weights[lora_B_name].data = Vh_truncate.T * S_truncate / opt_params["fedlora_uba"]
         
-            U, S, Vh = torch.linalg.svd(base_full, full_matrices=False)
-            U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
-            lora_A_name, lora_B_name = name.replace("lora_B.default", "lora_A.default"), name
-            adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T * opt_params["fedlora_uba"]
-            adapter_weights[lora_B_name].data = Vh_truncate.T * S_truncate / opt_params["fedlora_uba"]
+        # assign new param to model
+        for name, param in model.named_parameters():
+            if 'lora_A' in name or 'lora_B' in name:
+                param.data = adapter_weights[name].data
+                #print(torch.norm(param.data))
     
-    # assign new param to model
-    for name, param in model.named_parameters():
-        if 'lora_A' in name or 'lora_B' in name:
-            param.data = adapter_weights[name].data
-            #print(torch.norm(param.data))
 
     if server_lr_scheduler is not None:
         server_lr_scheduler.step()
