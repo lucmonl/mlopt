@@ -451,10 +451,17 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
             #param.requires_grad = False # turn off updates in dense weights
             if opt_params["fedlora_avg"] in ["svd", "svd_v2"]:
                 # SVD
-                U, S, Vh = torch.linalg.svd(opt_params["server_params"][name].data, full_matrices=False)
+                if opt_params["use_ef"]:
+                    if name not in opt_params["error_feedback"]:
+                        opt_params["error_feedback"][name] = 0
+                    error_feedback = opt_params["error_feedback"][name]
+                U, S, Vh = torch.linalg.svd(opt_params["server_params"][name].data + error_feedback, full_matrices=False)
                 #print(S[:lora_rank+5])
                 U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
                 truncate_err += torch.sum(S[lora_rank:]).item()
+
+                if opt_params["use_ef"]:
+                    opt_params["error_feedback"][name] += opt_params["server_params"][name].data - U_truncate @ torch.diag(S_truncate**2) @ Vh_truncate
                 #print(name)
                 #print(U.shape, Vh.shape)
                 #print(S)
@@ -1145,6 +1152,7 @@ if __name__ == "__main__":
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
     parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het"], default="avg", help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=0.0, help="the scale of unbalance in fedlora_svd")
+    parser.add_argument("--use_ef", type=bool, default=False, help="use error feedback (currently only in lora)")
 
     #llm hyperparameters
     parser.add_argument("--task_name", type=str, default="mrpc", help="task name")
@@ -1259,6 +1267,7 @@ if __name__ == "__main__":
     opt_params["clip_tau"]         = args.clip_tau
     opt_params["fedlora_avg"]      = args.fedlora_avg
     opt_params["fedlora_uba"]      = args.fedlora_uba
+    opt_params["use_ef"]           = args.use_ef
     
     exp_avg, exp_avg_sq            = None, None
 
