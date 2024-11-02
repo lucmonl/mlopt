@@ -455,8 +455,10 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                     if name not in opt_params["error_feedback"]:
                         opt_params["error_feedback"][name] = 0
                     error_feedback = opt_params["error_feedback"][name]
+                else:
+                    error_feedback = 0
                 U, S, Vh = torch.linalg.svd(opt_params["server_params"][name].data + error_feedback, full_matrices=False)
-                #print(S[:lora_rank+5])
+                print(S[:lora_rank+5])
                 U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
                 truncate_err += torch.sum(S[lora_rank:]).item()
 
