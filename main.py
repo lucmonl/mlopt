@@ -445,6 +445,12 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         print("grad norm:", train_graphs.grad_norm[-1])
     server_optimizer.step()
 
+    if server_lr_scheduler is not None:
+        server_lr_scheduler.step()
+
+    for group in server_optimizer.param_groups:
+        print("server lr", group['lr'])
+
     truncate_err = 0
     for name, param in model.named_parameters():
         if name in aggregated_weights.keys():
@@ -460,7 +466,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 else:
                     error_feedback = 0
                 U, S, Vh = torch.linalg.svd(opt_params["server_params"][name].data + error_feedback, full_matrices=False)
-                print(S[:lora_rank+5])
+                #print(S[:lora_rank+5])
                 U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
                 truncate_err += torch.sum(S[lora_rank:]).item()
 
