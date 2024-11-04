@@ -451,6 +451,8 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
             #param.requires_grad = False # turn off updates in dense weights
             if opt_params["fedlora_avg"] in ["svd", "svd_v2"]:
                 # SVD
+                if opt_params["use_ef"] == 21:
+                    pass
                 if opt_params["use_ef"]:
                     if name not in opt_params["error_feedback"]:
                         opt_params["error_feedback"][name] = 0
@@ -1850,7 +1852,7 @@ if __name__ == "__main__":
             if apply_lora and opt_params["fedlora_avg"] in ["svd", "svd_v2", "sketch", "sketch_v2", "svd_het"]:
                 from arch.lora import load_server_optimizer
                 # apply server optimizer to original weight matrices
-                optimizer, lr_scheduler, opt_params["server_params"] = load_server_optimizer(model, lr, momentum, weight_decay, **opt_params)
+                optimizer, lr_scheduler, opt_params["server_params"] = load_server_optimizer(model, lr, momentum, weight_decay, model_params, **opt_params)
                     
 
         load_from_epoch = 0

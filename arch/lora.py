@@ -55,7 +55,7 @@ def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules
     for name, param in model.named_parameters():
         print(name, param.shape, param.requires_grad)
 
-def load_server_optimizer(model, lr, momentum, weight_decay, **kwargs):
+def load_server_optimizer(model, lr, momentum, weight_decay, model_params, **kwargs):
     from torch.nn.parameter import Parameter
     parameters = {}
     adapter_names = []
