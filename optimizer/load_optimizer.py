@@ -50,9 +50,9 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         else:
             opt_name = kwargs["server_opt_name"]
 
-        if kwargs['use_ef']:
+        if kwargs['use_ef'] != 0:
             kwargs["error_feedback"] = {}
-            model_params = model_params | {"use_ef": 1}
+            model_params = model_params | {"use_ef": kwargs['use_ef']}
         #opt_name = "sgd" if kwargs["server_opt_name"] == "clip_sgd" else kwargs["server_opt_name"] 
         #weight_decay = 0.0
         model_params = model_params | {'server_opt': kwargs['server_opt_name'], 'client_opt': kwargs['client_opt_name'], 'client_lr': kwargs['client_lr'], 'client_momentum': kwargs['client_momentum'],

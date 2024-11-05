@@ -458,33 +458,32 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
             if opt_params["fedlora_avg"] in ["svd", "svd_v2"]:
                 # SVD
                 if opt_params["use_ef"] == 21:
-                    pass
-                if opt_params["use_ef"]:
-                    if name not in opt_params["error_feedback"]:
-                        opt_params["error_feedback"][name] = 0
-                    error_feedback = opt_params["error_feedback"][name]
+                    lora_A_name, lora_B_name = base_adapter_names[name]
+                    U, S, Vh = torch.linalg.svd(opt_params["server_params"][name].data - adapter_weights[lora_A_name].data.T @ adapter_weights[lora_B_name].data.T)
+                    U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
+                    truncate_err += torch.sum(S[lora_rank:]).item()
+                    adapter_weights[lora_A_name].data += (U_truncate * S_truncate).T * opt_params["fedlora_uba"]
+                    adapter_weights[lora_B_name].data += Vh_truncate.T * S_truncate / opt_params["fedlora_uba"]
                 else:
-                    error_feedback = 0
-                U, S, Vh = torch.linalg.svd(opt_params["server_params"][name].data + error_feedback, full_matrices=False)
-                #print(S[:lora_rank+5])
-                U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
-                truncate_err += torch.sum(S[lora_rank:]).item()
+                    if opt_params["use_ef"] == 1:
+                        if name not in opt_params["error_feedback"]:
+                            opt_params["error_feedback"][name] = 0
+                        error_feedback = opt_params["error_feedback"][name]
+                    elif opt_params["use_ef"] == 0:
+                        error_feedback = 0
+                    else:
+                        assert False
+                    U, S, Vh = torch.linalg.svd(opt_params["server_params"][name].data + error_feedback, full_matrices=False)
+                    #print(S[:lora_rank+5])
+                    U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
+                    truncate_err += torch.sum(S[lora_rank:]).item()
 
-                if opt_params["use_ef"]:
-                    opt_params["error_feedback"][name] += opt_params["server_params"][name].data - U_truncate @ torch.diag(S_truncate**2) @ Vh_truncate
-                #print(name)
-                #print(U.shape, Vh.shape)
-                #print(S)
-                lora_A_name, lora_B_name = base_adapter_names[name]
-                #print(lora_A_name, lora_B_name)
-                #print("====")
-                #print(adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
-                adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T * opt_params["fedlora_uba"]
-                adapter_weights[lora_B_name].data = Vh_truncate.T * S_truncate / opt_params["fedlora_uba"]
-                #print(opt_params["server_params"][name].shape, U_truncate.shape, Vh_truncate.shape)
-                #print(lora_A_name, adapter_weights[lora_A_name].data.shape)
-                #print(lora_B_name, adapter_weights[lora_B_name].data.shape)
-                #print(adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
+                    if opt_params["use_ef"] == 1:
+                        opt_params["error_feedback"][name] += opt_params["server_params"][name].data - U_truncate @ torch.diag(S_truncate**2) @ Vh_truncate
+                    lora_A_name, lora_B_name = base_adapter_names[name]
+                    adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T * opt_params["fedlora_uba"]
+                    adapter_weights[lora_B_name].data = Vh_truncate.T * S_truncate / opt_params["fedlora_uba"]
+
             elif opt_params["fedlora_avg"] == "sketch":
                 # sketching
                 m, _ = param.shape
@@ -1162,7 +1161,7 @@ if __name__ == "__main__":
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
     parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het"], default="avg", help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=0.0, help="the scale of unbalance in fedlora_svd")
-    parser.add_argument("--use_ef", type=bool, default=False, help="use error feedback (currently only in lora)")
+    parser.add_argument("--use_ef", type=int, default=False, help="use error feedback (currently only in lora)")
 
     #llm hyperparameters
     parser.add_argument("--task_name", type=str, default="mrpc", help="task name")
