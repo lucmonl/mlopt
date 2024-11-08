@@ -14,6 +14,9 @@ def add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a
         return "score"
     elif model_name == 'reddit':
         add_adapters(model, lora_rank, lora_alpha, None, ["c_attn", "c_proj", "c_fc"])
+    elif model_name == "roberta-base":
+        add_adapters(model, lora_rank, lora_alpha, "classifier", ["query", "value"])
+        return 'classifier'
 
 def add_ft(model, output_layer_name, target_modules):
     for n, p in model.named_parameters():

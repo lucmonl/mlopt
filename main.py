@@ -464,6 +464,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                     truncate_err += torch.sum(S[lora_rank:]).item()
                     adapter_weights[lora_A_name].data += (U_truncate * S_truncate).T * opt_params["fedlora_uba"]
                     adapter_weights[lora_B_name].data += Vh_truncate.T * S_truncate / opt_params["fedlora_uba"]
+                
                 else:
                     if opt_params["use_ef"] == 1:
                         if name not in opt_params["error_feedback"]:
@@ -1058,7 +1059,7 @@ if __name__ == "__main__":
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "res_conv_fixed_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2",
               "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", 
               "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small", "dino_vit_base", "dinov2_vit_base", "dinov2_vit_small", 
-              "dinov2_vit_giant2", "vit_small", "vit_medium", "vit_base", "lin_attn", "mlp", "gpt2"]
+              "dinov2_vit_giant2", "vit_small", "vit_medium", "vit_base", "lin_attn", "mlp", "gpt2", "roberta-base"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'dom_sgd', 'gn_dom_sgd', 'gn_bulk_sgd', 'bulk_sgd', 'norm-sgd','adam', 'adamw', 'federated',
@@ -1160,7 +1161,7 @@ if __name__ == "__main__":
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
     parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het"], default="avg", help="methods to average A and B matrix in federated lora")
-    parser.add_argument("--fedlora_uba", type=float, default=0.0, help="the scale of unbalance in fedlora_svd")
+    parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
     parser.add_argument("--use_ef", type=int, default=False, help="use error feedback (currently only in lora)")
 
     #llm hyperparameters
@@ -1280,7 +1281,7 @@ if __name__ == "__main__":
     
     exp_avg, exp_avg_sq            = None, None
 
-    opt_params["hf_model"]         = args.dataset in ["glue"] or model_name in ["google/vit-base-patch16-224-in21k", "gpt2"]
+    opt_params["hf_model"]         = args.dataset in ["glue"] or model_name in ["google/vit-base-patch16-224-in21k", "gpt2", "roberta-base"]
     opt_params["cub_data"]         = args.dataset in ["cub"]
     opt_params["wild_data"]        = args.dataset in ["wilds"]
 
@@ -1548,6 +1549,22 @@ if __name__ == "__main__":
         from transformers import AutoTokenizer, AutoModelForMaskedLM
         tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-uncased")
         model = AutoModelForMaskedLM.from_pretrained("google-bert/bert-base-uncased")
+    elif model_name in ["roberta-base", "google-bert/bert-base-cased"]:
+        pass  # model is claimed in load_glue
+        """
+        from transformers import AutoModelForSequenceClassification
+        model = AutoModelForSequenceClassification.from_pretrained(
+            model_name,
+            from_tf=bool(".ckpt" in model_name),
+            num_labels=C,
+            #config=config,
+            #cache_dir=model_args.cache_dir,
+            #revision=model_args.model_revision,
+            #token=True if model_args.token else None,
+            #ignore_mismatched_sizes=model_args.ignore_mismatched_sizes,
+       
+        )
+        """
     elif model_name == "google/vit-base-patch16-224-in21k":
         #reference "https://colab.research.google.com/github/NielsRogge/Transformers-Tutorials/blob/master/VisionTransformer/Fine_tuning_the_Vision_Transformer_on_CIFAR_10_with_the_%F0%9F%A4%97_Trainer.ipynb#scrollTo=fZpqx7giniv8"
         from transformers import AutoModelForImageClassification

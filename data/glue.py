@@ -941,7 +941,10 @@ def load_glue(model, batch_size, model_params):
     analysis_loader = trainer.get_train_dataloader()
     analysis_test_loader = trainer.get_eval_dataloader()
     transform_to_one_hot = True
-    C = 2
+    if model_params["task_name"] == "mnli":
+        C = 3
+    else:
+        C=2
 
     return model, train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
 
@@ -1197,7 +1200,10 @@ def load_glue_federated(model, batch_size, client_num, model_params):
     analysis_loader = trainer.get_train_dataloader()
     analysis_test_loader = trainer.get_eval_dataloader()
     transform_to_one_hot = True
-    C = 2
+    if model_params["task_name"] == "mnli":
+        C = 3
+    else:
+        C = 2
 
     return model, train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
 
