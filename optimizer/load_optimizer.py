@@ -227,7 +227,8 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         p = len(parameters_to_vector(model.parameters()))
         from torch.optim import Adam
         optimizer = Adam(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
-        kwargs["g_tilde"] = 0
+        kwargs["g_tilde"] = 0 
+        kwargs["g_hat_server"] = 0
         kwargs["g_hat"] = torch.zeros(kwargs["client_num"], p).to(kwargs["device"])
     else:
         raise NotImplementedError

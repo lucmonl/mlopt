@@ -646,8 +646,8 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 """
         elif opt_params["server_opt_name"] == "cdadam":
             from utilities import tensor_topk
-            opt_params["g_hat"]["server"] += vector_m
-            server_error = tensor_topk(opt_params["g_hat"]["server"] - opt_params["g_tilde"], k=sketch_size)
+            opt_params["g_hat_server"] += vector_m
+            server_error = tensor_topk(opt_params["g_hat_server"] - opt_params["g_tilde"], k=sketch_size)
             opt_params["g_tilde"] += server_error
             vector_m = opt_params["g_tilde"]
         elif opt_params["server_opt_name"] != "fetchsgd":
