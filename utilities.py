@@ -1021,3 +1021,9 @@ def cosine_similarity_batch(u, v, ret_abs=False):
         return torch.abs(cosine).mean()
     else:
         return cosine.mean()
+    
+def tensor_topk(x, k):
+    val, ind = torch.topk(torch.abs(x), k, sorted=False)
+    masked = x.clone()
+    masked[ind] = 0
+    return x - masked

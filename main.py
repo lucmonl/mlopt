@@ -583,6 +583,12 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 sketch = CSVec(d=p, c=sketch_size, r=5, device=vector_m_true.device, numBlocks=20)
                 sketch.accumulateVec(vector_m_true)
                 vector_m += sketch.table
+            elif opt_params["server_opt_name"] == "cdadam":
+                from utilities import tensor_topk
+                update_param = (old_params - new_params).detach()
+                error_m = tensor_topk(update_param - opt_params["g_hat"][client_id], k=sketch_size)
+                opt_params["g_hat"][client_id] += error_m
+                vector_m += error_m
             elif opt_params["server_opt_name"] == "onebit":
                 vector_m_true = vector_m_true+opt_params["client_error_feedback"][client_id]
                 vector_m_scale = torch.linalg.norm(vector_m_true) / np.sqrt(torch.numel(vector_m_true))
@@ -638,7 +644,12 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 for group in server_optimizer.param_groups:
                     group['betas']= (group['betas'][0], 1.0)
                 """
-
+        elif opt_params["server_opt_name"] == "cdadam":
+            from utilities import tensor_topk
+            opt_params["g_hat"]["server"] += vector_m
+            server_error = tensor_topk(opt_params["g_hat"]["server"] - opt_params["g_tilde"], k=sketch_size)
+            opt_params["g_tilde"] += server_error
+            vector_m = opt_params["g_tilde"]
         elif opt_params["server_opt_name"] != "fetchsgd":
             vector_m = sub_sample_row.T @ vector_m
             vector_m = hadamard_transform(vector_m) * D
@@ -653,6 +664,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             print("sketch error:", torch.norm(vector_v - new_params_pad**2), torch.norm(new_params_pad**2))
             vector_v = vector_v[:p]
             """
+        
 
     server_optimizer.zero_grad()
     if opt_params["server_opt_name"] == "clip_sgd":
