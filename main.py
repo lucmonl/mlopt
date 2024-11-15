@@ -607,16 +607,17 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 new_params_pad = pad_to_power_of_2((old_params - new_params).detach())
                 hadamard_params_pad = hadamard_transform(D*new_params_pad)
                 sketch_vector_m = sub_sample_row @ hadamard_params_pad
-                vector_m += sketch_vector_m
-                """
-                unsketch_vector_m = sub_sample_row.T @ sketch_vector_m
-                unsketch_vector_m = hadamard_transform(unsketch_vector_m) * D
-                unsketch_vector_m = unsketch_vector_m[:p]
-                unsketch_vector_m = torch.clip(unsketch_vector_m, min=-opt_params["clip_tau"], max=opt_params["clip_tau"])
-                vector_m_scale = torch.linalg.norm(new_params_pad) / torch.linalg.norm(unsketch_vector_m)
+                if opt_params["clip_tau"] == -1:
+                    vector_m += sketch_vector_m
+                else:
+                    unsketch_vector_m = sub_sample_row.T @ sketch_vector_m
+                    unsketch_vector_m = hadamard_transform(unsketch_vector_m) * D
+                    unsketch_vector_m = unsketch_vector_m[:p]
+                    unsketch_vector_m = torch.clip(unsketch_vector_m, min=-opt_params["clip_tau"], max=opt_params["clip_tau"])
+                    vector_m_scale = torch.linalg.norm(new_params_pad) / torch.linalg.norm(unsketch_vector_m)
 
-                vector_m += sketch_vector_m * vector_m_scale
-                """
+                    vector_m += sketch_vector_m * vector_m_scale
+                
             #hadamard_params_pad = hadamard_transform(D*(new_params_pad ** 2)) #deprecated
             #vector_v += sub_sample_row @ hadamard_params_pad
 
