@@ -517,6 +517,11 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     train_graphs.truncate_err.append(truncate_err)
 
 def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
+    if opt_params["server_opt_name"] == "cocktailsgd":
+        from optimizer.cocktailsgd import federated_cocktail_train
+        federated_cocktail_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, epochs_lr_decay, lr_decay, model_params, opt_params, server_epoch)
+        return
+
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
     #client_num, client_opt_name, client_lr, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_lr"], opt_params["client_epoch"]
     momentum, momentum_v = opt_params["server_momentum"], 0.999
@@ -738,7 +743,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             loss = criterion(out, target, group, True)
         elif not opt_params["hf_model"]:
             data, target = input
-            if data.shape[0] != batch_size:
+            if data.shape[0] != opt_params["batch_size"]:
                 continue
 
             data, target = data.to(device), target.to(device)
@@ -1163,7 +1168,7 @@ if __name__ == "__main__":
     parser.add_argument("--zero_out_selfattn", type=int, default=0, help="if 0 preserves self attention, if 1 zero out self attention")
 
     #federated learning hyperparameters
-    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd", "onebit", "cdadam"], help="optimizer of server")
+    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd", "onebit", "cdadam", "cocktailsgd"], help="optimizer of server")
     parser.add_argument("--client_num", type=int, default=1, help="number of clients")
     parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd", "adam"], help="optimizer of clients")
     parser.add_argument("--client_lr", type=float, default=0.01, help="lr of clients")

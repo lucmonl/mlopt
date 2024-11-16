@@ -230,6 +230,14 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         kwargs["g_tilde"] = 0 
         kwargs["g_hat_server"] = 0
         kwargs["g_hat"] = torch.zeros(kwargs["client_num"], p).to(kwargs["device"])
+    elif opt_name == "cocktailsgd":
+        kwargs["local_model"] = {}
+        kwargs["server_error_feedback"] = 0
+        "just placeholder optimizer, not used in fact"
+        optimizer = optim.SGD(model.parameters(),
+                            lr=lr,
+                            momentum=momentum,
+                            weight_decay=weight_decay)
     else:
         raise NotImplementedError
     """
