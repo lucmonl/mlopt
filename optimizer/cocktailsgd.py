@@ -89,7 +89,27 @@ def cocktail_compress(v):
     return v
 
 
+def cocktail_compress_2(v):
+    v = v.clone()
+    p = v.numel()
+    comp = QSGDCompressor(size=p, shape=p, random=False, n_bit=8, c_dim=p, no_cuda=True)
+    #randomly select
+    random_sample_prob = 0.1
+    v = v * torch.bernoulli(random_sample_prob * torch.ones(p)).to(v)
+    #top-k
+    topk_size = int(0.2 * p)
+    v = tensor_topk(v, k=topk_size)
+    ind = torch.where(v != 0)
+    v_nz = v[ind]
+    # quantization
+    v_nz_comp = comp.decompress(comp.compress(v_nz))
+    v[ind] = v_nz_comp
+    return v
+
+
 def federated_cocktail_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, epochs_lr_decay, lr_decay, model_params, opt_params, server_epoch):
+    if opt_params["server_opt_name"] == "cocktailsgd2":
+        cocktail_compress = cocktail_compress_2
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
     vector_m = 0
     model_diff_comp, client_model_temp = {}, {}
