@@ -99,6 +99,7 @@ class graphs:
         self.ascent_grad_norm   = []
         self.ascent_grad_l1_norm= []
         self.pseudo_grad_norm   = []
+        self.minibatch_grad_norm= []
         self.dominant_alignment = []
         self.hessian_gn_align   = []
         self.hessian_eig        = []

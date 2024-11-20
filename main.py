@@ -1058,6 +1058,10 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
         get_diagonal_coef(graphs, model, device, train_loader)
         get_diagonal_invariate(graphs, model, device, train_loader)
 
+    if 'minibatch_grad_norm' in analysis_list:
+        from analysis.grad_norm import get_minibatch_grad_norm
+        get_minibatch_grad_norm(graphs, model, train_loader, optimizer, criterion, device)
+
     """
     for i in range(2):
         print(model.module_list[i].weight)
