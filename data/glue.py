@@ -648,7 +648,7 @@ def main():
 
 DATASETS_FOLDER = "/projects/dali/data/"
 
-def load_glue(model, batch_size, model_params):
+def load_glue(model, batch_size, model_params, do_eval):
     #set_seed(training_args.seed)
 
     # Get the datasets: you can either provide your own CSV/JSON training and evaluation files (see below)
@@ -864,7 +864,10 @@ def load_glue(model, batch_size, model_params):
 
     if "validation" not in raw_datasets and "validation_matched" not in raw_datasets:
         raise ValueError("--do_eval requires a validation dataset")
-    eval_dataset = raw_datasets["validation_matched" if model_params["task_name"] == "mnli" else "validation"]
+    if do_eval:
+        eval_dataset = raw_datasets["test"]
+    else:
+        eval_dataset = raw_datasets["validation_matched" if model_params["task_name"] == "mnli" else "validation"]
     #if data_args.max_eval_samples is not None:
     if "train_size" in model_params:
         max_eval_samples = min(len(eval_dataset), model_params["train_size"])

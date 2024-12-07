@@ -566,7 +566,10 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
             train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
-            
+
+        #from analysis.grad_norm import get_minibatch_grad_norm
+        #get_minibatch_grad_norm(train_graphs, client_model, train_loaders[client_id], optimizer, criterion, device)
+
         new_params = parameters_to_vector(client_model.parameters())
         if opt_params["server_opt_name"] == "clip_sgd":
             vector_m_norm.append(torch.norm(old_params - new_params).item())
@@ -1058,9 +1061,11 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
         get_diagonal_coef(graphs, model, device, train_loader)
         get_diagonal_invariate(graphs, model, device, train_loader)
 
+    """
     if 'minibatch_grad_norm' in analysis_list:
         from analysis.grad_norm import get_minibatch_grad_norm
         get_minibatch_grad_norm(graphs, model, train_loader, optimizer, criterion, device)
+    """
 
     """
     for i in range(2):
@@ -1327,7 +1332,7 @@ if __name__ == "__main__":
         if opt_params["opt_name"] == "federated":
             if not opt_params["hf_model"]:
                 from data.cifar import load_cifar_federated
-                train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar_federated(loss_name, batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
+                train_loader, client_loaders, test_loader, _, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar_federated(loss_name, batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
             else:
                 from data.cifar import load_cifar_vit_federated
                 train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params = load_cifar_vit_federated(model_name =model_name, batch_size= batch_size, client_num=opt_params["client_num"], alpha=0.0)
@@ -1948,6 +1953,7 @@ if __name__ == "__main__":
                 analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, opt_params["compute_acc"],train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
                 
             if epoch in epoch_list or epoch == epochs:
+                print(len(train_graphs.minibatch_grad_norm))
                 pickle.dump(train_graphs, open(f"{directory}/train_graphs.pk", "wb"))
                 torch.save(model.state_dict(), f"{directory}/model.ckpt")
                 torch.save(optimizer.state_dict(), f"{directory}/optimizer.ckpt")

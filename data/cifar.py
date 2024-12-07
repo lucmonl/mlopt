@@ -287,9 +287,12 @@ def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num
     train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
     test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False, transform=test_transform)
     
+    torch.manual_seed(42)
+    val, test = torch.utils.data.random_split(test, [int(0.5*len(test)), len(test) - int(0.5*len(test))])
+    
     analysis_size = max(batch_size, 128)
     analysis = torch.utils.data.Subset(train, range(analysis_size))
-    analysis_test = torch.utils.data.Subset(test, range(analysis_size))
+    analysis_test = torch.utils.data.Subset(val, range(analysis_size))
     client_loaders = []
 
     if alpha == 0:
@@ -338,6 +341,9 @@ def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num
     train_loader = torch.utils.data.DataLoader(
         train,
         batch_size=batch_size, shuffle=True)
+    val_loader = torch.utils.data.DataLoader(
+        val,
+        batch_size=batch_size, shuffle=False)
     test_loader = torch.utils.data.DataLoader(
         test,
         batch_size=batch_size, shuffle=False)
@@ -347,7 +353,7 @@ def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num
     analysis_test_loader = torch.utils.data.DataLoader(
         analysis_test,
         batch_size=analysis_size, shuffle=False)
-    return train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params
+    return train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params
 
 def load_cifar_vit_federated(model_name: str, batch_size: int, train_size = -1, client_num=1, alpha=0.0):
     data_params = {"compute_acc": True}

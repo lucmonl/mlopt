@@ -108,7 +108,7 @@ def get_attr(opt_name, model_params, opt_params, attr, eval_graph=False):
                             multi_run = False,
                             **model_param
                             )
-    #print(directory)
+    print(directory)
     if not eval_graph:
         with open(f'../{directory}train_graphs.pk', 'rb') as f:
             train_graphs = pickle.load(f)
@@ -452,13 +452,14 @@ def plot_single_attr(opts, model_params, opt_params, attr, savefig=None, title=N
     plt.show()
 
 
-def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, end=None, eval=False):
+def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, end=None, eval=False, return_last=False):
     rows, cols = (len(attrs) - 1) // 6 + 1, min(len(attrs), 6)
     cols = 2 if cols == 1 else cols # avoid error in subplots
     dpi_scale = 1
     fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5*dpi_scale, rows*2*dpi_scale), dpi=500)
     axs = axs.reshape(-1)
     lines = []
+    last_vals = []
     for opt_name in opts:
         model_param = model_params[opt_name]
         """
@@ -510,6 +511,8 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, e
             ax_ptr += 1
             if attr == attrs[0]:
                 lines.append(line)
+            if attr == "test_err":
+                last_vals.append(line.get_data()[-1][-1])
         """
         if 'loss' in attrs:
             plot_train_loss(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.loss[start:end])
@@ -591,6 +594,8 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, e
     axs[0].legend(lines, opts)
     plt.tight_layout()
     plt.show()
+    if return_last:
+        return last_vals
 
 def plot_figures_opts_hists(opts, model_params, opt_params, attr, epochs):
     rows, cols = (len(epochs) - 1) // 6 + 1, min(len(epochs), 6)
@@ -660,17 +665,19 @@ def plot_figures_attrs_hists(opt, model_params, opt_params, attrs, epochs):
     plt.tight_layout()
     plt.show()
 
-def plot_figures_opts_attr(opts_list, model_params, opt_params, attr, start=None, end=None, alpha=1.0, legends=[], titles=[], save_dir=None):
+def plot_figures_opts_attr(opts_list, model_params, opt_params, attr, start=None, end=None, alpha=1.0, legends=[], titles=[], save_dir=None, return_last=False):
     #rows, cols = (len(attrs) - 1) // 6 + 1, min(len(attrs), 6)
     import matplotlib.ticker as mtick
     rows, cols = 1, len(opts_list)
     fig, axs = plt.subplots(rows,cols, figsize=(cols*4, rows*3))
+    last_val = []
     if len(opts_list) > 1:
         axs = axs.reshape(-1)
     else:
         axs = [axs]
     ax_ptr = 0
     for opts, legend, title in zip(opts_list, legends, titles):
+        last_val.append([])
         for opt_name in opts:
             model_param = model_params[opt_name]
             directory = get_directory(opt_params[opt_name]['lr'], 
@@ -714,15 +721,18 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attr, start=None
                 plot_test_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_accuracy[start:end])
 
             if 'test_err' == attr:
-                plot_xy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-1*np.array(train_graphs.test_accuracy[start:end]), name=title, alpha=alpha)
+                line=plot_xy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-1*np.array(train_graphs.test_accuracy[start:end]), name=title, alpha=alpha)
                 axs[ax_ptr].yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1, decimals=0))
+                last_val[-1].append(line.get_data()[-1][-1])
 
         axs[ax_ptr].legend(legend)
         ax_ptr += 1
-    axs[0].set_ylabel("Test Error")
+    axs[0].set_ylabel("Val Error")
     plt.tight_layout()
     if save_dir:
         plt.savefig(save_dir)
+    if return_last:
+        return last_val
 
 def plot_figure_cos_descent_ascent(opts, model_params, opt_params):
     for opt_name in opts:
