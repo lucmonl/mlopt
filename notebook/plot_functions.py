@@ -311,19 +311,19 @@ def plot_ascent_step_diff(ax, yaxis):
     ax.set_title('Ascent_step_diff')
 
 def plot_xy(ax, xaxis, yaxis, name, alpha=1.0):
-    line = ax.plot(xaxis, yaxis, alpha=alpha)[0]
+    line = ax.plot(xaxis, yaxis, alpha=alpha, linewidth=0.5)[0]
     ax.set_xlabel('Epoch')
     ax.set_title(name)
     return line
 
 def plot_xlogy(ax, xaxis, yaxis, name, alpha=1.0):
-    line = ax.semilogy(xaxis, yaxis, alpha=alpha)[0]
+    line = ax.semilogy(xaxis, yaxis, alpha=alpha, linewidth=0.5)[0]
     ax.set_xlabel('Epoch')
     ax.set_title(name)
     return line
 
 def plot_y(ax, yaxis, name):
-    line = ax.plot(yaxis)[0]
+    line = ax.plot(yaxis, linewidth=0.5)[0]
     ax.set_xlabel('Epoch')
     ax.set_title(name)
     return line
@@ -342,7 +342,7 @@ def get_attr_from_graph(train_graph, attr):
 def plot_attr(ax, train_graphs, attr, start=None, end=None):
     data = []
     xaxis = None
-    
+    print(len(train_graphs))
     if attr == "gen_loss":
         for train_graph in train_graphs:
             cur_epochs = train_graph.log_epochs
@@ -364,6 +364,7 @@ def plot_attr(ax, train_graphs, attr, start=None, end=None):
                 data.append(get_attr_from_graph(train_graph, attr)[start: end])
             else:
                 # still running
+                print("skip ongoing runs")
                 continue
     #if attr == "loss":
     #    print(data)

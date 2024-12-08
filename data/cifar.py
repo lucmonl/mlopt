@@ -353,6 +353,8 @@ def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num
     analysis_test_loader = torch.utils.data.DataLoader(
         analysis_test,
         batch_size=analysis_size, shuffle=False)
+    
+    torch.manual_seed(torch.initial_seed())
     return train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params
 
 def load_cifar_vit_federated(model_name: str, batch_size: int, train_size = -1, client_num=1, alpha=0.0):

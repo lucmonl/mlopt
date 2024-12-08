@@ -19,6 +19,7 @@ class graphs:
 
         self.test_loss    = []
         self.test_accuracy = []
+        self.best_test_accuracy = -1
 
         self.reg_loss     = []
         self.test_reg_loss     = []

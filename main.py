@@ -1010,7 +1010,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
 def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params):    
     if 'loss' in analysis_list:
         from analysis.loss import compute_loss
-        compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, analysis_loader, test_loader, opt_params, compute_acc, compute_model_output='output' in analysis_list)
+        save_best_model = compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, analysis_loader, test_loader, opt_params, compute_acc, compute_model_output='output' in analysis_list)
 
     if 'eigs' in analysis_list:
         from analysis.eigs import compute_eigenvalues
@@ -1072,6 +1072,7 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
         print(model.module_list[i].weight)
     print(model.output_layer.weight)
     """
+    return save_best_model
 
 class features:
     pass
@@ -1950,8 +1951,11 @@ if __name__ == "__main__":
                 #print("Epoch: ", epoch)
                 train_graphs.log_epochs.append(epoch)
                 #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
-                analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, opt_params["compute_acc"],train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
-                
+                save_best_model = analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, opt_params["compute_acc"],train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
+                if save_best_model:
+                    print("saving the best model so far...")
+                    torch.save(model.state_dict(), f"{directory}/best_model.ckpt")
+
             if epoch in epoch_list or epoch == epochs:
                 print(len(train_graphs.minibatch_grad_norm))
                 pickle.dump(train_graphs, open(f"{directory}/train_graphs.pk", "wb"))

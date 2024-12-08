@@ -125,11 +125,16 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
     pbar.close()
     graphs.test_loss.append(loss_sum / len(test_loader.dataset))
     graphs.test_accuracy.append(accuracy_sum / len(test_loader.dataset))
+    save_best_model = False
+    if graphs.test_accuracy[-1] > graphs.best_test_accuracy:
+        graphs.best_test_accuracy = graphs.test_accuracy[-1]
+        save_best_model = True
     
     print("Mean Train Loss: {} \t Accuarcy: {}".format(graphs.loss[-1], graphs.accuracy[-1]))
     print("Mean Test Loss: {} \t Accuarcy: {}".format(graphs.test_loss[-1], graphs.test_accuracy[-1]))
 
     enable_running_stats(model)
+    return save_best_model
 
 from transformers.trainer_pt_utils import LabelSmoother
 
