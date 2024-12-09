@@ -576,9 +576,15 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
 
         if sketch_size == -1:
             #param_norm = torch.norm(old_params - new_params).detach()
-            vector_m += (old_params - new_params).detach() #* min(1, opt_params["clip_tau"] / param_norm.item())
+            if opt_params["clip_tau"] != -1:
+                new_params_pad = (old_params - new_params).detach()
+                clipped_vector_m = torch.clip(new_params_pad, min=-opt_params["clip_tau"], max=opt_params["clip_tau"])
+                vector_m_scale = torch.linalg.norm(new_params_pad) / torch.linalg.norm(clipped_vector_m)
+                new_params_pad = vector_m_scale * clipped_vector_m
+
+            vector_m += new_params_pad #* min(1, opt_params["clip_tau"] / param_norm.item())
             #if opt_params["clip_tau"] / param_norm.item() < 1: print("clip")
-            vector_v += ((old_params - new_params) ** 2).detach()
+            vector_v += new_params_pad ** 2
             #vector_m_norm.append(torch.norm(old_params - new_params).item())
         else:
             vector_m_true = (old_params - new_params).detach()
@@ -1333,7 +1339,7 @@ if __name__ == "__main__":
         if opt_params["opt_name"] == "federated":
             if not opt_params["hf_model"]:
                 from data.cifar import load_cifar_federated
-                train_loader, client_loaders, test_loader, _, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar_federated(loss_name, batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
+                train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar_federated(loss_name, batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
             else:
                 from data.cifar import load_cifar_vit_federated
                 train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params = load_cifar_vit_federated(model_name =model_name, batch_size= batch_size, client_num=opt_params["client_num"], alpha=0.0)
@@ -1896,6 +1902,8 @@ if __name__ == "__main__":
     
     if not no_train:
         train_graphs = graphs()
+        test_loader = val_loader
+
         if opt_name == "federated":
             from optimizer.load_optimizer import load_fake_scheduler
             client_lr_scheduler = load_fake_scheduler(opt_params["client_lr"], **opt_params)
@@ -1981,6 +1989,17 @@ if __name__ == "__main__":
             with open(f"{directory}/eval_graphs.pk", "rb") as f:
                 eval_graphs_exist = pickle.load(f)
                 copy_graph(eval_graphs, eval_graphs_exist)
+
+        if 'loss' in analysis_list:
+            running_directory = get_running_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, epochs, **model_params)
+            for root, dirs, files in os.walk(running_directory):
+                for name in dirs:
+                    state_dict = torch.load(os.path.join(root, name, "model.ckpt"))
+                    model.load_state_dict(state_dict)
+                    model = model.to(device)
+
+                    analysis(eval_graphs, ['loss'], model, model_name, criterion_summed, device, C, opt_params["compute_acc"], None, test_loader, [], None, opt_params, analysis_params)
+            sys.exit()
 
         if 'model_average' in analysis_list:
             running_directory = get_running_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, epochs, **model_params)
