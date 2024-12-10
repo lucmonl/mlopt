@@ -17,6 +17,10 @@ def add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a
     elif model_name == "roberta-base":
         add_adapters(model, lora_rank, lora_alpha, "classifier", ["query", "value"])
         return 'classifier'
+    elif model_name == "akjindal53244/Arithmo-Mistral-7B":
+        # from https://huggingface.co/upaya07/Arithmo2-Mistral-7B-adapter/blob/main/adapter_config.json
+        add_adapters(model, lora_rank, lora_alpha, None, ["o_proj", "q_proj", "v_proj", "down_proj", "up_proj", "k_proj", "gate_proj"], task_type="CAUSAL_LM")
+        return None
 
 def add_ft(model, output_layer_name, target_modules):
     for n, p in model.named_parameters():
@@ -30,7 +34,7 @@ def add_ft(model, output_layer_name, target_modules):
             p.requires_grad = require_grad
                 
 
-def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules, freeze_a=False):
+def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules, freeze_a=False, task_type=None):
     from peft import LoraConfig, get_peft_model
 
     if lora_rank > 0:
@@ -41,6 +45,7 @@ def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules
             lora_dropout=0.1,
             bias="none",
             modules_to_save=[output_layer_name] if output_layer_name is not None else [],
+            task_type=task_type
         )
         model = get_peft_model(model, config)
         if freeze_a:

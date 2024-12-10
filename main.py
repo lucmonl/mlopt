@@ -1016,7 +1016,8 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
 def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params):    
     if 'loss' in analysis_list:
         from analysis.loss import compute_loss
-        save_best_model = compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, analysis_loader, test_loader, opt_params, compute_acc, compute_model_output='output' in analysis_list)
+        save_best_model = compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, analysis_loader, test_loader, \
+                                       opt_params, compute_acc, compute_model_output='output' in analysis_list, dataset_name=analysis_params["dataset_name"])
 
     if 'eigs' in analysis_list:
         from analysis.eigs import compute_eigenvalues
@@ -1089,10 +1090,10 @@ def hook(self, input, output):
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "cifar100", "imagenet_tiny", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", 
-                "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds", "icl", "20newsgroups"]
+                "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds", "icl", "20newsgroups", "mathqa_gsm8k"]
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "res_conv_fixed_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2",
               "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", 
-              "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "dino_vit_small", "dino_vit_base", "dinov2_vit_base", "dinov2_vit_small", 
+              "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "akjindal53244/Arithmo-Mistral-7B", "dino_vit_small", "dino_vit_base", "dinov2_vit_base", "dinov2_vit_small", 
               "dinov2_vit_giant2", "vit_small", "vit_medium", "vit_base", "lin_attn", "mlp", "gpt2", "roberta-base"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
@@ -1220,6 +1221,7 @@ if __name__ == "__main__":
 
     # dataset parameters
     dataset_name        = args.dataset #"spurious" #"cifar"\
+    analysis_params["dataset_name"] = dataset_name
     sp_train_size       = args.sp_train_size
     sp_feat_dim         = args.sp_feat_dim
     sp_patch_dim        = args.sp_patch_dim
@@ -1315,7 +1317,7 @@ if __name__ == "__main__":
     
     exp_avg, exp_avg_sq            = None, None
 
-    opt_params["hf_model"]         = args.dataset in ["glue"] or model_name in ["google/vit-base-patch16-224-in21k", "gpt2", "roberta-base"]
+    opt_params["hf_model"]         = args.dataset in ["glue"] or model_name in ["google/vit-base-patch16-224-in21k", "gpt2", "roberta-base", "akjindal53244/Arithmo-Mistral-7B"]
     opt_params["cub_data"]         = args.dataset in ["cub"]
     opt_params["wild_data"]        = args.dataset in ["wilds"]
 
@@ -1473,6 +1475,10 @@ if __name__ == "__main__":
         else:
             from data.newsgroups import load_20newsgroups
             train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_20newsgroups(loss=loss_name, batch_size=batch_size)
+    elif dataset_name == "mathqa_gsm8k":
+        from data.mathqa_gsm8k import load_mathqa_gsm8k
+        train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_mathqa_gsm8k(batch_size, client_num=opt_params["client_num"])
+
 
     opt_params["num_classes"] = C
 
@@ -1599,6 +1605,13 @@ if __name__ == "__main__":
        
         )
         """
+    elif model_name == "akjindal53244/Arithmo-Mistral-7B":
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        tokenizer.pad_token = tokenizer.eos_token
+
+        model = AutoModelForCausalLM.from_pretrained(model_name, device_map={"": 0}, torch_dtype=torch.float16,
+                                                    load_in_4bit=True)
     elif model_name == "google/vit-base-patch16-224-in21k":
         #reference "https://colab.research.google.com/github/NielsRogge/Transformers-Tutorials/blob/master/VisionTransformer/Fine_tuning_the_Vision_Transformer_on_CIFAR_10_with_the_%F0%9F%A4%97_Trainer.ipynb#scrollTo=fZpqx7giniv8"
         from transformers import AutoModelForImageClassification
