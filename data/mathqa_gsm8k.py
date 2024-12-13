@@ -239,7 +239,7 @@ import numpy as np
 def load_mathqa_gsm8k(batch_size, client_num):
     #parser = transformers.HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     #model_args, data_args, training_args, remaining_args = parser.parse_args_into_dataclasses(return_remaining_strings=True)
-
+    
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_name_or_path,
         cache_dir=cache_dir,
@@ -247,7 +247,9 @@ def load_mathqa_gsm8k(batch_size, client_num):
         padding_side="right",
         use_fast=False,
     )
-
+    
+    #tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path)
+    tokenizer.pad_token = tokenizer.eos_token
     train_dataset, data_collator = make_supervised_data_module(tokenizer=tokenizer, data_path=DATASETS_FOLDER+"meta-math/MetaMathQA-40K/MetaMathQA-40K.json")
     train_loader = torch.utils.data.DataLoader(
             train_dataset,  # type: ignore

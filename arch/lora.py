@@ -24,7 +24,7 @@ def add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a
 
 def add_ft(model, output_layer_name, target_modules):
     for n, p in model.named_parameters():
-        if output_layer_name in n:
+        if output_layer_name and output_layer_name in n:
             p.requires_grad = True
         else:
             require_grad = False
@@ -54,7 +54,7 @@ def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules
                     p.requires_grad=False
     elif lora_rank == 0: # linear fine-tune
         for n,p in model.named_parameters():
-            if output_layer_name in n:
+            if output_layer_name and output_layer_name in n:
                 p.requires_grad = True
             else:
                 p.requires_grad = False
@@ -83,8 +83,8 @@ def load_server_optimizer(model, lr, momentum, weight_decay, model_params, **kwa
 
     for name, param in model.named_parameters():
         if name in base_names:
-            parameters[name] = Parameter(torch.zeros_like(param).to(kwargs["device"]))
-        elif output_layer_name in name:
+            parameters[name] = Parameter(torch.zeros_like(param.float()).to(kwargs["device"]))
+        elif output_layer_name and output_layer_name in name:
             parameters[name] = param
 
     if kwargs["server_opt_name"] == "sgd" or kwargs["server_opt_name"] == "gd":

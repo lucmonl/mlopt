@@ -308,11 +308,12 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     output_layer_name = opt_params["output_layer_name"]
     for name, param in model.named_parameters():
         # select lora_A and lora_B
-        if param.requires_grad and output_layer_name not in name: # exclude the cls_head
-            adapter_names.append(name)
-            adapter_weights[name] = param
-        if output_layer_name in name:
-            output_weights[name]= 0
+        if param.requires_grad:
+            if output_layer_name and output_layer_name in name:
+                output_weights[name]= 0
+            else:
+                adapter_names.append(name)
+                adapter_weights[name] = param
     
     if opt_params["train_stats"]:
         norm_A, norm_B = 0, 0 
@@ -343,6 +344,9 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     base_weights = {}
     base_adapter_weights = {}
     base_adapter_names = {}
+    from utilities import get_gpu_memory
+    get_gpu_memory()
+    
     for i in range(0, len(adapter_names), 2):
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
         lora_A_param, lora_B_param = adapter_weights[lora_A_name], adapter_weights[lora_B_name]
@@ -352,31 +356,37 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         base_adapter_names[base_weight_name] = [lora_A_name, lora_B_name]
 
     for name, param in model.named_parameters():
-        if output_layer_name in name:
+        if output_layer_name and output_layer_name in name:
             base_weights[name] = torch.clone(param.data)
-
+    
     #print(1)
     #for name in opt_params["server_params"]:
     #    print(name, torch.norm(opt_params["server_params"][name]).item())
 
     lora_params = {}
     aggregated_weights = {}
+    
+    get_gpu_memory()
     for client_id in range(client_num):
         # update client models
         client_model = copy.deepcopy(model)
+        get_gpu_memory()
         client_model.train()
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], lr_decay, epochs_lr_decay, False, model_params, opt_params)
-        client_opt_params = copy.deepcopy(opt_params)
-        client_opt_params["train_stats"] = False
+        #client_opt_params = copy.deepcopy(opt_params)
+        from utilities import get_model_size
+        #print(get_model_size(client_model))
+        opt_params["train_stats"] = False
+        get_gpu_memory()
         for epoch in range(client_epoch):
-            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
-
+            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, opt_params)
+        opt_params["train_stats"] = True
         
         for name, param in client_model.named_parameters():
             #print(name, param.shape)
             if param.requires_grad:
                 #param_names.append(name)
-                if output_layer_name in name:
+                if output_layer_name and output_layer_name in name:
                     output_weights[name] += param.data / client_num
                 elif name in lora_params:
                     lora_params[name].append(param.data)
@@ -395,8 +405,9 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
         aggregated_weights[base_weight_name] = lora_matrix
 
-        U, S, Vh = torch.linalg.svd(lora_matrix, full_matrices=False)
-        U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], S[:lora_rank], Vh[:lora_rank, :]
+        #U, S, Vh = torch.linalg.svd(lora_matrix, full_matrices=False)
+        #U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], S[:lora_rank], Vh[:lora_rank, :]
+        U_truncate, S_truncate, Vh_truncate = torch.svd_lowrank(lora_matrix, q=lora_rank)
         
     if opt_params["train_stats"]:
         from utilities import project_to_orth_space
@@ -437,7 +448,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
             else:
                 opt_params["server_params"][name].grad = (base_adapter_weights[name] - aggregated_weights[name]).T
             grad_norm += torch.linalg.norm(opt_params["server_params"][name].grad) ** 2
-        elif output_layer_name in name:
+        elif output_layer_name and output_layer_name in name:
             opt_params["server_params"][name].grad = base_weights[name].data - output_weights[name]
     
     if opt_params["train_stats"]:
@@ -512,7 +523,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 adapter_weights[lora_A_name].data = Q.T
                 adapter_weights[lora_B_name].data = X.T
 
-        elif output_layer_name in name:
+        elif output_layer_name and output_layer_name in name:
             param.data = opt_params["server_params"][name]
     train_graphs.truncate_err.append(truncate_err)
 
@@ -1944,6 +1955,9 @@ if __name__ == "__main__":
             optimizer_to(optimizer, device)
             with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
                 train_graphs = pickle.load(f)
+
+        #if model_name != "akjindal53244/Arithmo-Mistral-7B":
+            # Mistral is already on cuda:0
         model = model.to(device)
 
         directory = get_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
