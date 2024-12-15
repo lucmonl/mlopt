@@ -17,11 +17,12 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
     output_layer_name = opt_params["output_layer_name"]
     for name, param in model.named_parameters():
         # select lora_A and lora_B
-        if param.requires_grad and output_layer_name not in name: # exclude the cls_head
-            adapter_names.append(name)
-            adapter_weights[name] = torch.zeros_like(param)
-        if output_layer_name in name:
-            output_weights[name]= 0
+        if param.requires_grad:
+            if output_layer_name and output_layer_name in name:
+                output_weights[name]= 0
+            else:
+                adapter_names.append(name)
+                adapter_weights[name] = torch.zeros_like(param)
 
     #from utilities import state_dict_to_vector, vector_to_state_dict
     # initialize client models, optimizers
@@ -43,7 +44,7 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
                 #print(name, param.shape)
                 if param.requires_grad:
                     #param_names.append(name)
-                    if output_layer_name in name:
+                    if output_layer_name and output_layer_name in name:
                         output_weights[name] += param.data / client_num
                     elif name in adapter_weights:
                         #lora_params[name].append(param.data)
@@ -64,7 +65,7 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
 
     for name, param in model.named_parameters():
         if param.requires_grad:
-            if output_layer_name in name:
+            if output_layer_name and output_layer_name in name:
                 param.grad = param.data - output_weights[name]
             elif name in adapter_weights:
                 param.grad = param.data - adapter_weights[name]

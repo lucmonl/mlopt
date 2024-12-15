@@ -5,8 +5,11 @@ import re
 import jsonlines
 from fractions import Fraction
 from vllm import LLM, SamplingParams
+from vllm.lora.request import LoRARequest
 import sys
 MAX_INT = sys.maxsize
+
+abs_path = "/home/lucmon/lucmon/mlopt/"
 
 def is_number(s):
     try:
@@ -64,7 +67,7 @@ def batch_data(data_list, batch_size=1):
     return batch_data
 
 
-def gsm8k_test(model, data_path, start=0, end=MAX_INT, batch_size=1, tensor_parallel_size=1):
+def gsm8k_test(model_name, model_path, tokenizer, device, data_path, start=0, end=MAX_INT, batch_size=1, tensor_parallel_size=1):
     INVALID_ANS = "[invalid]"
     gsm8k_ins = []
     gsm8k_answers = []
@@ -90,7 +93,11 @@ def gsm8k_test(model, data_path, start=0, end=MAX_INT, batch_size=1, tensor_para
     stop_tokens = ["Question:", "Question", "USER:", "USER", "ASSISTANT:", "ASSISTANT", "Instruction:", "Instruction", "Response:", "Response"]
     sampling_params = SamplingParams(temperature=0.0, top_p=1, max_tokens=512, stop=stop_tokens)
     print('sampleing =====', sampling_params)
-    llm = LLM(model=model,tensor_parallel_size=tensor_parallel_size)
+    from pathlib import Path
+    lora_request = LoRARequest("gsm8k_adapter", 1, abs_path+model_path)
+    model_name = "mistralai/Mistral-7B-v0.1"
+    llm = LLM(model=model_name,tensor_parallel_size=tensor_parallel_size, enable_lora=True)
+    
     result = []
     res_completions = []
     for idx, (prompt, prompt_answer) in enumerate(zip(batch_gsm8k_ins, gsm8k_answers)):
@@ -99,17 +106,23 @@ def gsm8k_test(model, data_path, start=0, end=MAX_INT, batch_size=1, tensor_para
         else:
             prompt = [prompt]
 
-        completions = llm.generate(prompt, sampling_params)
+        completions = llm.generate(prompt, sampling_params, lora_request=lora_request)
+        #model_inputs = tokenizer(prompt, return_tensors="pt").to(device)
+        #completions = llm.generate(**model_inputs, max_new_tokens=100, do_sample=True)
+        #tokenizer.batch_decode(generated_ids)[0]
+
         for output in completions:
             prompt = output.prompt
             generated_text = output.outputs[0].text
             res_completions.append(generated_text)
+            #res_completions.append(tokenizer.batch_decode(output)[0])
 
     invalid_outputs = []
     for idx, (prompt, completion, prompt_answer) in enumerate(zip(gsm8k_ins, res_completions, gsm8k_answers)):
         doc = {'question': prompt}
         y_pred = extract_answer_number(completion)
         if y_pred != None:
+            print(float(y_pred), float(prompt_answer))
             result.append(float(y_pred) == float(prompt_answer))
         else:
             result.append(False)

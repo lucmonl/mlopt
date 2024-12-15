@@ -328,9 +328,9 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     
     if opt_params["fedlora_avg"] == "avg":
         from optimizer.fedlora import federated_lora_avg
-        real_opt_params = copy.deepcopy(opt_params)
-        real_opt_params["train_stats"] = True
-        return federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
+        opt_params["train_stats"] = True
+        federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
+        return
     elif opt_params["fedlora_avg"] == "svd_grad":
         return federated_lora_grad(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch)
     elif opt_params["fedlora_avg"] == "svd_het":
@@ -349,10 +349,12 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     
     for i in range(0, len(adapter_names), 2):
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
-        lora_A_param, lora_B_param = adapter_weights[lora_A_name], adapter_weights[lora_B_name]
         base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
+        """
+        lora_A_param, lora_B_param = adapter_weights[lora_A_name], adapter_weights[lora_B_name] 
         base_adapter_weights[base_weight_name] = lora_B_param @ lora_A_param
         base_names.append(base_weight_name)
+        """
         base_adapter_names[base_weight_name] = [lora_A_name, lora_B_name]
 
     for name, param in model.named_parameters():
@@ -366,7 +368,6 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     lora_params = {}
     aggregated_weights = {}
     
-    get_gpu_memory()
     for client_id in range(client_num):
         # update client models
         client_model = copy.deepcopy(model)
@@ -377,7 +378,6 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         from utilities import get_model_size
         #print(get_model_size(client_model))
         opt_params["train_stats"] = False
-        get_gpu_memory()
         for epoch in range(client_epoch):
             train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, opt_params)
         opt_params["train_stats"] = True
@@ -389,17 +389,17 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 if output_layer_name and output_layer_name in name:
                     output_weights[name] += param.data / client_num
                 elif name in lora_params:
-                    lora_params[name].append(param.data)
+                    lora_params[name].append(param.data / (client_num**0.5))
                 else:
                     lora_params[name] = [param.data]
-
+    """
     adapter_weights_avg = {}
     for i in range(0, len(adapter_names), 2):
         # A: r * input; B: output * r
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
         lora_A_param, lora_B_param = torch.cat(lora_params[lora_A_name], dim=0), torch.cat(lora_params[lora_B_name], dim=1)
-        lora_A_avg, lora_B_avg = torch.mean(torch.stack(lora_params[lora_A_name]), dim=0), torch.mean(torch.stack(lora_params[lora_B_name]), dim=0)
-        adapter_weights_avg[lora_A_name], adapter_weights_avg[lora_B_name] = lora_A_avg, lora_B_avg
+        #lora_A_avg, lora_B_avg = torch.mean(torch.stack(lora_params[lora_A_name]), dim=0), torch.mean(torch.stack(lora_params[lora_B_name]), dim=0)
+        #adapter_weights_avg[lora_A_name], adapter_weights_avg[lora_B_name] = lora_A_avg, lora_B_avg
 
         lora_matrix = lora_B_param @ lora_A_param / client_num        
         base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
@@ -408,8 +408,9 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         #U, S, Vh = torch.linalg.svd(lora_matrix, full_matrices=False)
         #U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], S[:lora_rank], Vh[:lora_rank, :]
         U_truncate, S_truncate, Vh_truncate = torch.svd_lowrank(lora_matrix, q=lora_rank)
-        
+    """
     if opt_params["train_stats"]:
+        """
         from utilities import project_to_orth_space
         train_graphs.fedlora_A_align.append(project_to_orth_space(lora_A_param.T, Vh_truncate.T)[-1].item())
         train_graphs.fedlora_B_align.append(project_to_orth_space(lora_B_param, U_truncate)[-1].item())
@@ -421,23 +422,26 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         train_graphs.fedlora_B_cosine.append(cosine_similarity_batch(lora_B_param, torch.tile(lora_B_avg, (1,client_num)), ret_abs=True).item())
         print(train_graphs.fedlora_A_cosine[::5])
         print(train_graphs.fedlora_B_cosine[::5])
-
+        """
         norm_A_diff, norm_B_diff = 0, 0 
         norm_A, norm_B = 0, 0 
         for name in adapter_weights:
             if 'lora_A' in name:
                 norm_A += torch.norm(adapter_weights[name]) ** 2
-                norm_A_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
+                #norm_A_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
             elif 'lora_B' in name:
                 norm_B += torch.norm(adapter_weights[name]) ** 2
-                norm_B_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
-        print("param norms: ", norm_A.item(), norm_B.item(), norm_A_diff.item(), norm_B_diff.item())
+                #norm_B_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
+        #print("param norms: ", norm_A.item(), norm_B.item(), norm_A_diff.item(), norm_B_diff.item())
+        print("param norms: ", norm_A.item(), norm_B.item())
+        
 
     server_optimizer.zero_grad()
     #for name, param in model.named_parameters():
     grad_norm = 0
+    get_gpu_memory()
     for name in opt_params["server_params"]:
-        if name in aggregated_weights.keys():
+        if name in base_weight_name:
             #param.requires_grad = True # going to update dense weight
             if opt_params["fedlora_avg"] == "svd_v2":
                 lora_A_name = name.replace("base_layer", "lora_A.default")
@@ -446,7 +450,12 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 print("spectral norm A:", spectral_norm_A)
                 opt_params["server_params"][name].grad = (base_adapter_weights[name] - aggregated_weights[name]).T / spectral_norm_A
             else:
-                opt_params["server_params"][name].grad = (base_adapter_weights[name] - aggregated_weights[name]).T
+                lora_A_name = name.replace("base_layer", "lora_A.default")
+                lora_B_name = name.replace("base_layer", "lora_B.default")
+                lora_A_param, lora_B_param = adapter_weights[lora_A_name], adapter_weights[lora_B_name]
+                lora_A_param, lora_B_param = torch.cat(lora_params[lora_A_name]+[lora_A_param], dim=0), torch.cat(lora_params[lora_B_name]+[-lora_B_param], dim=1)
+                opt_params["server_params"][name].grad = (lora_B_param @ lora_A_param).T
+                #opt_params["server_params"][name].grad = (base_adapter_weights[name] - aggregated_weights[name]).T
             grad_norm += torch.linalg.norm(opt_params["server_params"][name].grad) ** 2
         elif output_layer_name and output_layer_name in name:
             opt_params["server_params"][name].grad = base_weights[name].data - output_weights[name]
@@ -1028,7 +1037,8 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
     if 'loss' in analysis_list:
         from analysis.loss import compute_loss
         save_best_model = compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, analysis_loader, test_loader, \
-                                       opt_params, compute_acc, compute_model_output='output' in analysis_list, dataset_name=analysis_params["dataset_name"])
+                                       opt_params, compute_acc, compute_model_output='output' in analysis_list, dataset_name=analysis_params["dataset_name"], \
+                                        model_name = model_name, model_path=analysis_params["model_path"], tokenizer=analysis_params["tokenizer"])
 
     if 'eigs' in analysis_list:
         from analysis.eigs import compute_eigenvalues
@@ -1104,7 +1114,8 @@ if __name__ == "__main__":
                 "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds", "icl", "20newsgroups", "mathqa_gsm8k"]
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "res_conv_fixed_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2",
               "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", 
-              "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "akjindal53244/Arithmo-Mistral-7B", "dino_vit_small", "dino_vit_base", "dinov2_vit_base", "dinov2_vit_small", 
+              "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1", "dino_vit_small", "dino_vit_base",
+                "dinov2_vit_base", "dinov2_vit_small", 
               "dinov2_vit_giant2", "vit_small", "vit_medium", "vit_base", "lin_attn", "mlp", "gpt2", "roberta-base"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
@@ -1328,7 +1339,7 @@ if __name__ == "__main__":
     
     exp_avg, exp_avg_sq            = None, None
 
-    opt_params["hf_model"]         = args.dataset in ["glue"] or model_name in ["google/vit-base-patch16-224-in21k", "gpt2", "roberta-base", "akjindal53244/Arithmo-Mistral-7B"]
+    opt_params["hf_model"]         = args.dataset in ["glue"] or model_name in ["google/vit-base-patch16-224-in21k", "gpt2", "roberta-base", "akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1"]
     opt_params["cub_data"]         = args.dataset in ["cub"]
     opt_params["wild_data"]        = args.dataset in ["wilds"]
 
@@ -1616,13 +1627,14 @@ if __name__ == "__main__":
        
         )
         """
-    elif model_name == "akjindal53244/Arithmo-Mistral-7B":
+    elif model_name in ["mistralai/Mistral-7B-v0.1", "akjindal53244/Arithmo-Mistral-7B"]:
         from transformers import AutoTokenizer, AutoModelForCausalLM
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         tokenizer.pad_token = tokenizer.eos_token
 
         model = AutoModelForCausalLM.from_pretrained(model_name, device_map={"": 0}, torch_dtype=torch.float16,
                                                     load_in_4bit=True)
+        analysis_params["tokenizer"] = tokenizer
     elif model_name == "google/vit-base-patch16-224-in21k":
         #reference "https://colab.research.google.com/github/NielsRogge/Transformers-Tutorials/blob/master/VisionTransformer/Fine_tuning_the_Vision_Transformer_on_CIFAR_10_with_the_%F0%9F%A4%97_Trainer.ipynb#scrollTo=fZpqx7giniv8"
         from transformers import AutoModelForImageClassification
@@ -1907,7 +1919,9 @@ if __name__ == "__main__":
         #print("=====")
 
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        output_layer_name = add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a=args.lora_freeze_a)
+        model, output_layer_name, Lora_Config = add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a=args.lora_freeze_a)
+        for name, param in model.named_parameters():
+            print(name, param.shape, param.requires_grad)
         opt_params["output_layer_name"] = output_layer_name
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"Training {trainable_params} parameters ({100*trainable_params/total_params:.2f}% of original {total_params})")
@@ -1986,6 +2000,34 @@ if __name__ == "__main__":
                 #print("Epoch: ", epoch)
                 train_graphs.log_epochs.append(epoch)
                 #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
+                if model_name == "akjindal53244/Arithmo-Mistral-7B":
+                    #torch.save(model.state_dict(), f"{directory}/model.ckpt")
+                    from transformers import Trainer, TrainingArguments
+                    from utilities import save_lora_module_for_hf_trainer, safe_save_model_for_hf_trainer
+                    analysis_params["model_path"] = f"{directory}"
+                    class TrainingArguments(TrainingArguments):
+                        cache_dir = None
+                        optim = "adamw_torch"
+                        overwrite_output_dir = True
+                    training_args = TrainingArguments
+                    #trainer.save_state()
+                    #model.config.to_json_file(analysis_params["model_path"]+"/config.json")
+                    #merged_model = model.merge_and_unload()
+                    trainer = Trainer(model=model, tokenizer=tokenizer)
+                    #model.base_model.save_pretrained(analysis_params["model_path"])
+                    #save_lora_module_for_hf_trainer(model, analysis_params["model_path"])
+                    #trainer.save_model(analysis_params["model_path"])
+                    """
+                    merged_model.save_pretrained(
+                        analysis_params["model_path"], state_dict=merged_model.state_dict(), safe_serialization=True
+                    )
+                    tokenizer.save_pretrained(analysis_params["model_path"])
+                    for name, param in merged_model.named_parameters():
+                        print(name, param.shape, param.dtype, param.requires_grad)
+                    sys.exit()
+                    """
+                    safe_save_model_for_hf_trainer(trainer=trainer, output_dir=analysis_params["model_path"])
+                    
                 save_best_model = analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, opt_params["compute_acc"],train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
                 if save_best_model:
                     print("saving the best model so far...")
@@ -2007,8 +2049,9 @@ if __name__ == "__main__":
         directory = get_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
         if lr != 0:
             print("loading pretrained model..")
-            model.load_state_dict(torch.load(os.path.join(directory, "model.ckpt")))
-            model = model.to(device)
+            if model_name not in ["akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1"]:
+                model.load_state_dict(torch.load(os.path.join(directory, "model.ckpt")))
+                model = model.to(device)
 
         eval_graphs = graphs()
         if os.path.exists(f"{directory}/eval_graphs.pk"):
@@ -2021,10 +2064,12 @@ if __name__ == "__main__":
             running_directory = get_running_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, epochs, **model_params)
             for root, dirs, files in os.walk(running_directory):
                 for name in dirs:
-                    state_dict = torch.load(os.path.join(root, name, "model.ckpt"))
-                    model.load_state_dict(state_dict)
-                    model = model.to(device)
-
+                    if model_name not in ["akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1"]:
+                        state_dict = torch.load(os.path.join(root, name, "model.ckpt"))
+                        model.load_state_dict(state_dict)
+                        model = model.to(device)
+                    analysis_params["model_path"] = os.path.join(root, name)
+                    #print(root, name)
                     analysis(eval_graphs, ['loss'], model, model_name, criterion_summed, device, C, opt_params["compute_acc"], None, test_loader, [], None, opt_params, analysis_params)
             sys.exit()
 

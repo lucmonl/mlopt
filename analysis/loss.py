@@ -7,7 +7,7 @@ import numpy as np
 from utilities import dict_to_
 
 @torch.no_grad
-def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, loader_abridged, test_loader, opt_params, compute_acc=False, compute_model_output=False, dataset_name=None):
+def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, loader_abridged, test_loader, opt_params, compute_acc=False, compute_model_output=False, dataset_name=None, model_name=None, model_path=None, tokenizer=None):
     disable_running_stats(model)
     loss_sum = 0
     accuracy_sum = 0
@@ -15,6 +15,7 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
     save_best_model = False
     
     model_output = []
+    
     if loader_abridged:
         for batch_idx, input in enumerate(loader_abridged, start=1):
             if opt_params["wild_data"]:
@@ -70,7 +71,7 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
         from data.gsm8k import gsm8k_test
         import sys
         MAX_INT = sys.maxsize
-        test_accuracy = gsm8k_test(model, test_loader, start=0, end=MAX_INT, batch_size=1, tensor_parallel_size=1)
+        test_accuracy = gsm8k_test(model_name, model_path, tokenizer, device, test_loader, start=0, end=MAX_INT, batch_size=1, tensor_parallel_size=1)
         test_loss = 0
     elif test_loader:
         model.eval()
