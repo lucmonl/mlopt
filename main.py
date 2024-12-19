@@ -1964,7 +1964,8 @@ if __name__ == "__main__":
             load_from_dir = get_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, load_from_epoch, multi_run, **model_params)
             if model_name in ["akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1"]:
                 #peft_model_id = os.path.join(load_from_dir, "model.ckpt")
-                model.load_adapter(load_from_dir, adapter_name="adapter")
+                model.load_adapter(load_from_dir, adapter_name="default", is_trainable=True)
+                model.set_adapter("default")
             else:
                 model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))
             optimizer.load_state_dict(torch.load(os.path.join(load_from_dir, "optimizer.ckpt")))
@@ -1980,6 +1981,8 @@ if __name__ == "__main__":
         #if model_name != "akjindal53244/Arithmo-Mistral-7B":
             # Mistral is already on cuda:0
         model = model.to(device)
+        for name, param in model.named_parameters():
+            print(name, param.shape, param.requires_grad)
 
         directory = get_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
         os.makedirs(directory, exist_ok=True)
