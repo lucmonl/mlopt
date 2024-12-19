@@ -84,7 +84,7 @@ def gsm8k_test(model_name, model_path, tokenizer, device, data_path, start=0, en
             temp_ans = item['response'].split('#### ')[1]
             temp_ans = int(temp_ans.replace(',', ''))
             gsm8k_answers.append(temp_ans)
-
+    #end=20
     gsm8k_ins = gsm8k_ins[start:end]
     gsm8k_answers = gsm8k_answers[start:end]
     print('lenght ====', len(gsm8k_ins))
@@ -117,6 +117,7 @@ def gsm8k_test(model_name, model_path, tokenizer, device, data_path, start=0, en
             res_completions.append(generated_text)
             #res_completions.append(tokenizer.batch_decode(output)[0])
 
+    valid_outputs = []
     invalid_outputs = []
     for idx, (prompt, completion, prompt_answer) in enumerate(zip(gsm8k_ins, res_completions, gsm8k_answers)):
         doc = {'question': prompt}
@@ -124,12 +125,24 @@ def gsm8k_test(model_name, model_path, tokenizer, device, data_path, start=0, en
         if y_pred != None:
             print(float(y_pred), float(prompt_answer))
             result.append(float(y_pred) == float(prompt_answer))
+            temp = {'question': prompt, 'output': completion, 'answer': prompt_answer}
+            valid_outputs.append(temp)
         else:
             result.append(False)
             temp = {'question': prompt, 'output': completion, 'answer': prompt_answer}
             invalid_outputs.append(temp)
     acc = sum(result) / len(result)
-    print('len invalid outputs ====', len(invalid_outputs), ', valid_outputs===', invalid_outputs)
+    #print('len invalid outputs ====', len(invalid_outputs), ', valid_outputs===', invalid_outputs)
+    print('len invalid outputs ====', len(invalid_outputs))
     print('start===', start, ', end====', end)
     print('gsm8k length====', len(result), ', gsm8k acc====', acc)
+    """
+    print(valid_outputs[0]['question'])
+    print(valid_outputs[0]['output'])
+    print(valid_outputs[0]['answer'])
+
+    print(invalid_outputs[0]['question'])
+    print(invalid_outputs[0]['output'])
+    print(invalid_outputs[0]['answer'])
+    """
     return acc

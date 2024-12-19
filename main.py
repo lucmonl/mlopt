@@ -1038,7 +1038,7 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
         from analysis.loss import compute_loss
         save_best_model = compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, analysis_loader, test_loader, \
                                        opt_params, compute_acc, compute_model_output='output' in analysis_list, dataset_name=analysis_params["dataset_name"], \
-                                        model_name = model_name, model_path=analysis_params["model_path"], tokenizer=analysis_params["tokenizer"])
+                                        model_name = model_name, model_path=analysis_params["model_path"], tokenizer=analysis_params["tokenizer"], no_val=analysis_params["no_val"])
 
     if 'eigs' in analysis_list:
         from analysis.eigs import compute_eigenvalues
@@ -1195,11 +1195,13 @@ if __name__ == "__main__":
     # analysis hyperparameters
     parser.add_argument("--adv_eta", type=float, default=0.01, help="eta for adversarial perturbation")
 
+
     parser.add_argument("--multiple_run", type=bool, default=False, help="independent run without overwriting or loading")
     parser.add_argument("--run_from_scratch", type=bool, default=False, help="do not load from previous results")
     parser.add_argument("--store_model_checkpoint", type=bool, default=False, help="store the checkpoint models every analysis step")
     parser.add_argument("--no_train", action='store_true', help="train model")
     parser.add_argument("--do_eval", action='store_true', help="evaluate model")
+    parser.add_argument("--no_val", action='store_true', help="no validation dataset in analysis")
     parser.add_argument("--model_average", nargs='+', type=int, default=[0,1], help="index of runs to be averaged")
     parser.add_argument("--topk", type=int, default=1, help="topk")
     parser.add_argument("--zero_out_attn", type=int, default=-1, help="zero out small entries in attention maps")
@@ -1227,17 +1229,18 @@ if __name__ == "__main__":
     parser.add_argument("--num_register", type=int, default=0, help="number of registers in context")
 
     args = parser.parse_args()
-
+    model_params = {}
+    opt_params = {}
+    analysis_params = {}
 
     
     no_train            = args.no_train
     do_eval             = args.do_eval
+    analysis_params["no_val"] = args.no_val
     multi_run           = args.multiple_run
     run_from_scratch    = args.run_from_scratch
     store_model_checkpoint = args.store_model_checkpoint
-    model_params = {}
-    opt_params = {}
-    analysis_params = {}
+    
 
     opt_params["debug"] = args.debug # Only runs 10 batches per epoch for debugging
 
@@ -1959,7 +1962,11 @@ if __name__ == "__main__":
             from utilities import optimizer_to
             print("loading from trained epoch {}".format(load_from_epoch))
             load_from_dir = get_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, load_from_epoch, multi_run, **model_params)
-            model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))
+            if model_name in ["akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1"]:
+                #peft_model_id = os.path.join(load_from_dir, "model.ckpt")
+                model.load_adapter(load_from_dir, adapter_name="adapter")
+            else:
+                model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))
             optimizer.load_state_dict(torch.load(os.path.join(load_from_dir, "optimizer.ckpt")))
             if hasattr(optimizer, "base_optimizer"):
                 optimizer.base_optimizer.load_state_dict(torch.load(os.path.join(load_from_dir, "base_optimizer.ckpt")))
@@ -2000,32 +2007,12 @@ if __name__ == "__main__":
                 #print("Epoch: ", epoch)
                 train_graphs.log_epochs.append(epoch)
                 #analysis(train_graphs, model, criterion_summed, device, C, analysis_loader, test_loader)
-                if model_name == "akjindal53244/Arithmo-Mistral-7B":
+                if model_name in ["akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1"]:
                     #torch.save(model.state_dict(), f"{directory}/model.ckpt")
                     from transformers import Trainer, TrainingArguments
-                    from utilities import save_lora_module_for_hf_trainer, safe_save_model_for_hf_trainer
+                    from utilities import safe_save_model_for_hf_trainer
                     analysis_params["model_path"] = f"{directory}"
-                    class TrainingArguments(TrainingArguments):
-                        cache_dir = None
-                        optim = "adamw_torch"
-                        overwrite_output_dir = True
-                    training_args = TrainingArguments
-                    #trainer.save_state()
-                    #model.config.to_json_file(analysis_params["model_path"]+"/config.json")
-                    #merged_model = model.merge_and_unload()
                     trainer = Trainer(model=model, tokenizer=tokenizer)
-                    #model.base_model.save_pretrained(analysis_params["model_path"])
-                    #save_lora_module_for_hf_trainer(model, analysis_params["model_path"])
-                    #trainer.save_model(analysis_params["model_path"])
-                    """
-                    merged_model.save_pretrained(
-                        analysis_params["model_path"], state_dict=merged_model.state_dict(), safe_serialization=True
-                    )
-                    tokenizer.save_pretrained(analysis_params["model_path"])
-                    for name, param in merged_model.named_parameters():
-                        print(name, param.shape, param.dtype, param.requires_grad)
-                    sys.exit()
-                    """
                     safe_save_model_for_hf_trainer(trainer=trainer, output_dir=analysis_params["model_path"])
                     
                 save_best_model = analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, opt_params["compute_acc"],train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)

@@ -7,7 +7,8 @@ import numpy as np
 from utilities import dict_to_
 
 @torch.no_grad
-def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, loader_abridged, test_loader, opt_params, compute_acc=False, compute_model_output=False, dataset_name=None, model_name=None, model_path=None, tokenizer=None):
+def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, loader_abridged, test_loader, opt_params, \
+                 compute_acc=False, compute_model_output=False, dataset_name=None, model_name=None, model_path=None, tokenizer=None, no_val=False):
     disable_running_stats(model)
     loss_sum = 0
     accuracy_sum = 0
@@ -67,6 +68,10 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
         print("Mean Train Loss: {} \t Accuarcy: {}".format(graphs.loss[-1], graphs.accuracy[-1]))
     
     #validation step
+    if no_val:
+        enable_running_stats(model)
+        save_best_model = False
+        return save_best_model
     if dataset_name == "mathqa_gsm8k":
         from data.gsm8k import gsm8k_test
         import sys
