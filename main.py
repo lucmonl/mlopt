@@ -344,8 +344,8 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     base_weights = {}
     base_adapter_weights = {}
     base_adapter_names = {}
-    from utilities import get_gpu_memory
-    get_gpu_memory()
+    #from utilities import get_gpu_memory
+    #get_gpu_memory()
     
     for i in range(0, len(adapter_names), 2):
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
@@ -371,7 +371,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     for client_id in range(client_num):
         # update client models
         client_model = copy.deepcopy(model)
-        get_gpu_memory()
+        #get_gpu_memory()
         client_model.train()
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], lr_decay, epochs_lr_decay, False, model_params, opt_params)
         #client_opt_params = copy.deepcopy(opt_params)
@@ -391,7 +391,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 elif name in lora_params:
                     lora_params[name].append(param.data / (client_num**0.5))
                 else:
-                    lora_params[name] = [param.data]
+                    lora_params[name] = [param.data / (client_num**0.5)]
     """
     adapter_weights_avg = {}
     for i in range(0, len(adapter_names), 2):
@@ -439,9 +439,11 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     server_optimizer.zero_grad()
     #for name, param in model.named_parameters():
     grad_norm = 0
-    get_gpu_memory()
+    #get_gpu_memory()
     for name in opt_params["server_params"]:
-        if name in base_weight_name:
+        if output_layer_name and output_layer_name in name:
+            opt_params["server_params"][name].grad = base_weights[name].data - output_weights[name]
+        else:
             #param.requires_grad = True # going to update dense weight
             if opt_params["fedlora_avg"] == "svd_v2":
                 lora_A_name = name.replace("base_layer", "lora_A.default")
@@ -454,11 +456,9 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 lora_B_name = name.replace("base_layer", "lora_B.default")
                 lora_A_param, lora_B_param = adapter_weights[lora_A_name], adapter_weights[lora_B_name]
                 lora_A_param, lora_B_param = torch.cat(lora_params[lora_A_name]+[lora_A_param], dim=0), torch.cat(lora_params[lora_B_name]+[-lora_B_param], dim=1)
-                opt_params["server_params"][name].grad = (lora_B_param @ lora_A_param).T
+                opt_params["server_params"][name].grad = -(lora_B_param @ lora_A_param).T
                 #opt_params["server_params"][name].grad = (base_adapter_weights[name] - aggregated_weights[name]).T
             grad_norm += torch.linalg.norm(opt_params["server_params"][name].grad) ** 2
-        elif output_layer_name and output_layer_name in name:
-            opt_params["server_params"][name].grad = base_weights[name].data - output_weights[name]
     
     if opt_params["train_stats"]:
         train_graphs.grad_norm.append(grad_norm.item())
@@ -473,7 +473,13 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
 
     truncate_err = 0
     for name, param in model.named_parameters():
-        if name in aggregated_weights.keys():
+        if name not in opt_params["server_params"]:
+            # examine if this the lora module base name
+            continue
+        if output_layer_name and output_layer_name in name:
+            if param.requires_grad:
+                param.data = opt_params["server_params"][name]
+        else:
             #param.requires_grad = False # turn off updates in dense weights
             if opt_params["fedlora_avg"] in ["svd", "svd_v2"]:
                 # SVD
@@ -531,9 +537,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 lora_A_name, lora_B_name = base_adapter_names[name]
                 adapter_weights[lora_A_name].data = Q.T
                 adapter_weights[lora_B_name].data = X.T
-
-        elif output_layer_name and output_layer_name in name:
-            param.data = opt_params["server_params"][name]
+    print("Truncation Error: ", truncate_err)
     train_graphs.truncate_err.append(truncate_err)
 
 def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
@@ -1345,6 +1349,8 @@ if __name__ == "__main__":
     opt_params["hf_model"]         = args.dataset in ["glue"] or model_name in ["google/vit-base-patch16-224-in21k", "gpt2", "roberta-base", "akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1"]
     opt_params["cub_data"]         = args.dataset in ["cub"]
     opt_params["wild_data"]        = args.dataset in ["wilds"]
+    analysis_params["model_path"]  = None #placeholder
+    analysis_params["tokenizer"]   = None #placeholder
 
     if opt_params["debug"]:
         torch.autograd.set_detect_anomaly(True)
@@ -1495,7 +1501,7 @@ if __name__ == "__main__":
     elif dataset_name == "20newsgroups":
         if opt_params["opt_name"] == "federated":
             from data.newsgroups import load_20newsgroups_federated
-            train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_20newsgroups_federated(loss=loss_name, batch_size=batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
+            train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_20newsgroups_federated(loss=loss_name, batch_size=batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
             model_params = model_params | {"non_iid": opt_params["non_iid"]}
         else:
             from data.newsgroups import load_20newsgroups
@@ -1922,7 +1928,7 @@ if __name__ == "__main__":
         #print("=====")
 
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        model, output_layer_name, Lora_Config = add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a=args.lora_freeze_a)
+        model , output_layer_name, Lora_Config = add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a=args.lora_freeze_a)
         for name, param in model.named_parameters():
             print(name, param.shape, param.requires_grad)
         opt_params["output_layer_name"] = output_layer_name

@@ -4,14 +4,14 @@ import torch.optim as optim
 
 def add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a=False):
     if model_name == "google/vit-base-patch16-224-in21k":
-        Lora_config = add_adapters(model, lora_rank, lora_alpha, "classifier", ["query", "value"])
-        return 'classifier', Lora_config
+        model, Lora_config = add_adapters(model, lora_rank, lora_alpha, "classifier", ["query", "value"])
+        return model, 'classifier', Lora_config
     elif model_name == 'flair':
         add_adapters(model, lora_rank, lora_alpha, "classifier", ["query", "value"])
         # add_adapters(model, lora_rank, lora_alpha, 'classifier', ['convolution'])
     elif model_name == 'gpt2':
-        Lora_config = add_adapters(model, lora_rank, lora_alpha, "score", ["c_attn", "c_proj", "c_fc"], freeze_a=lora_freeze_a)
-        return "score", Lora_config
+        model, Lora_config = add_adapters(model, lora_rank, lora_alpha, "score", ["c_attn", "c_proj", "c_fc"], freeze_a=lora_freeze_a) #"score"
+        return model, "score", Lora_config
     elif model_name == 'reddit':
         add_adapters(model, lora_rank, lora_alpha, None, ["c_attn", "c_proj", "c_fc"])
     elif model_name == "roberta-base":
@@ -77,17 +77,18 @@ def load_server_optimizer(model, lr, momentum, weight_decay, model_params, **kwa
             adapter_weights[name] = param
     #output_layer_name = adapter_names[-1]
 
-    for i in range(0, len(adapter_names), 2):
+    for i in range(0, len(adapter_names)-1, 2):
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
         base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
         base_names.append(base_weight_name)
-        parameters[base_weight_name] = Parameter(torch.zeros_like(adapter_weights[lora_B_name] @ adapter_weights[lora_A_name]).T)
+        parameters[base_weight_name] = Parameter(torch.zeros_like(adapter_weights[lora_B_name] @ adapter_weights[lora_A_name]).T.to(kwargs["device"]))
 
     for name, param in model.named_parameters():
         #if name in base_names:
         #    parameters[name] = Parameter(torch.zeros_like(param.float()).to(kwargs["device"]))
         if output_layer_name and output_layer_name in name:
-            parameters[name] = param
+            if param.requires_grad:
+                parameters[name] = param
 
     if kwargs["server_opt_name"] == "sgd" or kwargs["server_opt_name"] == "gd":
         from torch.optim import SGD

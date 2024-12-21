@@ -74,6 +74,9 @@ def load_20newsgroups_federated(loss: str, batch_size: int, client_num=1, alpha=
     transform_to_one_hot = True
     trainset, clients, _, testset = build_20newsgroups_federated(client_num, alpha, seed=42)
     analysis_size = max(batch_size, 128)
+    test_size = len(testset)
+    valset = torch.utils.data.Subset(testset, range(test_size//2))
+    testset = torch.utils.data.Subset(testset, range(test_size//2+1, test_size))
     analysis = torch.utils.data.Subset(trainset, range(analysis_size))
     analysis_test = torch.utils.data.Subset(testset, range(analysis_size))
 
@@ -83,6 +86,9 @@ def load_20newsgroups_federated(loss: str, batch_size: int, client_num=1, alpha=
     train_loader = torch.utils.data.DataLoader(
         trainset,
         batch_size=batch_size, shuffle=True)
+    val_loader = torch.utils.data.DataLoader(
+        valset,
+        batch_size=batch_size, shuffle=False)
     test_loader = torch.utils.data.DataLoader(
         testset,
         batch_size=batch_size, shuffle=False)
@@ -92,7 +98,7 @@ def load_20newsgroups_federated(loss: str, batch_size: int, client_num=1, alpha=
     analysis_test_loader = torch.utils.data.DataLoader(
         analysis_test,
         batch_size=analysis_size, shuffle=False)
-    return train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
+    return train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
 
 
 def load_20newsgroups(loss: str, batch_size: int):
