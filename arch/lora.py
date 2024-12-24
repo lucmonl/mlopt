@@ -81,7 +81,7 @@ def load_server_optimizer(model, lr, momentum, weight_decay, model_params, **kwa
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
         base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
         base_names.append(base_weight_name)
-        parameters[base_weight_name] = Parameter(torch.zeros_like(adapter_weights[lora_B_name] @ adapter_weights[lora_A_name]).T.to(kwargs["device"]))
+        parameters[base_weight_name] = Parameter(torch.zeros_like(adapter_weights[lora_B_name] @ adapter_weights[lora_A_name]).T.to(torch.float16).to(kwargs["device"]))
 
     for name, param in model.named_parameters():
         #if name in base_names:
