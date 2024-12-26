@@ -259,6 +259,9 @@ def load_mathqa_gsm8k(batch_size, client_num):
         )
     
     client_loaders = []
+    #store the current random state
+    st0 = np.random.get_state()
+    #use a fixed seed to ensure same split on the dataset
     np.random.seed(42) 
     randperm = np.random.permutation(len(train_dataset))
     for i in range(client_num):
@@ -271,7 +274,8 @@ def load_mathqa_gsm8k(batch_size, client_num):
             batch_size=batch_size,
         )
         client_loaders.append(client_loader)
-
+    #reload the initial random state
+    np.random.set_state(st0)
     analysis_size = max(batch_size, 128)
     analysis_dataset = torch.utils.data.Subset(train_loader.dataset, torch.arange(analysis_size))
     analysis_loader = torch.utils.data.DataLoader(

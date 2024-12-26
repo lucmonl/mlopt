@@ -994,9 +994,6 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 loss.item(),
                 accuracy))
         
-        if opt_params["debug"] and batch_idx > 2:
-            break
-
         if opt_params["opt_name"] in ["sophia", "sophus"] and batch_idx % opt_params["hess_interval"] == 1:
             data, target = input
             data, target = data.to(device), target.to(device)
@@ -1013,6 +1010,11 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
 
             optimizer.update_hessian()
             optimizer.zero_grad()
+
+        if opt_params["debug"] and batch_idx > 2:
+            break
+        if opt_params["client_early_stop"] != -1 and batch_idx > opt_params["client_early_stop"]:
+            break
 
     if opt_params["opt_name"] == "gd":
         optimizer.step()
@@ -1236,6 +1238,7 @@ if __name__ == "__main__":
     parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het"], default="avg", help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
     parser.add_argument("--use_ef", type=int, default=False, help="use error feedback (currently only in lora)")
+    parser.add_argument("--client_early_stop", type=int, default=-1, help="the number of minibatch for each client iteration, -1 for complete training")
 
     #llm hyperparameters
     parser.add_argument("--task_name", type=str, default="mrpc", help="task name")
@@ -1353,6 +1356,7 @@ if __name__ == "__main__":
     opt_params["fedlora_avg"]      = args.fedlora_avg
     opt_params["fedlora_uba"]      = args.fedlora_uba
     opt_params["use_ef"]           = args.use_ef
+    opt_params["client_early_stop"]= args.client_early_stop
     
     exp_avg, exp_avg_sq            = None, None
 
