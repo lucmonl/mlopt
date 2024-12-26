@@ -21,7 +21,7 @@ from scipy.sparse.linalg import svds
 from IPython import embed
 
 from graphs import graphs
-from path_manage import get_running_directory, get_directory, continue_training
+from path_manage import get_running_directory, get_directory, continue_training, get_lookup_directory
 from optimizer.sam import disable_running_stats, enable_running_stats
 from torch.nn.utils import parameters_to_vector, vector_to_parameters
 
@@ -320,7 +320,8 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         norm_A, norm_B = get_lora_norm(adapter_weights)      
         train_graphs.lora_A_norm.append(norm_A)
         train_graphs.lora_B_norm.append(norm_B)
-        get_weight_norm(opt_params["server_params"])
+        if "server_params" in opt_params:
+            get_weight_norm(opt_params["server_params"])
     
     if opt_params["fedlora_avg"] == "avg":
         from optimizer.fedlora import federated_lora_avg
@@ -506,7 +507,12 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                         error_feedback = 0
                     else:
                         assert False
-                    U, S, Vh = torch.linalg.svd(opt_params["server_params"][name].data.to(torch.float) + error_feedback, full_matrices=False)
+                    print(opt_params["server_params"][name].data.shape)
+                    print("start change dtype")
+                    double_matrix = opt_params["server_params"][name].data.to(torch.float)
+                    print("start svd")
+                    U, S, Vh = torch.linalg.svd(double_matrix + error_feedback, full_matrices=False)
+                    print("end svd", torch.sum(S[lora_rank:]).item())
                     #print(S[:lora_rank+5])
                     U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
                     truncate_err += torch.sum(S[lora_rank:]).item()
@@ -547,7 +553,8 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     from arch.lora import get_lora_norm, get_weight_norm
     get_lora_norm(adapter_weights) 
     get_weight_norm(opt_params["server_params"])
-    print("end epoch")     
+    print("end epoch")
+    sys.exit()  
     train_graphs.truncate_err.append(truncate_err)
 
 def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
@@ -2010,7 +2017,6 @@ if __name__ == "__main__":
         model = model.to(device)
         #for name, param in model.named_parameters():
         #    print(name, param.shape, param.requires_grad)
-
         directory = get_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
         os.makedirs(directory, exist_ok=True)
         print(directory)
@@ -2058,8 +2064,18 @@ if __name__ == "__main__":
                 if hasattr(optimizer, "base_optimizer"):
                     torch.save(optimizer.base_optimizer.state_dict(), f"{directory}/base_optimizer.ckpt")
                 if store_model_checkpoint:
-                    os.makedirs(f"{directory}/checkpoint_{epoch}")
-                    torch.save(model.state_dict(), f"{directory}/checkpoint_{epoch}/model.ckpt") 
+                    if model_name in ["akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1"]:
+                        #torch.save(model.state_dict(), f"{directory}/model.ckpt")
+                        from transformers import Trainer, TrainingArguments
+                        from utilities import safe_save_model_for_hf_trainer
+                        os.makedirs(f"{directory}/checkpoint_{epoch}")
+                        analysis_params["model_path"] = f"{directory}/checkpoint_{epoch}"
+                        trainer = Trainer(model=model, tokenizer=tokenizer)
+                        safe_save_model_for_hf_trainer(trainer=trainer, output_dir=analysis_params["model_path"])
+                    else:
+                        # a normal model
+                        os.makedirs(f"{directory}/checkpoint_{epoch}")
+                        torch.save(model.state_dict(), f"{directory}/checkpoint_{epoch}/model.ckpt") 
                     
 
     if do_eval:
