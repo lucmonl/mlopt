@@ -7,9 +7,11 @@ from fractions import Fraction
 from vllm import LLM, SamplingParams
 from vllm.lora.request import LoRARequest
 import sys
+import os
 MAX_INT = sys.maxsize
 
 abs_path = "/home/lucmon/lucmon/mlopt/"
+cache_dir = os.environ["HF_HOME"] + "/vllm_cache"
 
 def is_number(s):
     try:
@@ -69,6 +71,7 @@ def batch_data(data_list, batch_size=1):
 
 def gsm8k_test(model_name, model_path, tokenizer, device, data_path, is_val, start=0, end=MAX_INT, batch_size=1, tensor_parallel_size=1):
     INVALID_ANS = "[invalid]"
+    verbose = False #not is_val #if valiadation, do not output logs
     gsm8k_ins = []
     gsm8k_answers = []
     problem_prompt = (
@@ -76,7 +79,8 @@ def gsm8k_test(model_name, model_path, tokenizer, device, data_path, is_val, sta
         "Write a response that appropriately completes the request.\n\n"
         "### Instruction:\n{instruction}\n\n### Response: Let's think step by step."
     )
-    print('promt =====', problem_prompt)
+    if verbose:
+        print('promt =====', problem_prompt)
     with open(data_path,"r+", encoding="utf8") as f:
         for idx, item in enumerate(jsonlines.Reader(f)):
             temp_instr = problem_prompt.format(instruction=item["query"])
@@ -89,29 +93,32 @@ def gsm8k_test(model_name, model_path, tokenizer, device, data_path, is_val, sta
     dataset_size = len(gsm8k_ins)
     #store the current random state
     st0 = np.random.get_state()
+    #use a fixed seed to ensure same split on the dataset
+    np.random.seed(42)
     val_size = int(0.3*dataset_size)
     randperm = np.random.permutation(dataset_size)
-    
     if is_val:
         val_ind = randperm[:val_size]
     else:
         val_ind = randperm[val_size:]
-    #reload the current random state
+    #reload the initial random state
     np.random.set_state(st0)
     gsm8k_ins = [gsm8k_ins[ind] for ind in val_ind]
     gsm8k_answers = [gsm8k_answers[ind] for ind in val_ind]
     #gsm8k_ins = gsm8k_ins[start:end]
     #gsm8k_answers = gsm8k_answers[start:end]
-    print('lenght ====', len(gsm8k_ins))
+    if verbose:
+        print('length ====', len(gsm8k_ins))
     batch_gsm8k_ins = batch_data(gsm8k_ins, batch_size=batch_size)
 
     stop_tokens = ["Question:", "Question", "USER:", "USER", "ASSISTANT:", "ASSISTANT", "Instruction:", "Instruction", "Response:", "Response"]
     sampling_params = SamplingParams(temperature=0.0, top_p=1, max_tokens=512, stop=stop_tokens)
-    print('sampleing =====', sampling_params)
+    if verbose:
+        print('sampleing =====', sampling_params)
     from pathlib import Path
     lora_request = LoRARequest("gsm8k_adapter", 1, abs_path+model_path)
     model_name = "mistralai/Mistral-7B-v0.1"
-    llm = LLM(model=model_name,tensor_parallel_size=tensor_parallel_size, enable_lora=True)
+    llm = LLM(model=model_name,tensor_parallel_size=tensor_parallel_size, enable_lora=True, download_dir= cache_dir)
     
     result = []
     res_completions = []
@@ -121,7 +128,7 @@ def gsm8k_test(model_name, model_path, tokenizer, device, data_path, is_val, sta
         else:
             prompt = [prompt]
 
-        completions = llm.generate(prompt, sampling_params, lora_request=lora_request)
+        completions = llm.generate(prompt, sampling_params, lora_request=lora_request, use_tqdm=verbose)
         #model_inputs = tokenizer(prompt, return_tensors="pt").to(device)
         #completions = llm.generate(**model_inputs, max_new_tokens=100, do_sample=True)
         #tokenizer.batch_decode(generated_ids)[0]
@@ -138,7 +145,8 @@ def gsm8k_test(model_name, model_path, tokenizer, device, data_path, is_val, sta
         doc = {'question': prompt}
         y_pred = extract_answer_number(completion)
         if y_pred != None:
-            print(float(y_pred), float(prompt_answer))
+            if verbose:
+                print(float(y_pred), float(prompt_answer))
             result.append(float(y_pred) == float(prompt_answer))
             temp = {'question': prompt, 'output': completion, 'answer': prompt_answer}
             valid_outputs.append(temp)
@@ -149,7 +157,7 @@ def gsm8k_test(model_name, model_path, tokenizer, device, data_path, is_val, sta
     acc = sum(result) / len(result)
     #print('len invalid outputs ====', len(invalid_outputs), ', valid_outputs===', invalid_outputs)
     print('len invalid outputs ====', len(invalid_outputs))
-    print('start===', start, ', end====', end)
+    #print('start===', start, ', end====', end)
     print('gsm8k length====', len(result), ', gsm8k acc====', acc)
     """
     print(valid_outputs[0]['question'])
