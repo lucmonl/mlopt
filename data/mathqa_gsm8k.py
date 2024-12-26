@@ -259,6 +259,7 @@ def load_mathqa_gsm8k(batch_size, client_num):
         )
     
     client_loaders = []
+    np.random.seed(42) 
     randperm = np.random.permutation(len(train_dataset))
     for i in range(client_num):
         data_index = randperm[i:-1:client_num]

@@ -1088,3 +1088,9 @@ def save_lora_module_for_hf_trainer(model, output_dir: str):
     state_dict = model.state_dict()
     cpu_state_dict = {key: value.cpu() for key, value in state_dict.items() if value.requires_grad}
     torch.save(cpu_state_dict, output_dir+"lora_module.pth")
+
+def get_sgd_optimizer_momentum(optimizer):
+    for group in optimizer.param_groups:
+        for p in group['params']:
+            state = optimizer.state[p]
+            print(p, torch.norm(state["momentum_buffer"]))

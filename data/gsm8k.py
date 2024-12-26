@@ -67,7 +67,7 @@ def batch_data(data_list, batch_size=1):
     return batch_data
 
 
-def gsm8k_test(model_name, model_path, tokenizer, device, data_path, start=0, end=MAX_INT, batch_size=1, tensor_parallel_size=1):
+def gsm8k_test(model_name, model_path, tokenizer, device, data_path, is_val, start=0, end=MAX_INT, batch_size=1, tensor_parallel_size=1):
     INVALID_ANS = "[invalid]"
     gsm8k_ins = []
     gsm8k_answers = []
@@ -85,8 +85,23 @@ def gsm8k_test(model_name, model_path, tokenizer, device, data_path, start=0, en
             temp_ans = int(temp_ans.replace(',', ''))
             gsm8k_answers.append(temp_ans)
     #end=20
-    gsm8k_ins = gsm8k_ins[start:end]
-    gsm8k_answers = gsm8k_answers[start:end]
+    import numpy as np
+    dataset_size = len(gsm8k_ins)
+    #store the current random state
+    st0 = np.random.get_state()
+    val_size = int(0.3*dataset_size)
+    randperm = np.random.permutation(dataset_size)
+    
+    if is_val:
+        val_ind = randperm[:val_size]
+    else:
+        val_ind = randperm[val_size:]
+    #reload the current random state
+    np.random.set_state(st0)
+    gsm8k_ins = [gsm8k_ins[ind] for ind in val_ind]
+    gsm8k_answers = [gsm8k_answers[ind] for ind in val_ind]
+    #gsm8k_ins = gsm8k_ins[start:end]
+    #gsm8k_answers = gsm8k_answers[start:end]
     print('lenght ====', len(gsm8k_ins))
     batch_gsm8k_ins = batch_data(gsm8k_ins, batch_size=batch_size)
 

@@ -316,15 +316,11 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 adapter_weights[name] = param
     
     if opt_params["train_stats"]:
-        norm_A, norm_B = 0, 0 
-        for name in adapter_weights:
-            if 'lora_A' in name:
-                norm_A += torch.norm(adapter_weights[name]) ** 2
-            elif 'lora_B' in name:
-                norm_B += torch.norm(adapter_weights[name]) ** 2
-        print("param norms: ", norm_A.item(), norm_B.item())
-        train_graphs.lora_A_norm.append(norm_A.item())
-        train_graphs.lora_B_norm.append(norm_B.item())
+        from arch.lora import get_lora_norm, get_weight_norm
+        norm_A, norm_B = get_lora_norm(adapter_weights)      
+        train_graphs.lora_A_norm.append(norm_A)
+        train_graphs.lora_B_norm.append(norm_B)
+        get_weight_norm(opt_params["server_params"])
     
     if opt_params["fedlora_avg"] == "avg":
         from optimizer.fedlora import federated_lora_avg
@@ -425,9 +421,9 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         #U, S, Vh = torch.linalg.svd(lora_matrix, full_matrices=False)
         #U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], S[:lora_rank], Vh[:lora_rank, :]
         U_truncate, S_truncate, Vh_truncate = torch.svd_lowrank(lora_matrix, q=lora_rank)
-    """
+    
     if opt_params["train_stats"]:
-        """
+        
         from utilities import project_to_orth_space
         train_graphs.fedlora_A_align.append(project_to_orth_space(lora_A_param.T, Vh_truncate.T)[-1].item())
         train_graphs.fedlora_B_align.append(project_to_orth_space(lora_B_param, U_truncate)[-1].item())
@@ -439,20 +435,10 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         train_graphs.fedlora_B_cosine.append(cosine_similarity_batch(lora_B_param, torch.tile(lora_B_avg, (1,client_num)), ret_abs=True).item())
         print(train_graphs.fedlora_A_cosine[::5])
         print(train_graphs.fedlora_B_cosine[::5])
-        """
-        norm_A_diff, norm_B_diff = 0, 0 
-        norm_A, norm_B = 0, 0 
-        for name in adapter_weights:
-            if 'lora_A' in name:
-                norm_A += torch.norm(adapter_weights[name]) ** 2
-                #norm_A_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
-            elif 'lora_B' in name:
-                norm_B += torch.norm(adapter_weights[name]) ** 2
-                #norm_B_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
-        #print("param norms: ", norm_A.item(), norm_B.item(), norm_A_diff.item(), norm_B_diff.item())
-        print("param norms: ", norm_A.item(), norm_B.item())
         
-
+        #from arch.lora import get_lora_norm, get_weight_norm
+        #get_lora_norm(adapter_weights)
+    """
     #server_optimizer.zero_grad()
     #for name, param in model.named_parameters():
     grad_norm = 0
@@ -558,6 +544,10 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 adapter_weights[lora_A_name].data = Q.T
                 adapter_weights[lora_B_name].data = X.T
     print("Truncation Error: ", truncate_err)
+    from arch.lora import get_lora_norm, get_weight_norm
+    get_lora_norm(adapter_weights) 
+    get_weight_norm(opt_params["server_params"])
+    print("end epoch")     
     train_graphs.truncate_err.append(truncate_err)
 
 def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
@@ -1062,7 +1052,7 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
         from analysis.loss import compute_loss
         save_best_model = compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, analysis_loader, test_loader, \
                                        opt_params, compute_acc, compute_model_output='output' in analysis_list, dataset_name=analysis_params["dataset_name"], \
-                                        model_name = model_name, model_path=analysis_params["model_path"], tokenizer=analysis_params["tokenizer"], no_val=analysis_params["no_val"])
+                                        model_name = model_name, model_path=analysis_params["model_path"], tokenizer=analysis_params["tokenizer"], is_val=analysis_params["is_val"], no_val=analysis_params["no_val"])
 
     if 'eigs' in analysis_list:
         from analysis.eigs import compute_eigenvalues
@@ -1371,6 +1361,7 @@ if __name__ == "__main__":
     opt_params["wild_data"]        = args.dataset in ["wilds"]
     analysis_params["model_path"]  = None #placeholder
     analysis_params["tokenizer"]   = None #placeholder
+    analysis_params["is_val"]       = True 
 
     if opt_params["debug"]:
         torch.autograd.set_detect_anomaly(True)
@@ -1994,6 +1985,11 @@ if __name__ == "__main__":
                 model.set_adapter("default")
             else:
                 model.load_state_dict(torch.load(os.path.join(load_from_dir, "model.ckpt")))
+
+            if opt_name == "federated" and apply_lora and opt_params["fedlora_avg"] in ["svd", "svd_v2", "sketch", "sketch_v2", "svd_het"]:
+                from arch.lora import load_server_optimizer
+                # apply server optimizer to original weight matrices
+                optimizer, lr_scheduler, opt_params["server_params"] = load_server_optimizer(model, lr, momentum, weight_decay, model_params, **opt_params)
             optimizer.load_state_dict(torch.load(os.path.join(load_from_dir, "optimizer.ckpt")))
             if hasattr(optimizer, "base_optimizer"):
                 optimizer.base_optimizer.load_state_dict(torch.load(os.path.join(load_from_dir, "base_optimizer.ckpt")))
@@ -2001,14 +1997,15 @@ if __name__ == "__main__":
                 #print(optimizer.base_optimizer.state_dict()['state'][0]['step'])
                 #sys.exit()
             optimizer_to(optimizer, device)
+
             with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
                 train_graphs = pickle.load(f)
 
         #if model_name != "akjindal53244/Arithmo-Mistral-7B":
             # Mistral is already on cuda:0
         model = model.to(device)
-        for name, param in model.named_parameters():
-            print(name, param.shape, param.requires_grad)
+        #for name, param in model.named_parameters():
+        #    print(name, param.shape, param.requires_grad)
 
         directory = get_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
         os.makedirs(directory, exist_ok=True)
@@ -2062,6 +2059,7 @@ if __name__ == "__main__":
                     
 
     if do_eval:
+        analysis_params["is_val"] = False
         directory = get_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
         if lr != 0:
             print("loading pretrained model..")

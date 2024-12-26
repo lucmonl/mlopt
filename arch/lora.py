@@ -75,13 +75,14 @@ def load_server_optimizer(model, lr, momentum, weight_decay, model_params, **kwa
         if param.requires_grad:
             adapter_names.append(name)
             adapter_weights[name] = param
-    #output_layer_name = adapter_names[-1]
+    #output_layer_name = adapter_names[-1]      
+    get_lora_norm(adapter_weights)
 
     for i in range(0, len(adapter_names)-1, 2):
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
         base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
         base_names.append(base_weight_name)
-        parameters[base_weight_name] = Parameter(torch.zeros_like(adapter_weights[lora_B_name] @ adapter_weights[lora_A_name]).T.to(torch.float16).to(kwargs["device"]))
+        parameters[base_weight_name] = Parameter((adapter_weights[lora_B_name] @ adapter_weights[lora_A_name]).T.to(torch.float16).to(kwargs["device"]))
 
     for name, param in model.named_parameters():
         #if name in base_names:
@@ -111,9 +112,30 @@ def load_server_optimizer(model, lr, momentum, weight_decay, model_params, **kwa
         model_params = model_params | {"scheduler": "cosine", "lr_decay": kwargs["lr_decay"]}
     else:
         lr_scheduler = None
-    
+
+    get_weight_norm(parameters)
     return optimizer, lr_scheduler, parameters
 
+def get_lora_norm(adapter_weights):
+    norm_A, norm_B = 0, 0 
+    #norm_A_diff, norm_B_diff=0, 0
+    for name in adapter_weights:
+        if 'lora_A' in name:
+            norm_A += torch.norm(adapter_weights[name]) ** 2
+            #norm_A_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
+        elif 'lora_B' in name:
+            norm_B += torch.norm(adapter_weights[name]) ** 2
+            #norm_B_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
+    #print("param norms: ", norm_A.item(), norm_B.item(), norm_A_diff.item(), norm_B_diff.item())
+    print("param norms: ", norm_A.item(), norm_B.item())
+    return norm_A.item(), norm_B.item()
+
+def get_weight_norm(weights):
+    weight_norm = 0
+    for name in weights:
+        weight_norm += torch.norm(weights[name])**2
+    print("weight norm: ", weight_norm.item())
+    return weight_norm.item()
 """
 def lora_reassign_weights(model, state_dict, r, lora_alpha, fan_in_fan_out=False, merge=True):
     is_merged = getattr(model, "is_merged", False)
