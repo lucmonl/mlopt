@@ -507,15 +507,22 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                         error_feedback = 0
                     else:
                         assert False
-                    print(opt_params["server_params"][name].data.shape)
-                    print("start change dtype")
-                    double_matrix = opt_params["server_params"][name].data.to(torch.float)
+                    #print(opt_params["server_params"][name].data.shape)
+
+                    double_matrix = opt_params["server_params"][name].data
+                    """
                     print("start svd")
-                    U, S, Vh = torch.linalg.svd(double_matrix + error_feedback, full_matrices=False)
+                    U, S, Vh = torch.linalg.svd(double_matrix.to(torch.float) + error_feedback, full_matrices=False)
                     print("end svd", torch.sum(S[lora_rank:]).item())
                     #print(S[:lora_rank+5])
                     U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
                     truncate_err += torch.sum(S[lora_rank:]).item()
+                    """
+                    import scipy.sparse.linalg as sp
+                    U_truncate, S_truncate, Vh_truncate = sp.svds((double_matrix.to(torch.float) + error_feedback).cpu().numpy(), k=lora_rank)
+                    U_truncate= torch.from_numpy(U_truncate.copy()).to(device)
+                    S_truncate= torch.sqrt(torch.from_numpy(S_truncate.copy()).to(device))
+                    Vh_truncate= torch.from_numpy(Vh_truncate.copy()).to(device)
 
                     if opt_params["use_ef"] == 1:
                         opt_params["error_feedback"][name] += opt_params["server_params"][name].data - U_truncate @ torch.diag(S_truncate**2) @ Vh_truncate
@@ -553,8 +560,6 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     from arch.lora import get_lora_norm, get_weight_norm
     get_lora_norm(adapter_weights) 
     get_weight_norm(opt_params["server_params"])
-    print("end epoch")
-    sys.exit()  
     train_graphs.truncate_err.append(truncate_err)
 
 def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
@@ -1222,6 +1227,7 @@ if __name__ == "__main__":
     parser.add_argument("--multiple_run", type=bool, default=False, help="independent run without overwriting or loading")
     parser.add_argument("--run_from_scratch", type=bool, default=False, help="do not load from previous results")
     parser.add_argument("--store_model_checkpoint", type=bool, default=False, help="store the checkpoint models every analysis step")
+    parser.add_argument("--load_checkpoint", type=int, default=-1, help="load model from checkpoint")
     parser.add_argument("--no_train", action='store_true', help="train model")
     parser.add_argument("--do_eval", action='store_true', help="evaluate model")
     parser.add_argument("--no_val", action='store_true', help="no validation dataset in analysis")
@@ -1264,6 +1270,7 @@ if __name__ == "__main__":
     multi_run           = args.multiple_run
     run_from_scratch    = args.run_from_scratch
     store_model_checkpoint = args.store_model_checkpoint
+    load_checkpoint     = args.load_checkpoint
     
 
     opt_params["debug"] = args.debug # Only runs 10 batches per epoch for debugging
@@ -2068,7 +2075,7 @@ if __name__ == "__main__":
                         #torch.save(model.state_dict(), f"{directory}/model.ckpt")
                         from transformers import Trainer, TrainingArguments
                         from utilities import safe_save_model_for_hf_trainer
-                        os.makedirs(f"{directory}/checkpoint_{epoch}")
+                        os.makedirs(f"{directory}/checkpoint_{epoch}", exist_ok=True)
                         analysis_params["model_path"] = f"{directory}/checkpoint_{epoch}"
                         trainer = Trainer(model=model, tokenizer=tokenizer)
                         safe_save_model_for_hf_trainer(trainer=trainer, output_dir=analysis_params["model_path"])
@@ -2102,7 +2109,12 @@ if __name__ == "__main__":
                         state_dict = torch.load(os.path.join(root, name, "model.ckpt"))
                         model.load_state_dict(state_dict)
                         model = model.to(device)
-                    analysis_params["model_path"] = os.path.join(root, name)
+                    if load_checkpoint != -1:
+                        analysis_params["model_path"] = os.path.join(root, name)
+                    else:
+                        analysis_params["model_path"] = os.path.join(root, name, f"checkpoint_{load_checkpoint}")
+                    assert os.path.isdir(analysis_params["model_path"])
+                    print("loading model from ", analysis_params["model_path"])
                     #print(root, name)
                     analysis(eval_graphs, ['loss'], model, model_name, criterion_summed, device, C, opt_params["compute_acc"], None, test_loader, [], None, opt_params, analysis_params)
             sys.exit()
