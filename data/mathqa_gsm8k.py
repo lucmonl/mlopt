@@ -11,7 +11,7 @@ from torch.utils.data import Dataset
 from transformers import Trainer
 import argparse
 import json
-import random;random.seed(42)
+import random#;random.seed(42)
 
 DATASETS_FOLDER = "/projects/dali/data/"
 

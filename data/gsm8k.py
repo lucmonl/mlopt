@@ -71,7 +71,7 @@ def batch_data(data_list, batch_size=1):
 
 def gsm8k_test(model_name, model_path, tokenizer, device, data_path, is_val, start=0, end=MAX_INT, batch_size=1, tensor_parallel_size=1):
     INVALID_ANS = "[invalid]"
-    verbose = False #not is_val #if valiadation, do not output logs
+    verbose = not is_val #if valiadation, do not output logs
     gsm8k_ins = []
     gsm8k_answers = []
     problem_prompt = (
@@ -95,7 +95,7 @@ def gsm8k_test(model_name, model_path, tokenizer, device, data_path, is_val, sta
     st0 = np.random.get_state()
     #use a fixed seed to ensure same split on the dataset
     np.random.seed(42)
-    val_size = int(0.3*dataset_size)
+    val_size = int(0*dataset_size)
     randperm = np.random.permutation(dataset_size)
     if is_val:
         val_ind = randperm[:val_size]

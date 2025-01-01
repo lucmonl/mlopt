@@ -1139,12 +1139,12 @@ def hook(self, input, output):
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "cifar100", "imagenet_tiny", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", 
-                "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds", "icl", "20newsgroups", "mathqa_gsm8k"]
+                "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds", "icl", "20newsgroups", "mathqa_gsm8k", "swag"]
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "res_conv_fixed_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2",
               "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", 
               "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1", "dino_vit_small", "dino_vit_base",
                 "dinov2_vit_base", "dinov2_vit_small", 
-              "dinov2_vit_giant2", "vit_small", "vit_medium", "vit_base", "lin_attn", "mlp", "gpt2", "roberta-base"]
+              "dinov2_vit_giant2", "vit_small", "vit_medium", "vit_base", "lin_attn", "mlp", "gpt2", "roberta-base", "bert-base-uncased"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'dom_sgd', 'gn_dom_sgd', 'gn_bulk_sgd', 'bulk_sgd', 'norm-sgd','adam', 'adamw', 'federated',
@@ -1510,6 +1510,9 @@ if __name__ == "__main__":
         else:
             from data.glue import load_glue
             model, train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_glue(model_name, batch_size, model_params)
+    elif dataset_name == "swag":
+        from data.swag import load_swag_federated
+        model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_swag_federated(model_name, batch_size, opt_params["client_num"])
     elif dataset_name == "cub":
         from data.dro import load_dro
         train_loader, test_loader, analysis_loader, analysis_test_loader, n_groups, group_counts, group_str, C, transform_to_one_hot, data_params = load_dro(batch_size, dataset="CUB", target_name=args.target_name, confounder_names=args.confounder_names, model_name=model_name)
@@ -1650,7 +1653,7 @@ if __name__ == "__main__":
         tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-uncased")
         model = AutoModelForMaskedLM.from_pretrained("google-bert/bert-base-uncased")
     elif model_name in ["roberta-base", "google-bert/bert-base-cased"]:
-        pass  # model is claimed in load_glue
+        pass  # model is claimed in load_glue, or load_swag
         """
         from transformers import AutoModelForSequenceClassification
         model = AutoModelForSequenceClassification.from_pretrained(
@@ -1975,7 +1978,7 @@ if __name__ == "__main__":
         print("number of parameters:", len(parameters_to_vector(model.parameters())))
 
     optimizer, lr_scheduler, model_params= load_optimizer(opt_params["opt_name"], model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, model_params, opt_params)
-    
+
     if not no_train:
         train_graphs = graphs()
         test_loader = val_loader
@@ -2102,14 +2105,17 @@ if __name__ == "__main__":
                 copy_graph(eval_graphs, eval_graphs_exist)
 
         if 'loss' in analysis_list:
+            """
             running_directory = get_running_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, epochs, **model_params)
             for root, dirs, files in os.walk(running_directory):
                 for name in dirs:
+                    print(root, name)
+                    
                     if model_name not in ["akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1"]:
                         state_dict = torch.load(os.path.join(root, name, "model.ckpt"))
                         model.load_state_dict(state_dict)
                         model = model.to(device)
-                    if load_checkpoint != -1:
+                    if load_checkpoint == -1:
                         analysis_params["model_path"] = os.path.join(root, name)
                     else:
                         analysis_params["model_path"] = os.path.join(root, name, f"checkpoint_{load_checkpoint}")
@@ -2117,6 +2123,13 @@ if __name__ == "__main__":
                     print("loading model from ", analysis_params["model_path"])
                     #print(root, name)
                     analysis(eval_graphs, ['loss'], model, model_name, criterion_summed, device, C, opt_params["compute_acc"], None, test_loader, [], None, opt_params, analysis_params)
+            """
+            if load_checkpoint == -1:
+                analysis_params["model_path"] = os.path.join(directory, name)
+            else:
+                analysis_params["model_path"] = os.path.join(directory, f"checkpoint_{load_checkpoint}")
+            print("loading model from ", analysis_params["model_path"])
+            analysis(eval_graphs, ['loss'], model, model_name, criterion_summed, device, C, opt_params["compute_acc"], None, test_loader, [], None, opt_params, analysis_params)
             sys.exit()
 
         if 'model_average' in analysis_list:

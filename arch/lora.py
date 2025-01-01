@@ -19,7 +19,8 @@ def add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a
         return model, 'classifier', Lora_config
     elif model_name in ["akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1"]:
         # from https://huggingface.co/upaya07/Arithmo2-Mistral-7B-adapter/blob/main/adapter_config.json
-        model, Lora_config = add_adapters(model, lora_rank, lora_alpha, None, ["o_proj", "q_proj", "v_proj", "down_proj", "up_proj", "k_proj", "gate_proj"], task_type="CAUSAL_LM")
+        #model, Lora_config = add_adapters(model, lora_rank, lora_alpha, None, ["o_proj", "q_proj", "v_proj", "down_proj", "up_proj", "k_proj", "gate_proj"], task_type="CAUSAL_LM")
+        model, Lora_config = add_adapters(model, lora_rank, lora_alpha, None, ["q_proj", "v_proj"], task_type="CAUSAL_LM")
         return model, None, Lora_config
 
 def add_ft(model, output_layer_name, target_modules):
@@ -72,17 +73,18 @@ def load_server_optimizer(model, lr, momentum, weight_decay, model_params, **kwa
     output_layer_name = kwargs["output_layer_name"]
     for name, param in model.named_parameters():
         # select lora_A and lora_B
-        if param.requires_grad:
+        if param.requires_grad and "lora" in name:
             adapter_names.append(name)
             adapter_weights[name] = param
     #output_layer_name = adapter_names[-1]      
     get_lora_norm(adapter_weights)
 
-    for i in range(0, len(adapter_names)-1, 2):
+    for i in range(0, len(adapter_names), 2):
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
         base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
         base_names.append(base_weight_name)
         parameters[base_weight_name] = Parameter((adapter_weights[lora_B_name] @ adapter_weights[lora_A_name]).T.to(torch.float16).to(kwargs["device"]))
+        #print(lora_A_name, lora_B_name, adapter_weights[lora_B_name].shape, adapter_weights[lora_A_name].shape, (adapter_weights[lora_B_name] @ adapter_weights[lora_A_name]).shape)
 
     for name, param in model.named_parameters():
         #if name in base_names:
