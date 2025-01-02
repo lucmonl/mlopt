@@ -355,7 +355,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         """
         base_adapter_names[base_weight_name] = [lora_A_name, lora_B_name]
         lora_A_param, lora_B_param = adapter_weights[lora_A_name], adapter_weights[lora_B_name]
-        opt_params["server_params"][base_weight_name].grad = (lora_B_param @ lora_A_param).T.to(torch.float16)
+        opt_params["server_params"][base_weight_name].grad = (lora_B_param @ lora_A_param).T#.to(torch.float16)
 
     for name, param in model.named_parameters():
         if param.requires_grad and output_layer_name and output_layer_name in name:
@@ -403,7 +403,8 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 lora_B_name = name.replace("base_layer", "lora_B.default")
                 lora_A_param, lora_B_param = lora_params[lora_A_name], lora_params[lora_B_name]
                 #lora_A_param, lora_B_param = torch.cat(lora_params[lora_A_name]+[lora_A_param], dim=0), torch.cat(lora_params[lora_B_name]+[-lora_B_param], dim=1)
-                opt_params["server_params"][name].grad -= (lora_B_param.to(torch.float16) @ lora_A_param.to(torch.float16)).T
+                #opt_params["server_params"][name].grad -= (lora_B_param.to(torch.float16) @ lora_A_param.to(torch.float16)).T
+                opt_params["server_params"][name].grad -= (lora_B_param @ lora_A_param).T
                 #opt_params["server_params"][name].grad = (base_adapter_weights[name] - aggregated_weights[name]).T
                 #grad_norm += torch.linalg.norm(opt_params["server_params"][name].grad) ** 2
     """
@@ -470,6 +471,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     if opt_params["train_stats"]:
         train_graphs.grad_norm.append(grad_norm.item())
         print("grad norm:", train_graphs.grad_norm[-1])
+
     server_optimizer.step()
 
     if server_lr_scheduler is not None:
@@ -508,7 +510,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                     else:
                         assert False
                     #print(opt_params["server_params"][name].data.shape)
-
+                    #print(torch.isnan(opt_params["server_params"][name].data).any(), torch.isinf(opt_params["server_params"][name].data).any())
                     double_matrix = opt_params["server_params"][name].data
                     """
                     print("start svd")
