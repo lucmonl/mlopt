@@ -13,7 +13,8 @@ import argparse
 import json
 import random#;random.seed(42)
 
-DATASETS_FOLDER = "/projects/dali/data/"
+#DATASETS_FOLDER = "/projects/dali/data/"
+DATASETS_FOLDER = os.environ["DATA_HOME"]
 
 def _make_r_io_base(f, mode: str):
     if not isinstance(f, io.IOBase):

@@ -14,6 +14,12 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
 from tqdm import tqdm
+
+if not sys.stdout.isatty():
+    pbar = range  # Use a simple range iterator instead of tqdm
+else:
+    pbar = tqdm  # Use tqdm if output is not redirected
+
 from collections import OrderedDict
 #os.environ["SCIPY_USE_PROPACK"] =  "1"
 from scipy.sparse.linalg import svds
@@ -35,6 +41,7 @@ from utilities import map_update, dict_to_, graph_update
 #sys.path.append(parent_dir)
 #print(parent_dir)
 #from utilities import get_hessian_eigenvalues_weight_decay, get_hessian_eigenvalues
+print("Available GPU Count: ", torch.cuda.device_count())
 
 def srht_sketch(P, H, D):
     return 
@@ -79,8 +86,8 @@ def federated_train_1(model, loss_name, criterion, device, num_classes, train_lo
     #running_stats = {}
     for client_id in range(client_num):
         # update client models
-        client_model = copy.deepcopy(model)
-
+        client_model = copy.deepcopy(model.to("cpu"))
+        client_model.to(device)
         client_model.train()
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], weight_decay, lr_decay, epochs_lr_decay, False, {}, opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
@@ -355,7 +362,10 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         """
         base_adapter_names[base_weight_name] = [lora_A_name, lora_B_name]
         lora_A_param, lora_B_param = adapter_weights[lora_A_name], adapter_weights[lora_B_name]
-        opt_params["server_params"][base_weight_name].grad = (lora_B_param @ lora_A_param).T#.to(torch.float16)
+        if opt_params["multi_gpu"]:
+            opt_params["server_params"][base_weight_name].grad = (lora_B_param.to(torch.device('cuda:1')) @ lora_A_param.to(torch.device('cuda:1'))).T
+        else:
+            opt_params["server_params"][base_weight_name].grad = (lora_B_param @ lora_A_param).T#.to(torch.float16)
 
     for name, param in model.named_parameters():
         if param.requires_grad and output_layer_name and output_layer_name in name:
@@ -372,7 +382,17 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     #get_gpu_memory()
     for client_id in range(client_num):
         # update client models
+        #get_gpu_memory()
+        #print(device)
+        #client_model = copy.deepcopy(model.cpu())
+        #client_model.to(torch.device("cuda:1"))
         client_model = copy.deepcopy(model)
+        """
+        for param in client_model.parameters():
+            print(param.device)
+            break
+        sys.exit()
+        """
         #get_gpu_memory()
         client_model.train()
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], lr_decay, epochs_lr_decay, False, model_params, opt_params)
@@ -404,7 +424,10 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 lora_A_param, lora_B_param = lora_params[lora_A_name], lora_params[lora_B_name]
                 #lora_A_param, lora_B_param = torch.cat(lora_params[lora_A_name]+[lora_A_param], dim=0), torch.cat(lora_params[lora_B_name]+[-lora_B_param], dim=1)
                 #opt_params["server_params"][name].grad -= (lora_B_param.to(torch.float16) @ lora_A_param.to(torch.float16)).T
-                opt_params["server_params"][name].grad -= (lora_B_param @ lora_A_param).T
+                if opt_params["multi_gpu"]:
+                    opt_params["server_params"][name].grad -= (lora_B_param.to(torch.device('cuda:1')) @ lora_A_param.to(torch.device('cuda:1'))).T
+                else:
+                    opt_params["server_params"][name].grad -= (lora_B_param @ lora_A_param).T
                 #opt_params["server_params"][name].grad = (base_adapter_weights[name] - aggregated_weights[name]).T
                 #grad_norm += torch.linalg.norm(opt_params["server_params"][name].grad) ** 2
     """
@@ -521,7 +544,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                     truncate_err += torch.sum(S[lora_rank:]).item()
                     """
                     import scipy.sparse.linalg as sp
-                    U_truncate, S_truncate, Vh_truncate = sp.svds((double_matrix.to(torch.float) + error_feedback).cpu().numpy(), k=lora_rank)
+                    U_truncate, S_truncate, Vh_truncate = sp.svds((double_matrix + error_feedback).cpu().numpy(), k=lora_rank)
                     U_truncate= torch.from_numpy(U_truncate.copy()).to(device)
                     S_truncate= torch.sqrt(torch.from_numpy(S_truncate.copy()).to(device))
                     Vh_truncate= torch.from_numpy(Vh_truncate.copy()).to(device)
@@ -830,6 +853,8 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 target = input["labels"].to(device)
                 output = model(**input)
             loss, out = output.loss, output.logits
+            if opt_params["use_parallel"]:
+                loss = torch.mean(loss)
 
         if opt_params["forward_backward"]:
             if opt_params["opt_name"] == "adahessian":
@@ -1161,6 +1186,8 @@ if __name__ == "__main__":
     parser.add_argument("--pretrain", type=str, default="none", help="use pretrained model")
     parser.add_argument("--pretrain_epoch", type=int, default=-1, help="the epoch number for pretrained model")
     parser.add_argument("--pretrain_aug", type=str, default="none", choices=["none", "sam", "clip", "sbb"], help="augmentation used in pretrained model.")
+    parser.add_argument("--use_parallel", action='store_true', help="wrap the model with nn.DataParallel")
+    parser.add_argument("--multi_gpu", action='store_true', help="use second gpus as fedlora server optimizer")
 
     #model
     parser.add_argument("--width", type=int, default=512, help="network width for weight norm or number of filters in convnets")
@@ -1382,6 +1409,9 @@ if __name__ == "__main__":
     analysis_params["model_path"]  = None #placeholder
     analysis_params["tokenizer"]   = None #placeholder
     analysis_params["is_val"]       = True 
+
+    opt_params["use_parallel"]     = args.use_parallel
+    opt_params["multi_gpu"]        = args.multi_gpu
 
     if opt_params["debug"]:
         torch.autograd.set_detect_anomaly(True)
@@ -2027,6 +2057,8 @@ if __name__ == "__main__":
         #if model_name != "akjindal53244/Arithmo-Mistral-7B":
             # Mistral is already on cuda:0
         model = model.to(device)
+        if opt_params["use_parallel"]:
+            model = nn.DataParallel(model)
         #for name, param in model.named_parameters():
         #    print(name, param.shape, param.requires_grad)
         directory = get_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)

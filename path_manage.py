@@ -2,8 +2,9 @@ import os
 import sys
 
 def get_lookup_directory(lr, dataset_name, loss_name, opt_name, model_name, momentum, weight_decay, batch_size, **kwargs):
+    dir_path = os.path.dirname(os.path.realpath(__file__))
     results_dir = "results"
-    directory = f"{results_dir}/{dataset_name}/{loss_name}/{opt_name}/{model_name}/"
+    directory = os.path.join(dir_path, f"{results_dir}/{dataset_name}/{loss_name}/{opt_name}/{model_name}/")
     for key, value in kwargs.items():
         directory += f"{key}_{value}/"
     directory += f"lr_{lr}/moment_{momentum}/wd_{weight_decay}/batch_size_{batch_size}/"

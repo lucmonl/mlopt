@@ -63,6 +63,26 @@ def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules
         add_ft(model, output_layer_name, target_modules)
     return model, config
 
+def lora_name_to_base(lora_A_name, use_parallel=False):
+    base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
+    if use_parallel:
+        base_weight_name = "module."+base_weight_name
+    return base_weight_name
+
+def get_lora_norm(adapter_weights):
+    norm_A, norm_B = 0, 0 
+    #norm_A_diff, norm_B_diff=0, 0
+    for name in adapter_weights:
+        if 'lora_A' in name:
+            norm_A += torch.norm(adapter_weights[name]) ** 2
+            #norm_A_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
+        elif 'lora_B' in name:
+            norm_B += torch.norm(adapter_weights[name]) ** 2
+            #norm_B_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
+    #print("param norms: ", norm_A.item(), norm_B.item(), norm_A_diff.item(), norm_B_diff.item())
+    print("param norms: ", norm_A.item(), norm_B.item())
+    return norm_A.item(), norm_B.item()
+
 def load_server_optimizer(model, lr, momentum, weight_decay, model_params, **kwargs):
     from torch.nn.parameter import Parameter
     parameters = {}
@@ -81,10 +101,14 @@ def load_server_optimizer(model, lr, momentum, weight_decay, model_params, **kwa
 
     for i in range(0, len(adapter_names), 2):
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
-        base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
+        base_weight_name = lora_name_to_base(lora_A_name, kwargs["use_parallel"])
         base_names.append(base_weight_name)
         #parameters[base_weight_name] = Parameter((adapter_weights[lora_B_name] @ adapter_weights[lora_A_name]).T.to(torch.float16).to(kwargs["device"]))
-        parameters[base_weight_name] = Parameter((adapter_weights[lora_B_name] @ adapter_weights[lora_A_name]).T.to(kwargs["device"]))
+
+        if kwargs["multi_gpu"]:
+            parameters[base_weight_name] = Parameter((adapter_weights[lora_B_name] @ adapter_weights[lora_A_name]).T.to(torch.device("cuda:1")))
+        else:  
+            parameters[base_weight_name] = Parameter((adapter_weights[lora_B_name] @ adapter_weights[lora_A_name]).T.to(kwargs["device"]))                                    
         #print(lora_A_name, lora_B_name, adapter_weights[lora_B_name].shape, adapter_weights[lora_A_name].shape, (adapter_weights[lora_B_name] @ adapter_weights[lora_A_name]).shape)
 
     for name, param in model.named_parameters():
@@ -119,19 +143,7 @@ def load_server_optimizer(model, lr, momentum, weight_decay, model_params, **kwa
     get_weight_norm(parameters)
     return optimizer, lr_scheduler, parameters
 
-def get_lora_norm(adapter_weights):
-    norm_A, norm_B = 0, 0 
-    #norm_A_diff, norm_B_diff=0, 0
-    for name in adapter_weights:
-        if 'lora_A' in name:
-            norm_A += torch.norm(adapter_weights[name]) ** 2
-            #norm_A_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
-        elif 'lora_B' in name:
-            norm_B += torch.norm(adapter_weights[name]) ** 2
-            #norm_B_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
-    #print("param norms: ", norm_A.item(), norm_B.item(), norm_A_diff.item(), norm_B_diff.item())
-    print("param norms: ", norm_A.item(), norm_B.item())
-    return norm_A.item(), norm_B.item()
+
 
 def get_weight_norm(weights):
     weight_norm = 0
