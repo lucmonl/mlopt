@@ -490,15 +490,16 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, e
                                         opt_params[opt_name]['batch_size'], 
                                         opt_params[opt_name]['epochs'], **model_param)
         print(directory)
-        run_dir = os.listdir("../" + directory)
+        #run_dir = os.listdir("../" + directory)
+        run_dir = os.listdir(directory)
         train_graphs = []
         for run_id in run_dir[::-1]:
             if not eval: 
-                with open(f'../{directory}/{run_id}/train_graphs.pk', 'rb') as f:
+                with open(f'{directory}/{run_id}/train_graphs.pk', 'rb') as f:
                     train_graphs.append(pickle.load(f))
             else:
                 print("loading eval graph")
-                with open(f'../{directory}/{run_id}/eval_graphs.pk', 'rb') as f:
+                with open(f'{directory}/{run_id}/eval_graphs.pk', 'rb') as f:
                     train_graphs.append(pickle.load(f))
         #if len(train_graphs.log_epochs) != 0:
         #    cur_epochs = train_graphs.log_epochs

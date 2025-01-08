@@ -10,7 +10,7 @@ import sys
 import os
 MAX_INT = sys.maxsize
 
-abs_path = "/home/lucmon/lucmon/mlopt/"
+#abs_path = "/home/lucmon/lucmon/mlopt/"
 cache_dir = os.environ["HF_HOME"] + "/vllm_cache"
 
 def is_number(s):
@@ -116,7 +116,7 @@ def gsm8k_test(model_name, model_path, tokenizer, device, data_path, is_val, sta
     if verbose:
         print('sampleing =====', sampling_params)
     from pathlib import Path
-    lora_request = LoRARequest("gsm8k_adapter", 1, abs_path+model_path)
+    lora_request = LoRARequest("gsm8k_adapter", 1, model_path)
     model_name = "mistralai/Mistral-7B-v0.1"
     llm = LLM(model=model_name,tensor_parallel_size=tensor_parallel_size, enable_lora=True, download_dir= cache_dir)
     
