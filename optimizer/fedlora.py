@@ -115,6 +115,92 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
     for group in server_optimizer.param_groups:
         print("server lr", group['lr'])
 
+def federated_lora_fedex(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
+    client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
+    import copy
+    import math
+    from utilities import vector_to_grads, vector_to_grads_sq
+    from main import train
+
+    base_weights = {}
+    for name, param in model.named_parameters():
+        if "base_layer" in name:
+            base_weights[name] = param
+
+    adapter_names = []
+    adapter_weights = {}
+    output_weights = {}
+    output_layer_name = opt_params["output_layer_name"]
+    for name, param in model.named_parameters():
+        # select lora_A and lora_B
+        if param.requires_grad:
+            if output_layer_name and output_layer_name in name:
+                output_weights[name]= 0
+            else:
+                adapter_names.append(name)
+                adapter_weights[name] = torch.zeros_like(param)
+
+    #from utilities import state_dict_to_vector, vector_to_state_dict
+    # initialize client models, optimizers
+        
+    #running_stats = {}
+    client_opt_params = copy.deepcopy(opt_params)
+    client_opt_params["train_stats"] = False
+    for client_id in range(client_num):
+        # update client models
+        client_model = copy.deepcopy(model)
+
+        client_model.train()
+        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], opt_params["lr_decay"], opt_params["epochs_lr_decay"], False, model_params, opt_params)
+        #vector_to_parameters(old_params, client_model.parameters())
+        for epoch in range(client_epoch):
+            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
+            
+            for name, param in client_model.named_parameters():
+                #print(name, param.shape)
+                if param.requires_grad:
+                    #param_names.append(name)
+                    if output_layer_name and output_layer_name in name:
+                        output_weights[name] += param.data / client_num
+                    elif name in adapter_weights:
+                        #lora_params[name].append(param.data)
+                        if 'lora_A' in name:
+                            base_name = name.replace("lora_A.default", "base_layer")
+                            adapter_weights[name] += param.data/client_num
+                            base_name_A, base_A_param = base_name, param.data
+                        elif 'lora_B' in name:
+                            base_name = name.replace("lora_B.default", "base_layer")
+                            assert base_name == base_name_A #ensure this module to be the sequel of A
+                            adapter_weights[name] += param.data/client_num
+                            base_B_param = param.data
+
+                            scaling = model_params["lora_alpha"] / model_params["lora_rank"]
+                            base_weights[base_name].data +=  scaling * (base_B_param @ base_A_param).T / client_num
+                        else: assert False
+                    else:
+                        assert False
+
+    # assign new param to model and integrate Delta_W
+    for name, param in model.named_parameters():
+        if 'lora_A' in name:
+            base_name = name.replace("lora_A.default", "base_layer")
+            param.data = adapter_weights[name].data
+            base_name_A, base_A_param = base_name, param.data
+        if 'lora_B' in name:
+            base_name = name.replace("lora_B.default", "base_layer")
+            assert base_name == base_name_A #ensure this module to be the sequel of A
+            param.data = adapter_weights[name].data
+            base_B_param = param.data
+
+            scaling = model_params["lora_alpha"] / model_params["lora_rank"]
+            base_weights[base_name].data -= scaling * (base_B_param @ base_A_param).T
+
+    if server_lr_scheduler is not None:
+        server_lr_scheduler.step()
+
+    for group in server_optimizer.param_groups:
+        print("server lr", group['lr'])
+
 def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     from main import train
     

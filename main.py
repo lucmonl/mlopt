@@ -86,8 +86,8 @@ def federated_train_1(model, loss_name, criterion, device, num_classes, train_lo
     #running_stats = {}
     for client_id in range(client_num):
         # update client models
-        client_model = copy.deepcopy(model.to("cpu"))
-        client_model.to(device)
+        client_model = copy.deepcopy(model)
+        #client_model.to(device)
         client_model.train()
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], weight_decay, lr_decay, epochs_lr_decay, False, {}, opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
@@ -334,6 +334,10 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         from optimizer.fedlora import federated_lora_avg
         opt_params["train_stats"] = True
         federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
+        return
+    elif opt_params["fedlora_avg"] == "fedex":
+        from optimizer.fedlora import federated_lora_fedex
+        federated_lora_fedex(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
         return
     elif opt_params["fedlora_avg"] == "svd_grad":
         return federated_lora_grad(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch)
@@ -1277,7 +1281,7 @@ if __name__ == "__main__":
     parser.add_argument("--sketch_size", type=int, default=-1, help="sketch size in communication")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
-    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het"], default="avg", help="methods to average A and B matrix in federated lora")
+    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het", "fedex"], default="avg", help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
     parser.add_argument("--use_ef", type=int, default=False, help="use error feedback (currently only in lora)")
     parser.add_argument("--client_early_stop", type=int, default=-1, help="the number of minibatch for each client iteration, -1 for complete training")
