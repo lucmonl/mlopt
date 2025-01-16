@@ -1280,7 +1280,7 @@ if __name__ == "__main__":
     #federated learning hyperparameters
     parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd", "onebit", "cdadam", "cocktailsgd", "cocktailsgd2"], help="optimizer of server")
     parser.add_argument("--client_num", type=int, default=1, help="number of clients")
-    parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd", "adam"], help="optimizer of clients")
+    parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd", "adam", "adamw"], help="optimizer of clients")
     parser.add_argument("--client_lr", type=float, default=0.01, help="lr of clients")
     parser.add_argument("--client_momentum", type=float, default=0.0, help="momentum of clients")
     parser.add_argument("--client_weight_decay", type=float, default=0.0, help="momentum of clients")
