@@ -83,6 +83,14 @@ def get_lora_norm(adapter_weights):
     print("param norms: ", norm_A.item(), norm_B.item())
     return norm_A.item(), norm_B.item()
 
+def get_base_layer_norm(model):
+    norm_base_layer = 0
+    for name, param in model.named_parameters():
+        if 'base_layer' in name:
+            norm_base_layer += torch.norm(param.data) ** 2
+    print("base layer norms: ", norm_base_layer.item())
+    return norm_base_layer.item()
+
 def load_server_optimizer(model, lr, momentum, weight_decay, model_params, **kwargs):
     from torch.nn.parameter import Parameter
     parameters = {}

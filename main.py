@@ -323,10 +323,12 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 adapter_weights[name] = param
     
     if opt_params["train_stats"]:
-        from arch.lora import get_lora_norm, get_weight_norm
+        from arch.lora import get_lora_norm, get_weight_norm, get_base_layer_norm
         norm_A, norm_B = get_lora_norm(adapter_weights)      
         train_graphs.lora_A_norm.append(norm_A)
         train_graphs.lora_B_norm.append(norm_B)
+
+        get_base_layer_norm(model)
         if "server_params" in opt_params:
             get_weight_norm(opt_params["server_params"])
     
@@ -339,6 +341,11 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         from optimizer.fedlora import federated_lora_fedex
         federated_lora_fedex(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
         return
+    elif opt_params["fedlora_avg"] == "flora":
+        from optimizer.fedlora import federated_lora_flora
+        model = federated_lora_flora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
+        #model.load_state_dict(state_dict)
+        return model
     elif opt_params["fedlora_avg"] == "svd_grad":
         return federated_lora_grad(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch)
     elif opt_params["fedlora_avg"] == "svd_het":
@@ -1281,7 +1288,7 @@ if __name__ == "__main__":
     parser.add_argument("--sketch_size", type=int, default=-1, help="sketch size in communication")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
-    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het", "fedex"], default="avg", help="methods to average A and B matrix in federated lora")
+    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het", "fedex", "flora"], default="avg", help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
     parser.add_argument("--use_ef", type=int, default=False, help="use error feedback (currently only in lora)")
     parser.add_argument("--client_early_stop", type=int, default=-1, help="the number of minibatch for each client iteration, -1 for complete training")
@@ -1317,6 +1324,7 @@ if __name__ == "__main__":
 
     # model parameters
     model_name          = args.model #"2-mlp-sim-bn"#"weight_norm_torch" #"weight_norm" #"resnet18"
+    opt_params["model_name"] = model_name
     width               = args.width #2048#512 #, 1024
     depth               = args.depth
     wn_init_mode        = args.init_mode  # "O(1)" # "O(1/sqrt{m})"
@@ -1402,6 +1410,7 @@ if __name__ == "__main__":
     opt_params["clip_tau"]         = args.clip_tau
     opt_params["fedlora_avg"]      = args.fedlora_avg
     opt_params["fedlora_uba"]      = args.fedlora_uba
+    opt_params["lora_freeze_a"]    = args.lora_freeze_a
     opt_params["use_ef"]           = args.use_ef
     opt_params["client_early_stop"]= args.client_early_stop
     
@@ -2080,7 +2089,9 @@ if __name__ == "__main__":
                 #client_lr_scheduler.step()
                 #print(client_lr)
                 if apply_lora:
-                    federated_lora(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params["client_lr"], opt_params, epoch)
+                    model_update = federated_lora(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params["client_lr"], opt_params, epoch)
+                    if model_update is not None:
+                        model = model_update
                 else:
                     federated_train(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params["client_lr"], opt_params, epoch)
             else:
