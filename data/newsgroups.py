@@ -11,10 +11,9 @@ from PIL import Image
 from data.dirichlet import partition_dirichlet
 #from train_utils import test_batch_cls, test_batch_nwp
 
-DATA = "/projects/dali/data/" 
+#DATA = "/projects/dali/data/" 
 #DATA = "/u/lucmon/lucmon/data"
-
-
+DATA = os.environ["DATA_HOME"]
 
 def build_20newsgroups():
     train_pt = f"{DATA}/20newsgroups/20newsgroups_train.pt"
