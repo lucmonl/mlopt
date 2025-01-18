@@ -1449,7 +1449,7 @@ if __name__ == "__main__":
                 train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar_federated(loss_name, batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
             else:
                 from data.cifar import load_cifar_vit_federated
-                train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params = load_cifar_vit_federated(model_name =model_name, batch_size= batch_size, client_num=opt_params["client_num"], alpha=0.0)
+                train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params = load_cifar_vit_federated(model_name =model_name, batch_size= batch_size, client_num=opt_params["client_num"], alpha=0.0)
             if opt_params["non_iid"] != 0:
                 model_params = model_params | {"non_iid": opt_params["non_iid"]}
         elif opt_params["hf_model"]:
@@ -1478,7 +1478,7 @@ if __name__ == "__main__":
             """
             if opt_params["hf_model"]:
                 from data.cifar import load_cifar100_vit_federated
-                train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params = load_cifar100_vit_federated(model_name =model_name, batch_size= batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
+                train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params = load_cifar100_vit_federated(model_name =model_name, batch_size= batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
             else:
                 from data.cifar import load_cifar100_federated
                 train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_cifar100_federated(loss_name, batch_size, client_num=opt_params["client_num"])

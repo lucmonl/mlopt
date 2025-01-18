@@ -564,7 +564,7 @@ def load_cifar100_vit_federated(model_name: str, batch_size: int, train_size = -
     clientidx = partition_dirichlet(Y_tr, client_num, alpha, seed)
     clients = [torch.utils.data.Subset(trainset, trainidx[cidx]) for cidx in clientidx]
     validx = np.arange(int(N*0.8), N)
-    #valset = torch.utils.data.Subset(trainset, validx)
+    valset = torch.utils.data.Subset(trainset, validx)
     testset = datasets.CIFAR100(root=DATASETS_FOLDER, train=False, download=True, transform=test_transform)
     #return clients, valset, testset
     """
@@ -586,6 +586,10 @@ def load_cifar100_vit_federated(model_name: str, batch_size: int, train_size = -
         trainset,
         #collate_fn=collate_fn, 
         batch_size=batch_size, shuffle=True)
+    val_loader = torch.utils.data.DataLoader(
+        valset,
+        #collate_fn=collate_fn, 
+        batch_size=batch_size, shuffle=True)
     test_loader = torch.utils.data.DataLoader(
         testset,
         #collate_fn=collate_fn, 
@@ -598,7 +602,7 @@ def load_cifar100_vit_federated(model_name: str, batch_size: int, train_size = -
         analysis_test,
         #collate_fn=collate_fn, 
         batch_size=analysis_size, shuffle=False)
-    return train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params
+    return train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params
 
 
 def load_cifar100_vit_federated_deprecated(model_name: str, batch_size: int, train_size = -1, client_num=1, alpha=0.0):
