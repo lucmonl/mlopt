@@ -559,13 +559,17 @@ def load_cifar100_vit_federated(model_name: str, batch_size: int, train_size = -
     id2label = {} # {id:label for id, label in enumerate(trainset.features['fine_label'].names)}
     label2id = {} # {label:id for id,label in id2label.items()}
     N = len(trainset)
-    trainidx = np.arange(0, int(N*0.8))
+    #trainidx = np.arange(0, int(N*0.8))
+    trainidx = np.arange(0, N)
     Y_tr = np.array([trainset.targets[i] for i in trainidx])
     clientidx = partition_dirichlet(Y_tr, client_num, alpha, seed)
     clients = [torch.utils.data.Subset(trainset, trainidx[cidx]) for cidx in clientidx]
-    validx = np.arange(int(N*0.8), N)
-    valset = torch.utils.data.Subset(trainset, validx)
+
     testset = datasets.CIFAR100(root=DATASETS_FOLDER, train=False, download=True, transform=test_transform)
+    N = len(testset)
+    validx, testidx = np.arange(0, int(N*0.5)), np.arange(int(N*0.5), N)
+    valset = torch.utils.data.Subset(testset, validx)
+    testset = torch.utils.data.Subset(testset, testidx)
     #return clients, valset, testset
     """
     def collate_fn(examples):
