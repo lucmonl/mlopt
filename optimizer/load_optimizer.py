@@ -238,6 +238,17 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
                             lr=lr,
                             momentum=momentum,
                             weight_decay=weight_decay)
+    elif opt_name == "marina":
+        assert kwargs["marina_prob"] > 0 and kwargs["marina_prob"] <= 1
+        model_params = model_params | {"full_prob": kwargs["marina_prob"]}
+        if kwargs["base_opt"] == "sgd":
+            optimizer = optim.SGD(model.parameters(),
+                                lr=lr,
+                                momentum=kwargs['client_momentum'],
+                                weight_decay=weight_decay)
+        elif kwargs["base_opt"] == "adam":
+            from torch.optim import Adam
+            optimizer = Adam(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
     else:
         raise NotImplementedError
     """

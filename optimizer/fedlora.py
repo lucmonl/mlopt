@@ -195,7 +195,9 @@ def federated_lora_fedex(model, loss_name, criterion, lora_rank, train_graphs, d
 
                 scaling = model_params["lora_alpha"] / model_params["lora_rank"]
                 base_weights[base_name] -= scaling * (base_B_param @ base_A_param).T
+                #print(name, torch.norm(base_weights[base_name]).item())
             elif output_layer_name and output_layer_name in name:
+                #print(name, torch.norm(param.data).item(), torch.norm(output_weights[name].data).item())
                 param.data = output_weights[name].data
 
     # assign new param to model

@@ -698,6 +698,19 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 vector_m += vector_m_sign
                 opt_params["client_error_feedback"][client_id] += vector_m_true - vector_m_sign
                 """
+            elif opt_params["server_opt_name"] == "marina":
+                no_sketch = np.random.binomial(1, opt_params["marina_prob"])
+                if server_epoch==1 or no_sketch == 0:
+                    vector_m += vector_m_true
+                    if "client_update" not in opt_params:
+                        opt_params["client_update"] = {}
+                    opt_params["client_update"][client_id] = vector_m_true.clone()
+                else:
+                    grad_diff = vector_m_true - opt_params["client_update"][client_id]
+                    opt_params["client_update"][client_id] = vector_m_true
+                    grad_diff_scale = torch.linalg.norm(grad_diff) / np.sqrt(torch.numel(grad_diff))
+                    grad_diff_sign = torch.sign(grad_diff) * grad_diff_scale
+                    vector_m += opt_params["server_update"] + grad_diff_sign
             else:
                 from hadamard_transform import hadamard_transform, pad_to_power_of_2 
                 new_params_pad = pad_to_power_of_2((old_params - new_params).detach())
@@ -747,6 +760,8 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             server_error = tensor_topk(opt_params["g_hat_server"] - opt_params["g_tilde"], k=sketch_size)
             opt_params["g_tilde"] += server_error
             vector_m = opt_params["g_tilde"]
+        elif opt_params["server_opt_name"] == "marina":
+            opt_params["server_update"] = vector_m
         elif opt_params["server_opt_name"] != "fetchsgd":
             vector_m = sub_sample_row.T @ vector_m
             vector_m = hadamard_transform(vector_m) * D
@@ -1278,7 +1293,7 @@ if __name__ == "__main__":
     parser.add_argument("--zero_out_selfattn", type=int, default=0, help="if 0 preserves self attention, if 1 zero out self attention")
 
     #federated learning hyperparameters
-    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd", "onebit", "cdadam", "cocktailsgd", "cocktailsgd2"], help="optimizer of server")
+    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd", "onebit", "cdadam", "cocktailsgd", "cocktailsgd2", "marina"], help="optimizer of server")
     parser.add_argument("--client_num", type=int, default=1, help="number of clients")
     parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd", "adam", "adamw"], help="optimizer of clients")
     parser.add_argument("--client_lr", type=float, default=0.01, help="lr of clients")
@@ -1292,6 +1307,7 @@ if __name__ == "__main__":
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
     parser.add_argument("--use_ef", type=int, default=False, help="use error feedback (currently only in lora)")
     parser.add_argument("--client_early_stop", type=int, default=-1, help="the number of minibatch for each client iteration, -1 for complete training")
+    parser.add_argument("--marina_prob", type=float, default=-1.0, help="the probability of transmitting full gradient")
 
     #llm hyperparameters
     parser.add_argument("--task_name", type=str, default="mrpc", help="task name")
@@ -1413,6 +1429,7 @@ if __name__ == "__main__":
     opt_params["lora_freeze_a"]    = args.lora_freeze_a
     opt_params["use_ef"]           = args.use_ef
     opt_params["client_early_stop"]= args.client_early_stop
+    opt_params["marina_prob"]      = args.marina_prob
     
     exp_avg, exp_avg_sq            = None, None
 
