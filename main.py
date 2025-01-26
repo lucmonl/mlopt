@@ -1568,10 +1568,10 @@ if __name__ == "__main__":
             model_params = model_params | {"train_size": args.sp_train_size}
         if opt_params["opt_name"] == "federated":
             from data.glue import load_glue_federated
-            model, train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_glue_federated(model_name, batch_size, opt_params["client_num"], model_params)
+            model, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_glue_federated(model_name, batch_size, opt_params["client_num"], model_params, do_eval)
         else:
             from data.glue import load_glue
-            model, train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_glue(model_name, batch_size, model_params)
+            model, train_loader, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_glue(model_name, batch_size, model_params, do_eval)
     elif dataset_name == "swag":
         from data.swag import load_swag_federated
         model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_swag_federated(model_name, batch_size, opt_params["client_num"])

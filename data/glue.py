@@ -930,6 +930,7 @@ def load_glue(model, batch_size, model_params, do_eval):
     data_params = {"compute_acc": True}
     train_loader = trainer.get_train_dataloader()
     test_loader = trainer.get_eval_dataloader()
+    val_loader = test_loader
 
     training_args=TrainingArguments(output_dir="output/", per_device_train_batch_size=analysis_size, per_device_eval_batch_size=analysis_size)
     trainer = Trainer(
@@ -949,10 +950,10 @@ def load_glue(model, batch_size, model_params, do_eval):
     else:
         C=2
 
-    return model, train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
+    return model, train_loader, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
 
 
-def load_glue_federated(model, batch_size, client_num, model_params):
+def load_glue_federated(model, batch_size, client_num, model_params, do_eval):
     if model_params["task_name"] is not None:
         raw_datasets = load_dataset(
             "glue",
@@ -1109,7 +1110,11 @@ def load_glue_federated(model, batch_size, client_num, model_params):
 
     if "validation" not in raw_datasets and "validation_matched" not in raw_datasets:
         raise ValueError("--do_eval requires a validation dataset")
-    eval_dataset = raw_datasets["validation_matched" if model_params["task_name"] == "mnli" else "validation"]
+    
+    if do_eval:
+        eval_dataset = raw_datasets["test"]
+    else:
+        eval_dataset = raw_datasets["validation_matched" if model_params["task_name"] == "mnli" else "validation"]
     #if data_args.max_eval_samples is not None:
     if "train_size" in model_params:
         max_eval_samples = min(len(eval_dataset), model_params["train_size"])
@@ -1172,6 +1177,7 @@ def load_glue_federated(model, batch_size, client_num, model_params):
     data_params = {"compute_acc": True}
     train_loader = trainer.get_train_dataloader()
     test_loader = trainer.get_eval_dataloader()
+    val_loader = test_loader # val/test already been split
 
     client_loaders = []
     randperm = np.random.permutation(len(train_loader.dataset))
@@ -1208,7 +1214,7 @@ def load_glue_federated(model, batch_size, client_num, model_params):
     else:
         C = 2
 
-    return model, train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
+    return model, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
 
 
 def _mp_fn(index):
