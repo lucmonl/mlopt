@@ -646,7 +646,7 @@ def main():
         trainer.create_model_card(**kwargs)
 
 
-DATASETS_FOLDER = "/projects/dali/data/"
+DATASETS_FOLDER = os.environ["DATA_HOME"] #"/projects/dali/data/"
 
 def load_glue(model, batch_size, model_params, do_eval):
     #set_seed(training_args.seed)
