@@ -240,7 +240,7 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
                             weight_decay=weight_decay)
     elif opt_name == "marina":
         assert kwargs["marina_prob"] > 0 and kwargs["marina_prob"] <= 1
-        model_params = model_params | {"full_prob": kwargs["marina_prob"]}
+        model_params = model_params | {"base_opt": kwargs["base_opt"], "full_prob": kwargs["marina_prob"]}
         if kwargs["base_opt"] == "sgd":
             optimizer = optim.SGD(model.parameters(),
                                 lr=lr,
