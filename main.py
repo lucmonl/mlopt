@@ -708,9 +708,14 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 else:
                     grad_diff = vector_m_true - opt_params["client_update"][client_id]
                     opt_params["client_update"][client_id] = vector_m_true
-                    grad_diff_scale = torch.linalg.norm(grad_diff) / np.sqrt(torch.numel(grad_diff))
-                    grad_diff_sign = torch.sign(grad_diff) * grad_diff_scale
-                    vector_m += opt_params["server_update"] + grad_diff_sign
+                    #quantize
+                    #grad_diff_scale = torch.linalg.norm(grad_diff) / np.sqrt(torch.numel(grad_diff))
+                    #grad_diff_sign = torch.sign(grad_diff) * grad_diff_scale
+                    #vector_m += opt_params["server_update"] + grad_diff_sign
+                    #topk-k
+                    from utilities import tensor_topk
+                    vector_m_topk = tensor_topk(grad_diff, k=sketch_size)
+                    vector_m += opt_params["server_update"] + vector_m_topk
             else:
                 from hadamard_transform import hadamard_transform, pad_to_power_of_2 
                 new_params_pad = pad_to_power_of_2((old_params - new_params).detach())

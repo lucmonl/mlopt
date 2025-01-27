@@ -695,7 +695,7 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attr, start=None
                                     **model_param
                                     )
             print(directory)
-            with open(f'../{directory}train_graphs.pk', 'rb') as f:
+            with open(f'{directory}train_graphs.pk', 'rb') as f:
                 train_graphs = pickle.load(f)
 
             #if len(train_graphs.log_epochs) != 0:
