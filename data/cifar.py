@@ -410,12 +410,13 @@ def load_cifar_vit_federated(model_name: str, batch_size: int, train_size = -1, 
         return examples
     
     train.set_transform(train_transforms)
+    test.set_transform(val_transforms)
     N = len(test)
     validx, testidx = np.arange(0, int(N*0.5)), np.arange(int(N*0.5), N)
     valset = torch.utils.data.Subset(test, validx)
     testset = torch.utils.data.Subset(test, testidx)
-    valset.set_transform(val_transforms)
-    testset.set_transform(val_transforms)
+    #valset.set_transform(val_transforms)
+    #testset.set_transform(val_transforms)
 
     def collate_fn(examples):
         pixel_values = torch.stack([example["pixel_values"] for example in examples])
