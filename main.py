@@ -700,12 +700,14 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 """
             elif opt_params["server_opt_name"] == "marina":
                 no_sketch = np.random.binomial(1, opt_params["marina_prob"])
-                if server_epoch==1 or no_sketch == 0:
+                if server_epoch==1 or no_sketch == 1:
+                    print("no sketch")
                     vector_m += vector_m_true
                     if "client_update" not in opt_params:
                         opt_params["client_update"] = {}
                     opt_params["client_update"][client_id] = vector_m_true.clone()
                 else:
+                    print("sketched")
                     grad_diff = vector_m_true - opt_params["client_update"][client_id]
                     opt_params["client_update"][client_id] = vector_m_true
                     #quantize
