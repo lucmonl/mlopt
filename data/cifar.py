@@ -410,7 +410,12 @@ def load_cifar_vit_federated(model_name: str, batch_size: int, train_size = -1, 
         return examples
     
     train.set_transform(train_transforms)
-    test.set_transform(val_transforms)
+    N = len(test)
+    validx, testidx = np.arange(0, int(N*0.5)), np.arange(int(N*0.5), N)
+    valset = torch.utils.data.Subset(test, validx)
+    testset = torch.utils.data.Subset(test, testidx)
+    valset.set_transform(val_transforms)
+    testset.set_transform(val_transforms)
 
     def collate_fn(examples):
         pixel_values = torch.stack([example["pixel_values"] for example in examples])
@@ -419,7 +424,7 @@ def load_cifar_vit_federated(model_name: str, batch_size: int, train_size = -1, 
 
     analysis_size = max(batch_size, 128)
     analysis = torch.utils.data.Subset(train, range(analysis_size))
-    analysis_test = torch.utils.data.Subset(test, range(analysis_size))
+    analysis_test = torch.utils.data.Subset(valset, range(analysis_size))
     client_loaders = []
 
     if alpha == 0:
@@ -466,8 +471,12 @@ def load_cifar_vit_federated(model_name: str, batch_size: int, train_size = -1, 
         train,
         collate_fn=collate_fn, 
         batch_size=batch_size, shuffle=True)
+    val_loader = torch.utils.data.DataLoader(
+        valset,
+        collate_fn=collate_fn, 
+        batch_size=batch_size, shuffle=False)
     test_loader = torch.utils.data.DataLoader(
-        test,
+        testset,
         collate_fn=collate_fn, 
         batch_size=batch_size, shuffle=False)
     analysis_loader = torch.utils.data.DataLoader(
@@ -478,7 +487,7 @@ def load_cifar_vit_federated(model_name: str, batch_size: int, train_size = -1, 
         analysis_test,
         collate_fn=collate_fn, 
         batch_size=analysis_size, shuffle=False)
-    return train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params
+    return train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, id2label, label2id, C, transform_to_one_hot, data_params
 
 
 
