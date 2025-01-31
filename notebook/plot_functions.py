@@ -310,8 +310,8 @@ def plot_ascent_step_diff(ax, yaxis):
     ax.set_xlabel('Epoch')
     ax.set_title('Ascent_step_diff')
 
-def plot_xy(ax, xaxis, yaxis, name, alpha=1.0):
-    line = ax.plot(xaxis, yaxis, alpha=alpha, linewidth=0.5)[0]
+def plot_xy(ax, xaxis, yaxis, name, alpha=1.0, linewidth=1.0):
+    line = ax.plot(xaxis, yaxis, alpha=alpha, linewidth=linewidth)[0]
     ax.set_xlabel('Epoch')
     ax.set_title(name)
     return line
@@ -667,7 +667,7 @@ def plot_figures_attrs_hists(opt, model_params, opt_params, attrs, epochs):
     plt.tight_layout()
     plt.show()
 
-def plot_figures_opts_attr(opts_list, model_params, opt_params, attr, start=None, end=None, alpha=1.0, legends=[], titles=[], save_dir=None, return_last=False):
+def plot_figures_opts_attr(opts_list, model_params, opt_params, attrs, start=None, end=None, alpha=1.0, linewidth=1.0, legends=[], titles=[], yaxis=[], save_dir=None, return_last=False):
     #rows, cols = (len(attrs) - 1) // 6 + 1, min(len(attrs), 6)
     import matplotlib.ticker as mtick
     rows, cols = 1, len(opts_list)
@@ -678,7 +678,13 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attr, start=None
     else:
         axs = [axs]
     ax_ptr = 0
-    for opts, legend, title in zip(opts_list, legends, titles):
+
+    if isinstance(attrs, str):
+        attrs = [attrs for i in range(len(opts_list))]
+    if isinstance(yaxis, str):
+        yaxis = [yaxis for i in range(len(opts_list))]
+
+    for opts, legend, title, attr in zip(opts_list, legends, titles, attrs):
         last_val.append([])
         for opt_name in opts:
             model_param = model_params[opt_name]
@@ -712,8 +718,10 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attr, start=None
                 plot_train_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.accuracy[start:end])
 
             if 'train_err' == attr:
+                line=plot_xy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-1*np.array(train_graphs.accuracy[start:end]), name=title, alpha=alpha)
                 axs[ax_ptr].yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1, decimals=0))
-                plot_xlogy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-np.array(train_graphs.accuracy[start:end]), name="Train Error")
+                #axs[ax_ptr].yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1, decimals=0))
+                #plot_xlogy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-np.array(train_graphs.accuracy[start:end]), name="Train Error")
 
             if 'test_loss' == attr:
                 plot_test_loss(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_loss[start:end])
@@ -729,7 +737,13 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attr, start=None
 
         axs[ax_ptr].legend(legend)
         ax_ptr += 1
-    axs[0].set_ylabel("Val Error")
+    if yaxis == []:
+        axs[0].set_ylabel("Val Error")
+    else:
+        for i in range(len(yaxis)):
+            axs[i].set_ylabel(yaxis[i])
+    axs[0].set_ylim([0.01, 0.07])
+
     plt.tight_layout()
     if save_dir:
         plt.savefig(save_dir)
