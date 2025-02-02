@@ -351,7 +351,9 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     elif opt_params["fedlora_avg"] == "svd_het":
         from optimizer.fedlora import federated_lora_het
         return federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
-
+    elif opt_params["fedlora_avg"] == "flasc":
+        from optimizer.fedlora import federated_lora_flasc
+        return federated_lora_flasc(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
     
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
     
@@ -1310,8 +1312,10 @@ if __name__ == "__main__":
     parser.add_argument("--sketch_size", type=int, default=-1, help="sketch size in communication")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
-    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het", "fedex", "flora"], default="avg", help="methods to average A and B matrix in federated lora")
+    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het", "fedex", "flora", "flasc"], default="avg", help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
+    parser.add_argument("--dl_density", type=float, default=1.0, help="downlink density of fedlora:flasc")
+    parser.add_argument("--ul_density", type=float, default=1.0, help="uplink density of fedlora:flasc")
     parser.add_argument("--use_ef", type=int, default=False, help="use error feedback (currently only in lora)")
     parser.add_argument("--client_early_stop", type=int, default=-1, help="the number of minibatch for each client iteration, -1 for complete training")
     parser.add_argument("--marina_prob", type=float, default=-1.0, help="the probability of transmitting full gradient")
@@ -2042,6 +2046,8 @@ if __name__ == "__main__":
             model_params = model_params | {"fedlora_avg": opt_params["fedlora_avg"]}
         if opt_params["fedlora_avg"] in ["svd", "avg"] and lora_rank >= 0:
             model_params = model_params | {"fedlora_uba": opt_params["fedlora_uba"]}
+        if opt_params["fedlora_avg"] == "flasc":
+            model_params = model_params | {"dl_density": args.dl_density, "ul_density": args.ul_density}
         #load_optimizer = load_optimizer_param
     else:
         print("number of parameters:", len(parameters_to_vector(model.parameters())))
@@ -2108,7 +2114,7 @@ if __name__ == "__main__":
         for epoch in range(load_from_epoch+1, epochs + 1):
             if opt_params["opt_name"] == "federated":
                 #exp_avg, exp_avg_sq = federated_train(model, loss_name, criterion, device, C, client_loaders, exp_avg, exp_avg_sq, opt_params, epoch)
-                #client_lr = client_lr_scheduler.get_last_lr()[0]
+                #opt_params["client_lr"] = client_lr_scheduler.get_last_lr()[0]
                 #federated_train(model, loss_name, criterion, device, client_loaders, optimizer, None, client_lr, opt_params, epoch)
                 #client_lr_scheduler.step()
                 #print(client_lr)
@@ -2117,6 +2123,7 @@ if __name__ == "__main__":
                     if model_update is not None:
                         model = model_update
                 else:
+                    #print("client lr:", opt_params["client_lr"])
                     federated_train(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params["client_lr"], opt_params, epoch)
             else:
                 train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params)
@@ -2167,7 +2174,7 @@ if __name__ == "__main__":
         if lr != 0:
             print("loading pretrained model..")
             if model_name not in ["akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1"]:
-                model.load_state_dict(torch.load(os.path.join(directory, "model.ckpt")))
+                model.load_state_dict(torch.load(os.path.join(directory, "model.ckpt"), map_location=torch.device('cpu')))
                 model = model.to(device)
 
         eval_graphs = graphs()

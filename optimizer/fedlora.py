@@ -40,23 +40,23 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
         for epoch in range(client_epoch):
             train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
             
-            for name, param in client_model.named_parameters():
-                #print(name, param.shape)
-                if param.requires_grad:
-                    #param_names.append(name)
-                    if output_layer_name and output_layer_name in name:
-                        output_weights[name] += param.data / client_num
-                    elif name in adapter_weights:
-                        #lora_params[name].append(param.data)
-                        if 'lora_A' in name:
-                            base_name = name.replace("lora_A.default", "base_layer")
-                            adapter_weights[name] += param.data/client_num
-                        elif 'lora_B' in name:
-                            base_name = name.replace("lora_B.default", "base_layer")
-                            adapter_weights[name] += param.data/client_num
-                        else: assert False
-                    else:
-                        assert False
+        for name, param in client_model.named_parameters():
+            #print(name, param.shape)
+            if param.requires_grad:
+                #param_names.append(name)
+                if output_layer_name and output_layer_name in name:
+                    output_weights[name] += param.data / client_num
+                elif name in adapter_weights:
+                    #lora_params[name].append(param.data)
+                    if 'lora_A' in name:
+                        base_name = name.replace("lora_A.default", "base_layer")
+                        adapter_weights[name] += param.data/client_num
+                    elif 'lora_B' in name:
+                        base_name = name.replace("lora_B.default", "base_layer")
+                        adapter_weights[name] += param.data/client_num
+                    else: assert False
+                else:
+                    assert False
 
     server_optimizer.zero_grad()
 
@@ -313,6 +313,82 @@ def federated_lora_flora(model, loss_name, criterion, lora_rank, train_graphs, d
     from arch.lora import get_base_layer_norm
     get_base_layer_norm(model)
     return model
+
+def get_topk_mask(x, density):
+    mask = torch.zeros_like(x).bool()
+    k = int(x.numel()*density)
+    _, keep_idx = torch.topk(x, k=k)
+    mask[keep_idx] = 1
+    return mask
+
+def federated_lora_flasc(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
+    client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
+    import copy
+    import math
+    from utilities import vector_to_grads, vector_to_grads_sq
+    from main import train
+    server_params = {n:p for n,p in model.named_parameters() if p.requires_grad}
+    server_mask = {n:torch.ones_like(p) for n,p in server_params.items()}
+    
+    if model_params["dl_density"] < 1 or server_epoch == 1 : # one round of dense FT
+        server_params_flat = torch.cat([p.flatten() for p in server_params.values()])
+        server_mask_flat = get_topk_mask(x=server_params_flat.abs(), density=model_params["dl_density"])
+        curr = 0
+        for n,m in server_mask.items():
+            server_mask[n] = server_mask_flat[curr:curr+m.numel()].reshape(m.shape)
+            curr += m.numel()
+    
+    client_opt_params = copy.deepcopy(opt_params)
+    client_opt_params["train_stats"] = False
+    aggregate = None
+    for client_id in range(client_num):
+        # update client models
+        client_model = copy.deepcopy(model)
+
+        # Download Sparsity
+        
+        if model_params["dl_density"] < 1:
+            for n,p in client_model.named_parameters():
+                if p.requires_grad:
+                    p.data = p.data*server_mask[n]
+        
+
+        client_model.train()
+        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], opt_params["lr_decay"], opt_params["epochs_lr_decay"], False, model_params, opt_params)
+        #vector_to_parameters(old_params, client_model.parameters())
+        for epoch in range(client_epoch):
+            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
+
+        if model_params["dl_density"] < 1:
+            neg_client_delta = {n: (server_params[n].data*server_mask[n]) - cp.data for n,cp 
+                                in client_model.named_parameters() if cp.requires_grad}
+        else:
+            neg_client_delta = {n: server_params[n].data - cp.data for n,cp 
+                                in client_model.named_parameters() if cp.requires_grad}
+            
+        #Upload Sparsity
+        
+        if model_params["ul_density"] < 1:
+            # why not log this?
+            client_delta_flat = torch.cat([p.flatten() for p in neg_client_delta.values()])
+            client_mask_flat = get_topk_mask(x=client_delta_flat.abs(), density=model_params["ul_density"])
+            curr = 0
+            for n,p in neg_client_delta.items():
+                p *= client_mask_flat[curr:curr+p.numel()].reshape(p.shape)
+                curr += p.numel()
+        
+        
+        if aggregate is None:
+            aggregate = neg_client_delta
+        else:
+            for n, delta in neg_client_delta.items():
+                aggregate[n] += delta
+    
+    server_optimizer.zero_grad()
+    for n, sp in server_params.items():
+        sp.grad = aggregate[n] / client_num
+    server_optimizer.step()
+
 
 def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     from main import train

@@ -1110,7 +1110,7 @@ def load_glue_federated(model, batch_size, client_num, model_params, do_eval):
 
     if "validation" not in raw_datasets and "validation_matched" not in raw_datasets:
         raise ValueError("--do_eval requires a validation dataset")
-    
+
     if do_eval:
         eval_dataset = raw_datasets["test"]
     else:
