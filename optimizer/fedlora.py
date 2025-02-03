@@ -222,6 +222,11 @@ def federated_lora_flora(model, loss_name, criterion, lora_rank, train_graphs, d
     for name, param in model.named_parameters():
         if "base_layer" in name:
             base_weights[name] = torch.clone(param.data)
+    
+    untouch_base_weights = {}
+    for name, param in model.named_parameters():
+        if "base_layer" in name:
+            untouch_base_weights[name] = torch.clone(param.data)
 
     output_weights = {}
     output_layer_name = opt_params["output_layer_name"]
@@ -246,7 +251,7 @@ def federated_lora_flora(model, loss_name, criterion, lora_rank, train_graphs, d
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
             train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
-            
+
         for name, param in client_model.named_parameters():
             #print(name, param.shape)
             if param.requires_grad:
@@ -264,7 +269,11 @@ def federated_lora_flora(model, loss_name, criterion, lora_rank, train_graphs, d
                         base_B_param = param.data
 
                         scaling = model_params["lora_alpha"] / model_params["lora_rank"]
-                        base_weights[base_name] +=  scaling * (base_B_param @ base_A_param).T / client_num
+                        original_base_weight_norm = torch.norm(base_weights[base_name])
+                        base_weights[base_name] +=  scaling * (base_B_param @ base_A_param) / client_num
+                        #print(base_name, torch.norm(base_weights[base_name]), original_base_weight_norm, torch.norm(base_weights[base_name] - untouch_base_weights[base_name]))
+                        #print(base_weights[base_name])
+                        #print(base_weights[base_name] - untouch_base_weights[base_name])
                     else: assert False
 
     print("original base layer")
@@ -279,7 +288,7 @@ def federated_lora_flora(model, loss_name, criterion, lora_rank, train_graphs, d
 
     for name, param in model.named_parameters():
         if name in base_weights:
-            print(name, torch.norm(base_weights[name] - param.data))
+            #print(name, torch.norm(base_weights[name] - param.data))
             param.data = base_weights[name]
 
     if server_lr_scheduler is not None:
@@ -299,6 +308,17 @@ def federated_lora_flora(model, loss_name, criterion, lora_rank, train_graphs, d
     for name, param in model.named_parameters():
         if param.requires_grad:
             print(name, param.shape)
+    
+    from arch.lora import add_adapters_dataset
+    client_model_merge = client_model.merge_and_unload()
+    client_model_merge , _, _ = add_adapters_dataset(opt_params["model_name"], client_model_merge, model_params["lora_rank"], model_params["lora_alpha"], lora_freeze_a=opt_params["lora_freeze_a"])
+    print("merged client model base layer")
+    get_base_layer_norm(client_model_merge)
+    for name,param in client_model_merge.named_parameters():
+        if 'base_layer' in name:
+            print(name, torch.norm(param), torch.norm(untouch_base_weights[name]), torch.norm(param-untouch_base_weights[name]))
+            #print(param)
+            #print(param-untouch_base_weights[name])
     """
     from arch.lora import add_adapters_dataset
     model , _, _ = add_adapters_dataset(opt_params["model_name"], unload_model, model_params["lora_rank"], model_params["lora_alpha"], lora_freeze_a=opt_params["lora_freeze_a"])
