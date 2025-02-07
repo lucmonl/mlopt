@@ -347,7 +347,20 @@ def federated_lora_flasc(model, loss_name, criterion, lora_rank, train_graphs, d
     import math
     from utilities import vector_to_grads, vector_to_grads_sq
     from main import train
-    server_params = {n:p for n,p in model.named_parameters() if p.requires_grad}
+
+
+    server_params = {}
+    output_weights = {}
+    output_layer_name = opt_params["output_layer_name"]
+    for name, param in model.named_parameters():
+        # select lora_A and lora_B
+        if param.requires_grad:
+            if output_layer_name and output_layer_name in name:
+                output_weights[name]= param
+            else:
+                server_params[name] = param
+
+    #server_params = {n:p for n,p in model.named_parameters() if p.requires_grad}
     server_mask = {n:torch.ones_like(p) for n,p in server_params.items()}
     
     if model_params["dl_density"] < 1 or server_epoch == 1 : # one round of dense FT
@@ -363,6 +376,7 @@ def federated_lora_flasc(model, loss_name, criterion, lora_rank, train_graphs, d
     aggregate = None
     for client_id in range(client_num):
         # update client models
+        neg_client_delta = {}
         client_model = copy.deepcopy(model)
 
         # Download Sparsity
@@ -370,7 +384,10 @@ def federated_lora_flasc(model, loss_name, criterion, lora_rank, train_graphs, d
         if model_params["dl_density"] < 1:
             for n,p in client_model.named_parameters():
                 if p.requires_grad:
-                    p.data = p.data*server_mask[n]
+                    if output_layer_name and output_layer_name in name:
+                        pass
+                    else:
+                        p.data = p.data*server_mask[n]
         
 
         client_model.train()
@@ -380,12 +397,19 @@ def federated_lora_flasc(model, loss_name, criterion, lora_rank, train_graphs, d
             train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
 
         if model_params["dl_density"] < 1:
-            neg_client_delta = {n: (server_params[n].data*server_mask[n]) - cp.data for n,cp 
-                                in client_model.named_parameters() if cp.requires_grad}
+            #neg_client_delta = {n: (server_params[n].data*server_mask[n]) - cp.data for n,cp 
+            #                    in client_model.named_parameters() if cp.requires_grad}
+            for n, cp in client_model.named_parameters():
+                # select lora_A and lora_B
+                if cp.requires_grad:
+                    if output_layer_name and output_layer_name in n:
+                        pass
+                    else:
+                        neg_client_delta =  neg_client_delta | {n: (server_params[n].data*server_mask[n]) - cp.data}
         else:
             neg_client_delta = {n: server_params[n].data - cp.data for n,cp 
                                 in client_model.named_parameters() if cp.requires_grad}
-            
+        
         #Upload Sparsity
         
         if model_params["ul_density"] < 1:
@@ -396,7 +420,12 @@ def federated_lora_flasc(model, loss_name, criterion, lora_rank, train_graphs, d
             for n,p in neg_client_delta.items():
                 p *= client_mask_flat[curr:curr+p.numel()].reshape(p.shape)
                 curr += p.numel()
-        
+
+        for n, cp in client_model.named_parameters():
+            # select output weights
+            if cp.requires_grad:
+                if output_layer_name and output_layer_name in n:
+                    neg_client_delta = neg_client_delta | {n: (output_weights[n].data) - cp.data}        
         
         if aggregate is None:
             aggregate = neg_client_delta
@@ -406,6 +435,8 @@ def federated_lora_flasc(model, loss_name, criterion, lora_rank, train_graphs, d
     
     server_optimizer.zero_grad()
     for n, sp in server_params.items():
+        sp.grad = aggregate[n] / client_num
+    for n, sp in output_weights.items():
         sp.grad = aggregate[n] / client_num
     server_optimizer.step()
 

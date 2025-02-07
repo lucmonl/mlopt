@@ -742,7 +742,7 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attrs, start=Non
     else:
         for i in range(len(yaxis)):
             axs[i].set_ylabel(yaxis[i])
-    axs[0].set_ylim([0.01, 0.07])
+    #axs[0].set_ylim([0.01, 0.07])
 
     plt.tight_layout()
     if save_dir:
