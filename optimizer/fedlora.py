@@ -406,6 +406,7 @@ def federated_lora_flasc(model, loss_name, criterion, lora_rank, train_graphs, d
                         pass
                     else:
                         neg_client_delta =  neg_client_delta | {n: (server_params[n].data*server_mask[n]) - cp.data}
+                        print(n, torch.norm(neg_client_delta[n]).item())
         else:
             neg_client_delta = {n: server_params[n].data - cp.data for n,cp 
                                 in client_model.named_parameters() if cp.requires_grad}
@@ -436,8 +437,10 @@ def federated_lora_flasc(model, loss_name, criterion, lora_rank, train_graphs, d
     server_optimizer.zero_grad()
     for n, sp in server_params.items():
         sp.grad = aggregate[n] / client_num
+        print(n, torch.norm(sp.grad).item())
     for n, sp in output_weights.items():
         sp.grad = aggregate[n] / client_num
+        print(n, torch.norm(sp.grad).item())
     server_optimizer.step()
 
 

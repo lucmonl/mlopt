@@ -655,6 +655,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         client_model.train()
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], lr_decay, epochs_lr_decay, False, model_params, opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
+        print(len(train_loaders[client_id].dataset))
         for epoch in range(client_epoch):
             train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
 
@@ -863,7 +864,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
     loss = torch.FloatTensor([0])
     track_train_stats = {}
 
-    for batch_idx, input in enumerate(train_loader, start=1):
+    for batch_idx, input in enumerate(train_loader, start=0):
         if opt_params["wild_data"]:
             data, target, metadata = input
             data, target = data.to(device), target.to(device)
@@ -1551,7 +1552,7 @@ if __name__ == "__main__":
     elif dataset_name == "emnist":
         if opt_params["opt_name"] == "federated":
             from data.emnist import load_emnist_federated
-            train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_emnist_federated(loss_name, batch_size, client_num=opt_params["client_num"])
+            train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_emnist_federated(loss_name, batch_size, client_num=opt_params["client_num"])
         else:
             raise NotImplementedError
     elif dataset_name == "mnist_cifar":
@@ -1657,7 +1658,7 @@ if __name__ == "__main__":
         import torchvision.models as models
         model = models.resnet18(pretrained=False, num_classes=C)
         model_params = {} | model_params
-        if dataset_name == "mnist":
+        if dataset_name in ["mnist", "emnist"]:
             model.conv1 = nn.Conv2d(input_ch, model.conv1.weight.shape[0], 3, 1, 1, bias=False) # Small dataset filter size used by He et al. (2015)
             model.maxpool = nn.MaxPool2d(kernel_size=1, stride=1, padding=0)
         if opt_params["opt_name"] == "federated":
@@ -1671,6 +1672,9 @@ if __name__ == "__main__":
     elif model_name == "resnet_gn":
         from arch.resnet_gn import resnet_gn
         model = resnet_gn(depth=depth, num_classes=C)
+        if dataset_name in ["mnist", "emnist"]:
+            model.conv1 = nn.Conv2d(input_ch, 64, kernel_size=7, stride=2, padding=3, bias=False)# Small dataset filter size used by He et al. (2015)
+            #model.maxpool = nn.MaxPool2d(kernel_size=1, stride=1, padding=0)
         model_params = {"depth": depth} | model_params
     elif model_name == "WideResNet":
         from arch.wide_resnet import WideResNet

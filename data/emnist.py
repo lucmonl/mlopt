@@ -9,7 +9,7 @@ from torch import Tensor
 import torch.nn.functional as F
 from torchvision import datasets, transforms
 
-DATASETS_FOLDER = "/projects/dali/data/" #os.environ["DATASETS"]
+DATASETS_FOLDER = os.environ["DATA_HOME"]
 
 def take_first(dataset: TensorDataset, num_to_keep: int):
     return TensorDataset(dataset.tensors[0][0:num_to_keep], dataset.tensors[1][0:num_to_keep])
@@ -131,6 +131,7 @@ def load_emnist_federated(loss: str, batch_size: int, train_size = -1, client_nu
 
     train = EMNIST(root=DATASETS_FOLDER, split='byclass', download=True, train=True, transform=train_transform)
     test = EMNIST(root=DATASETS_FOLDER, split='byclass', download=True, train=False, transform=train_transform)
+    val = torch.utils.data.Subset(test, range(10000))
     analysis_size = max(batch_size, 128)
     analysis = torch.utils.data.Subset(train, range(analysis_size))
     analysis_test = torch.utils.data.Subset(test, range(analysis_size))
@@ -148,13 +149,16 @@ def load_emnist_federated(loss: str, batch_size: int, train_size = -1, client_nu
     test_loader = torch.utils.data.DataLoader(
         test,
         batch_size=batch_size, shuffle=False)
+    val_loader = torch.utils.data.DataLoader(
+        val,
+        batch_size=batch_size, shuffle=False)
     analysis_loader = torch.utils.data.DataLoader(
         analysis,
         batch_size=analysis_size, shuffle=False)
     analysis_test_loader = torch.utils.data.DataLoader(
         analysis_test,
         batch_size=analysis_size, shuffle=False)
-    return train_loader, client_loaders, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params
+    return train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params
 
 
 if __name__ == "__main__":
