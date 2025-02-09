@@ -608,6 +608,13 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
 
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
     #client_num, client_opt_name, client_lr, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_lr"], opt_params["client_epoch"]
+
+    if opt_params["client_partial"] < 1:
+        client_num = int(opt_params["client_partial"] * client_num)
+        client_selected = np.random.choice(opt_params["client_num"], client_num, replace=False)
+    else:
+        client_selected = np.arange(client_num)
+
     momentum, momentum_v = opt_params["server_momentum"], 0.999
     vector_m, vector_v = 0, 0
     vector_m_true = 0
@@ -641,7 +648,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     #running_stats = {}
     client_opt_params = copy.deepcopy(opt_params)
     client_opt_params["train_stats"] = False
-    for client_id in range(client_num):
+    for client_id in client_selected:
         # update client models
         client_model = copy.deepcopy(model)
 
@@ -723,9 +730,19 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             else:
                 from hadamard_transform import hadamard_transform, pad_to_power_of_2 
                 new_params_pad = pad_to_power_of_2((old_params - new_params).detach())
+
+                if opt_params["privacy_clip"] != -1:
+                    print("before clip", torch.norm(new_params_pad / client_lr).item())
+                    new_params_pad = torch.clip(new_params_pad / client_lr, min=-opt_params["privacy_clip"], max=opt_params["privacy_clip"])
+                    print("after clip", torch.norm(new_params_pad).item())
+
                 hadamard_params_pad = hadamard_transform(D*new_params_pad)
                 sketch_vector_m = sub_sample_row @ hadamard_params_pad
+
                 if opt_params["clip_tau"] == -1:
+                    if opt_params["privacy_clip"] != -1:
+                        privacy_noise = torch.normal(0, opt_params["privacy_noise"], size=sketch_vector_m.size()).to(sketch_vector_m)
+                        sketch_vector_m = client_lr * (sketch_vector_m + privacy_noise) 
                     vector_m += sketch_vector_m
                 else:
                     unsketch_vector_m = sub_sample_row.T @ sketch_vector_m
@@ -735,7 +752,8 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                     vector_m_scale = torch.linalg.norm(new_params_pad) / torch.linalg.norm(unsketch_vector_m)
 
                     vector_m += sketch_vector_m * vector_m_scale
-                
+
+               
             #hadamard_params_pad = hadamard_transform(D*(new_params_pad ** 2)) #deprecated
             #vector_v += sub_sample_row @ hadamard_params_pad
 
@@ -1304,6 +1322,7 @@ if __name__ == "__main__":
     #federated learning hyperparameters
     parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd", "onebit", "cdadam", "cocktailsgd", "cocktailsgd2", "marina"], help="optimizer of server")
     parser.add_argument("--client_num", type=int, default=1, help="number of clients")
+    parser.add_argument("--client_partial", type=float, default=1.9, help="partial participation of clients")
     parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd", "adam", "adamw"], help="optimizer of clients")
     parser.add_argument("--client_lr", type=float, default=0.01, help="lr of clients")
     parser.add_argument("--client_momentum", type=float, default=0.0, help="momentum of clients")
@@ -1319,6 +1338,9 @@ if __name__ == "__main__":
     parser.add_argument("--use_ef", type=int, default=False, help="use error feedback (currently only in lora)")
     parser.add_argument("--client_early_stop", type=int, default=-1, help="the number of minibatch for each client iteration, -1 for complete training")
     parser.add_argument("--marina_prob", type=float, default=-1.0, help="the probability of transmitting full gradient")
+
+    parser.add_argument("--privacy_clip", type=float, default=-1.0, help="clip for prrivacy")
+    parser.add_argument("--privacy_noise", type=float, default=0.0, help="clip for prrivacy")
 
     #llm hyperparameters
     parser.add_argument("--task_name", type=str, default="mrpc", help="task name")
@@ -1428,6 +1450,7 @@ if __name__ == "__main__":
     opt_params["client_opt_name"]  = args.client_opt_name
     opt_params["client_lr"]        = args.client_lr
     opt_params["client_num"]       = args.client_num
+    opt_params["client_partial"]   = args.client_partial
     opt_params["client_epoch"]     = args.client_epoch
     opt_params["sketch_size"]      = args.sketch_size
     opt_params["server_momentum"]  = args.momentum
@@ -1441,6 +1464,8 @@ if __name__ == "__main__":
     opt_params["use_ef"]           = args.use_ef
     opt_params["client_early_stop"]= args.client_early_stop
     opt_params["marina_prob"]      = args.marina_prob
+    opt_params["privacy_clip"]     = args.privacy_clip
+    opt_params["privacy_noise"]    = args.privacy_noise
     
     exp_avg, exp_avg_sq            = None, None
 

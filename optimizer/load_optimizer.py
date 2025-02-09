@@ -53,6 +53,10 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         #weight_decay = 0.0
         model_params = model_params | {'server_opt': kwargs['server_opt_name'], 'client_opt': kwargs['client_opt_name'], 'client_lr': kwargs['client_lr'], 'client_momentum': kwargs['client_momentum'],
                                        "client_weight_decay": kwargs['client_weight_decay'], "client_num": kwargs['client_num'], 'client_epoch': kwargs['client_epoch'], 'sketch_size': kwargs['sketch_size']}
+        if kwargs["client_partial"] < 1:
+            model_params = model_params | {"client_partial": kwargs["client_partial"]}
+        if kwargs["privacy_clip"] != -1:
+            model_params = model_params | {"privacy_clip": kwargs["privacy_clip"], "privacy_noise": kwargs["privacy_noise"]}
     
     if kwargs["clip_tau"] != -1:
         model_params = model_params | {'clip': kwargs['clip_tau']}
