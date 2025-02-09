@@ -379,6 +379,8 @@ def federated_lora_flasc(model, loss_name, criterion, lora_rank, train_graphs, d
         neg_client_delta = {}
         client_model = copy.deepcopy(model)
 
+        client_model_save = copy.deepcopy(client_model)
+
         # Download Sparsity
         if model_params["dl_density"] < 1:
             for n,p in client_model.named_parameters():
@@ -388,6 +390,7 @@ def federated_lora_flasc(model, loss_name, criterion, lora_rank, train_graphs, d
                     else:
                         p.data = p.data*server_mask[n]
         
+        client_model_sparse_save = copy.deepcopy(client_model)
 
         client_model.train()
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], opt_params["lr_decay"], opt_params["epochs_lr_decay"], False, model_params, opt_params)
@@ -438,6 +441,7 @@ def federated_lora_flasc(model, loss_name, criterion, lora_rank, train_graphs, d
     for n, sp in output_weights.items():
         sp.grad = aggregate[n] / client_num
     server_optimizer.step()
+    return client_model_save, client_model_sparse_save
 
 
 def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):

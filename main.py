@@ -2149,7 +2149,9 @@ if __name__ == "__main__":
                 #print(client_lr)
                 if apply_lora:
                     model_update = federated_lora(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params["client_lr"], opt_params, epoch)
-                    if model_update is not None:
+                    if isinstance(model_update, list):
+                        client_model, client_model_sparse = model_update[0], model_update[1]
+                    elif model_update is not None:
                         model = model_update
                 else:
                     #print("client lr:", opt_params["client_lr"])
@@ -2169,7 +2171,12 @@ if __name__ == "__main__":
                     analysis_params["model_path"] = f"{directory}"
                     trainer = Trainer(model=model, tokenizer=tokenizer)
                     safe_save_model_for_hf_trainer(trainer=trainer, output_dir=analysis_params["model_path"])
-                    
+
+                print("client model")  
+                analysis(train_graphs, analysis_list, client_model, model_name, criterion_summed, device, C, opt_params["compute_acc"],train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
+                print("client sparse model")
+                analysis(train_graphs, analysis_list, client_model_sparse, model_name, criterion_summed, device, C, opt_params["compute_acc"],train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
+
                 save_best_model = analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, opt_params["compute_acc"],train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
                 if save_best_model:
                     print("saving the best model so far...")
