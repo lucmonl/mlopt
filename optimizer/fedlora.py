@@ -380,11 +380,10 @@ def federated_lora_flasc(model, loss_name, criterion, lora_rank, train_graphs, d
         client_model = copy.deepcopy(model)
 
         # Download Sparsity
-        
         if model_params["dl_density"] < 1:
             for n,p in client_model.named_parameters():
                 if p.requires_grad:
-                    if output_layer_name and output_layer_name in name:
+                    if output_layer_name and output_layer_name in n:
                         pass
                     else:
                         p.data = p.data*server_mask[n]
@@ -406,7 +405,6 @@ def federated_lora_flasc(model, loss_name, criterion, lora_rank, train_graphs, d
                         pass
                     else:
                         neg_client_delta =  neg_client_delta | {n: (server_params[n].data*server_mask[n]) - cp.data}
-                        print(n, torch.norm(neg_client_delta[n]).item())
         else:
             neg_client_delta = {n: server_params[n].data - cp.data for n,cp 
                                 in client_model.named_parameters() if cp.requires_grad}
@@ -437,10 +435,8 @@ def federated_lora_flasc(model, loss_name, criterion, lora_rank, train_graphs, d
     server_optimizer.zero_grad()
     for n, sp in server_params.items():
         sp.grad = aggregate[n] / client_num
-        print(n, torch.norm(sp.grad).item())
     for n, sp in output_weights.items():
         sp.grad = aggregate[n] / client_num
-        print(n, torch.norm(sp.grad).item())
     server_optimizer.step()
 
 
