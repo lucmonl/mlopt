@@ -2156,6 +2156,7 @@ if __name__ == "__main__":
                     model_update = federated_lora(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params["client_lr"], opt_params, epoch)
                     if model_update and isinstance(model_update, tuple):
                         client_model, client_model_sparse = model_update[0], model_update[1]
+                        print("using eval model")
                         eval_model = client_model_sparse
                     elif model_update is not None:
                         model = model_update
@@ -2165,6 +2166,7 @@ if __name__ == "__main__":
                 else:
                     #print("client lr:", opt_params["client_lr"])
                     model_update = federated_train(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params["client_lr"], opt_params, epoch)
+                    eval_model = model
             else:
                 train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params)
                 #lr_scheduler.step()

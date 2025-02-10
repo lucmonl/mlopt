@@ -727,8 +727,11 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attrs, start=Non
                 plot_test_loss(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_loss[start:end])
 
             if 'test_acc' == attr:
+                line = plot_xy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=np.array(train_graphs.test_accuracy[start:end]), name=title, alpha=alpha)
                 axs[ax_ptr].yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1, decimals=0))
-                plot_test_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_accuracy[start:end])
+                last_val[-1].append(line.get_data()[-1][-1])
+                #plot_test_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_accuracy[start:end])
+                
 
             if 'test_err' == attr:
                 line=plot_xy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-1*np.array(train_graphs.test_accuracy[start:end]), name=title, alpha=alpha)
@@ -738,7 +741,7 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attrs, start=Non
         axs[ax_ptr].legend(legend)
         ax_ptr += 1
     if yaxis == []:
-        axs[0].set_ylabel("Val Error")
+        axs[0].set_ylabel("Test Accuracy")
     else:
         for i in range(len(yaxis)):
             axs[i].set_ylabel(yaxis[i])
