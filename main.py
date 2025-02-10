@@ -668,7 +668,12 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
 
         if sketch_size == -1:
             #param_norm = torch.norm(old_params - new_params).detach()
-            if opt_params["clip_tau"] != -1:
+            if opt_params["privacy_clip"] != -1:
+                new_params_pad = (old_params - new_params).detach()
+                new_params_pad = torch.clip(new_params_pad / client_lr, min=-opt_params["privacy_clip"], max=opt_params["privacy_clip"])
+                privacy_noise = torch.normal(0, opt_params["privacy_noise"], size=new_params_pad.size()).to(new_params_pad)
+                new_params_pad = client_lr * (new_params_pad + privacy_noise) 
+            elif opt_params["clip_tau"] != -1:
                 new_params_pad = (old_params - new_params).detach()
                 clipped_vector_m = torch.clip(new_params_pad, min=-opt_params["clip_tau"], max=opt_params["clip_tau"])
                 vector_m_scale = torch.linalg.norm(new_params_pad) / torch.linalg.norm(clipped_vector_m)
@@ -2149,13 +2154,17 @@ if __name__ == "__main__":
                 #print(client_lr)
                 if apply_lora:
                     model_update = federated_lora(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params["client_lr"], opt_params, epoch)
-                    if isinstance(model_update, tuple):
+                    if model_update and isinstance(model_update, tuple):
                         client_model, client_model_sparse = model_update[0], model_update[1]
+                        eval_model = client_model_sparse
                     elif model_update is not None:
                         model = model_update
+                        eval_model = model
+                    else:
+                        eval_model = model
                 else:
                     #print("client lr:", opt_params["client_lr"])
-                    federated_train(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params["client_lr"], opt_params, epoch)
+                    model_update = federated_train(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params["client_lr"], opt_params, epoch)
             else:
                 train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params)
                 #lr_scheduler.step()
@@ -2171,14 +2180,14 @@ if __name__ == "__main__":
                     analysis_params["model_path"] = f"{directory}"
                     trainer = Trainer(model=model, tokenizer=tokenizer)
                     safe_save_model_for_hf_trainer(trainer=trainer, output_dir=analysis_params["model_path"])
-
-                if isinstance(model_update, tuple):
+                """
+                if model_update and isinstance(model_update, tuple):
                     print("client model")  
                     analysis(train_graphs, analysis_list, client_model, model_name, criterion_summed, device, C, opt_params["compute_acc"],train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
                     print("client sparse model")
                     analysis(train_graphs, analysis_list, client_model_sparse, model_name, criterion_summed, device, C, opt_params["compute_acc"],train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
-
-                save_best_model = analysis(train_graphs, analysis_list, model, model_name, criterion_summed, device, C, opt_params["compute_acc"],train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
+                """
+                save_best_model = analysis(train_graphs, analysis_list, eval_model, model_name, criterion_summed, device, C, opt_params["compute_acc"],train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params)
                 if save_best_model:
                     print("saving the best model so far...")
                     torch.save(model.state_dict(), f"{directory}/best_model.ckpt")
