@@ -282,8 +282,8 @@ def plot_train_loss(ax, xaxis, yaxis):
 
 def plot_train_acc(ax, xaxis, yaxis):
     ax.plot(xaxis, yaxis)
-    ax.set_xlabel('Epoch')
-    ax.set_title('Training Accuracy')
+    ax.set_xlabel('Communication Round')
+    #ax.set_title('Training Accuracy')
 
 def plot_train_eig(ax, xaxis, yaxis):
     ax.plot(xaxis, yaxis)
@@ -513,7 +513,7 @@ def plot_figures_opts_attrs(opts, model_params, opt_params, attrs, start=None, e
             ax_ptr += 1
             if attr == attrs[0]:
                 lines.append(line)
-            if attr == "test_err":
+            if attr == "accuracy":
                 last_vals.append(line.get_data()[-1][-1])
         """
         if 'loss' in attrs:
@@ -667,7 +667,7 @@ def plot_figures_attrs_hists(opt, model_params, opt_params, attrs, epochs):
     plt.tight_layout()
     plt.show()
 
-def plot_figures_opts_attr(opts_list, model_params, opt_params, attrs, start=None, end=None, alpha=1.0, linewidth=1.0, legends=[], titles=[], yaxis=[], save_dir=None, return_last=False):
+def plot_figures_opts_attr(opts_list, model_params, opt_params, attrs, start=None, end=None, alpha=1.0, linewidth=1.0, ylabel=None, legends=[], titles=[], yaxis=[], save_dir=None, return_last=False):
     #rows, cols = (len(attrs) - 1) // 6 + 1, min(len(attrs), 6)
     import matplotlib.ticker as mtick
     rows, cols = 1, len(opts_list)
@@ -741,7 +741,10 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attrs, start=Non
         axs[ax_ptr].legend(legend)
         ax_ptr += 1
     if yaxis == []:
-        axs[0].set_ylabel("Test Accuracy")
+        if ylabel:
+            axs[0].set_ylabel(ylabel)
+        else:
+            axs[0].set_ylabel("Test Accuracy")
     else:
         for i in range(len(yaxis)):
             axs[i].set_ylabel(yaxis[i])
