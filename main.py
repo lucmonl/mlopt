@@ -1235,7 +1235,7 @@ if __name__ == "__main__":
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'dom_sgd', 'gn_dom_sgd', 'gn_bulk_sgd', 'bulk_sgd', 'norm-sgd','adam', 'adamw', 'federated',
                   'replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam', 'adams_v1', 
-                  'sophia', 'sophus']
+                  'sophia', 'sophus', 'lora_rite']
     BASE_OPTIMIZERS = ['sgd','adam']
 
     parser = argparse.ArgumentParser(description="Train Configuration.")
@@ -1615,8 +1615,12 @@ if __name__ == "__main__":
             from data.glue import load_glue
             model, train_loader, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_glue(model_name, batch_size, model_params, do_eval)
     elif dataset_name == "swag":
-        from data.swag import load_swag_federated
-        model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_swag_federated(model_name, batch_size, opt_params["client_num"])
+        if opt_params["opt_name"] == "federated":
+            from data.swag import load_swag_federated
+            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_swag_federated(model_name, batch_size, opt_params["client_num"])
+        else:
+            from data.swag import load_swag
+            model, tokenizer, train_loader, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_swag(model_name, batch_size)
     elif dataset_name == "cub":
         from data.dro import load_dro
         train_loader, test_loader, analysis_loader, analysis_test_loader, n_groups, group_counts, group_str, C, transform_to_one_hot, data_params = load_dro(batch_size, dataset="CUB", target_name=args.target_name, confounder_names=args.confounder_names, model_name=model_name)

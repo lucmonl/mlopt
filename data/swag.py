@@ -204,6 +204,176 @@ class DataCollatorForMultipleChoice:
         # Add back labels
         batch["labels"] = torch.tensor(labels, dtype=torch.int64)
         return batch
+    
+
+def load_swag(model_name, batch_size):
+    datasets = load_dataset("swag", "regular")
+
+    config = AutoConfig.from_pretrained(
+        model_name,
+        #cache_dir=model_args.cache_dir,
+        revision="main",
+        use_auth_token=None,
+    )
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name,
+        #cache_dir=model_args.cache_dir,
+        use_fast=True,
+        revision="main",
+        use_auth_token=None,
+    )
+    model = AutoModelForMultipleChoice.from_pretrained(
+        model_name,
+        from_tf=bool(".ckpt" in model_name),
+        config=config,
+        #cache_dir=model_args.cache_dir,
+        revision="main",
+        use_auth_token=None,
+    )
+
+    # When using your own dataset or a different dataset from swag, you will probably need to change this.
+    ending_names = [f"ending{i}" for i in range(4)]
+    context_name = "sent1"
+    question_header_name = "sent2"
+
+    max_seq_length = 80
+    # Preprocessing the datasets.
+    def preprocess_function(examples):
+        first_sentences = [[context] * 4 for context in examples[context_name]]
+        question_headers = examples[question_header_name]
+        second_sentences = [
+            [f"{header} {examples[end][i]}" for end in ending_names] for i, header in enumerate(question_headers)
+        ]
+
+        # Flatten out
+        first_sentences = sum(first_sentences, [])
+        second_sentences = sum(second_sentences, [])
+
+        # Tokenize
+        tokenized_examples = tokenizer(
+            first_sentences,
+            second_sentences,
+            truncation=True,
+            max_length=max_seq_length,
+            padding=False,# if data_args.pad_to_max_length else False,
+        )
+        # Un-flatten
+        return {k: [v[i : i + 4] for i in range(0, len(v), 4)] for k, v in tokenized_examples.items()}
+
+    train_dataset = datasets["train"]
+    #if data_args.max_train_samples is not None:
+    #    train_dataset = train_dataset.select(range(data_args.max_train_samples))
+    
+    train_dataset = train_dataset.map(
+        preprocess_function,
+        batched=True,
+        #num_proc=data_args.preprocessing_num_workers,
+        #load_from_cache_file=not data_args.overwrite_cache,
+    )
+    
+    eval_dataset = datasets["validation"]
+    eval_dataset = eval_dataset.map(
+        preprocess_function,
+        batched=True,
+        #num_proc=data_args.preprocessing_num_workers,
+        #load_from_cache_file=not data_args.overwrite_cache,
+    )
+
+    #store the current random state
+    st0 = np.random.get_state()
+    #use a fixed seed to ensure same split on the dataset
+    np.random.seed(42) 
+
+    eval_len = len(eval_dataset)
+    eval_perm = np.random.permutation(eval_len)
+    val_index = eval_perm[:eval_len//2]
+    test_index = eval_perm[eval_len//2:]
+    val_dataset = eval_dataset.select(val_index)
+    test_dataset = eval_dataset.select(test_index)
+
+
+    data_collator = DataCollatorForMultipleChoice(tokenizer=tokenizer, pad_to_multiple_of=None)
+
+    """
+    val_loader = torch.utils.data.DataLoader(
+        val_dataset,  # type: ignore
+        shuffle=False,
+        collate_fn=data_collator, # Default data collator
+        batch_size=batch_size,
+    )
+
+    test_loader = torch.utils.data.DataLoader(
+        test_dataset,  # type: ignore
+        shuffle=False,
+        collate_fn=data_collator, # Default data collator
+        batch_size=batch_size,
+    )
+    """
+    training_args = TrainingArguments(output_dir=HF_HOME, per_device_train_batch_size=batch_size)
+    trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset,
+            tokenizer=tokenizer,
+            data_collator=data_collator,
+        )
+    train_loader = trainer.get_train_dataloader()
+
+    trainer = Trainer(
+        model=model,
+        args = training_args,
+        train_dataset=None,
+        eval_dataset=val_dataset,
+        tokenizer=tokenizer,
+        data_collator=data_collator,
+    )
+    val_loader = trainer.get_eval_dataloader()
+    trainer = Trainer(
+        model=model,
+        args = training_args,
+        train_dataset=None,
+        eval_dataset=test_dataset,
+        tokenizer=tokenizer,
+        data_collator=data_collator,
+    )
+    test_loader = trainer.get_eval_dataloader()
+
+    #reload the initial random state
+    np.random.set_state(st0)
+    analysis_size = max(batch_size, 128)
+    
+    #analysis_dataset = torch.utils.data.Subset(train_loader.dataset, torch.arange(analysis_size))
+    analysis_dataset = train_dataset.select(torch.arange(analysis_size))
+    analysis_dataset = analysis_dataset.map(
+        preprocess_function,
+        batched=True,
+        #num_proc=data_args.preprocessing_num_workers,
+        #load_from_cache_file=not data_args.overwrite_cache,
+    )
+    """
+    analysis_loader = torch.utils.data.DataLoader(
+            analysis_dataset,  # type: ignore
+            shuffle=True,
+            collate_fn=data_collator, # Default data collator
+            batch_size=batch_size,
+    )
+    """
+    trainer = Trainer(
+        model=model,
+        args = training_args,
+        train_dataset=None,
+        eval_dataset=analysis_dataset,
+        tokenizer=tokenizer,
+        data_collator=data_collator,
+    )
+    analysis_loader = trainer.get_eval_dataloader()
+
+    C = None
+    transform_to_one_hot = True
+    analysis_test_loader = test_loader
+    data_params = {"compute_acc": True}
+    return model, tokenizer, train_loader, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
+
 
 def load_swag_federated(model_name, batch_size, client_num):
     datasets = load_dataset("swag", "regular")

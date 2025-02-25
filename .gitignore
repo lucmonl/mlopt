@@ -4,6 +4,7 @@ sbatch/
 *.bash
 *.sbatch
 data/camelyon17_v1.0
+*.bin
 #results/**/*.ckpt
 #results/**/*.json
 #results/**/*.pt
