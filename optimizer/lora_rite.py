@@ -27,6 +27,7 @@ class LORA_RITE(torch.optim.Optimizer):
     @torch.no_grad()
     def lora_rite(self, lora_A_param, lora_B_param, update_B=True):
         #compute transformation invariant gradient
+        print(torch.norm(lora_A_param))
         if update_B:
             U_A, R_A = torch.linalg.qr(lora_A_param.T, mode='reduced') #U_A n*r, R_A r*r
             R_A_inv = torch.linalg.pinv(R_A)
@@ -65,6 +66,7 @@ class LORA_RITE(torch.optim.Optimizer):
             self.state[lora_B_param]["escape_mass"] = d_lambda_B
 
         #unmagnified precondition step
+        print(self.state[lora_B_param]["sq_avg"])
         sq_avg_eigs, sq_avg_eigvecs = torch.linalg.eigh(self.state[lora_B_param]["sq_avg"]) #eigs L: r; eigvecs Q: r*r Q diag(L) Q^T = RHS
         # avoid 0 in diags
         damped_sq_avg_eigs = sq_avg_eigs + self.state[lora_B_param]["escape_mass"] #r
@@ -105,6 +107,7 @@ class LORA_RITE(torch.optim.Optimizer):
         for i in range(0, len(adapter_names), 2):
             lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
             lora_A_param, lora_B_param = adapter_weights[lora_A_name], adapter_weights[lora_B_name]
+            print(lora_A_name, lora_B_name)
 
             self.lora_rite(lora_A_param, lora_B_param, update_B = True)
             self.lora_rite(lora_B_param, lora_A_param, update_B = False)

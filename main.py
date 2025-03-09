@@ -870,6 +870,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
     track_train_stats = {}
 
     for batch_idx, input in enumerate(train_loader, start=0):
+        print("batch idx:", batch_idx)
         if opt_params["wild_data"]:
             data, target, metadata = input
             data, target = data.to(device), target.to(device)
