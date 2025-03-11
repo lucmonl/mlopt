@@ -115,7 +115,7 @@ def get_attr(opt_name, model_params, opt_params, attr, eval_graph=False):
             with open(f'{directory}/{run_id}/train_graphs.pk', 'rb') as f:
                 train_graphs = pickle.load(f)
         else:
-            with open(f'{directory}eval_graphs.pk', 'rb') as f:
+            with open(f'{directory}/{run_id}/eval_graphs.pk', 'rb') as f:
                 train_graphs = pickle.load(f)
         return_attr.append(getattr(train_graphs, attr))
     return return_attr

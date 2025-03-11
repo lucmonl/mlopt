@@ -1082,7 +1082,6 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
         if apply_lora and opt_params["compute_base_grad"]:
             from arch.lora import compute_base_proj
             ratio_A_B = compute_base_proj(model)
-            print(ratio_A_B)
             map_update(track_train_stats, ratio_A_B, reduction = "append")
                 
         pbar.update(1)
@@ -1132,7 +1131,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
 
     #deal with training track statistics
 
-    if opt_params["train_stats"]:
+    if track_train_stats != {}:
         graph_update(train_graphs, track_train_stats, normalizer=len(train_loader))
     """
     if "cos_descent_ascent" in track_train_stats:

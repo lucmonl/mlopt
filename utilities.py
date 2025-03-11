@@ -834,8 +834,9 @@ def map_update(map1, map2, reduction="sum"):
 def graph_update(graph, map,  normalizer):
     for key in map:
         if key in ["grad_norm", "grad_l1_norm", "ascent_grad_norm", "ascent_grad_l1_norm",\
-                    "dominant_alignment", "batch_loss", "hessian_gn_align", "hessian_eig", "gn_eig"]:
-            print(key, map[key])
+                    "dominant_alignment", "batch_loss", "hessian_gn_align", "hessian_eig", "gn_eig", \
+                    "ratio_A", "ratio_B"]:
+            #print(key, map[key])
             getattr(graph, key).append(map[key])
         else:
             if key == 'ascent_step_cos':
