@@ -870,7 +870,6 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
     track_train_stats = {}
 
     for batch_idx, input in enumerate(train_loader, start=0):
-        print("batch idx:", batch_idx)
         if opt_params["wild_data"]:
             data, target, metadata = input
             data, target = data.to(device), target.to(device)
@@ -1083,6 +1082,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
         if apply_lora and opt_params["compute_base_grad"]:
             from arch.lora import compute_base_proj
             ratio_A_B = compute_base_proj(model)
+            print(ratio_A_B)
             map_update(track_train_stats, ratio_A_B, reduction = "append")
                 
         pbar.update(1)
@@ -1152,6 +1152,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
         train_graphs.grad_norm.append(track_train_stats["grad_norm"])
         #return torch.norm(old_params - parameters_to_vector(model.parameters())).item()
     """
+    return model
 
 def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params):    
     if 'loss' in analysis_list:
@@ -2089,12 +2090,13 @@ if __name__ == "__main__":
         model_params = model_params | {"lora_rank": lora_rank, "lora_alpha": lora_alpha}
         if args.lora_freeze_a:
             model_params = model_params | {"lora_freeze": "a"}
-        if opt_params["fedlora_avg"] != 'avg':
-            model_params = model_params | {"fedlora_avg": opt_params["fedlora_avg"]}
-        if opt_params["fedlora_avg"] in ["svd", "avg"] and lora_rank >= 0:
-            model_params = model_params | {"fedlora_uba": opt_params["fedlora_uba"]}
-        if opt_params["fedlora_avg"] == "flasc":
-            model_params = model_params | {"dl_density": args.dl_density, "ul_density": args.ul_density}
+        if opt_params["opt_name"] == "federated":
+            if opt_params["fedlora_avg"] != 'avg':
+                model_params = model_params | {"fedlora_avg": opt_params["fedlora_avg"]}
+            if opt_params["fedlora_avg"] in ["svd", "avg"] and lora_rank >= 0:
+                model_params = model_params | {"fedlora_uba": opt_params["fedlora_uba"]}
+            if opt_params["fedlora_avg"] == "flasc":
+                model_params = model_params | {"dl_density": args.dl_density, "ul_density": args.ul_density}
         #load_optimizer = load_optimizer_param
     else:
         print("number of parameters:", len(parameters_to_vector(model.parameters())))
@@ -2186,7 +2188,7 @@ if __name__ == "__main__":
                     model_update = federated_train(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params["client_lr"], opt_params, epoch)
                     eval_model = model
             else:
-                train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params)
+                eval_model = train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params)
                 #lr_scheduler.step()
             
             if epoch in epoch_list:

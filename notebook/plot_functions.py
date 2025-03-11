@@ -96,7 +96,7 @@ def plot_figures_opts(opts, model_params, opt_params):
 
 def get_attr(opt_name, model_params, opt_params, attr, eval_graph=False):
     model_param = model_params[opt_name]
-    directory = get_directory(opt_params[opt_name]['lr'], 
+    directory = get_running_directory(opt_params[opt_name]['lr'], 
                             opt_params[opt_name]['dataset_name'],
                             opt_params[opt_name]['loss'],
                             opt_params[opt_name]['opt'], 
@@ -105,17 +105,20 @@ def get_attr(opt_name, model_params, opt_params, attr, eval_graph=False):
                             opt_params[opt_name]['weight_decay'], 
                             opt_params[opt_name]['batch_size'], 
                             opt_params[opt_name]['epochs'], 
-                            multi_run = False,
                             **model_param
                             )
     print(directory)
-    if not eval_graph:
-        with open(f'../{directory}train_graphs.pk', 'rb') as f:
-            train_graphs = pickle.load(f)
-    else:
-        with open(f'../{directory}eval_graphs.pk', 'rb') as f:
-            train_graphs = pickle.load(f)
-    return getattr(train_graphs, attr)
+    run_dir = os.listdir(directory)
+    return_attr = []
+    for run_id in run_dir:
+        if not eval_graph:
+            with open(f'{directory}/{run_id}/train_graphs.pk', 'rb') as f:
+                train_graphs = pickle.load(f)
+        else:
+            with open(f'{directory}eval_graphs.pk', 'rb') as f:
+                train_graphs = pickle.load(f)
+        return_attr.append(getattr(train_graphs, attr))
+    return return_attr
 
 def get_attr_eval(opt_name, model_params, opt_params, attr):
     model_param = model_params[opt_name]
