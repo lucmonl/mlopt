@@ -1079,6 +1079,11 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 map_update(track_train_stats, grad_norm, reduction = "append")
                 map_update(track_train_stats, {"batch_loss": loss.item()}, reduction = "append")
             optimizer.step()
+
+        if apply_lora and opt_params["compute_base_grad"]:
+            from arch.lora import compute_base_proj
+            ratio_A_B = compute_base_proj(model)
+            map_update(track_train_stats, ratio_A_B, reduction = "append")
                 
         pbar.update(1)
         
@@ -1267,6 +1272,7 @@ if __name__ == "__main__":
     parser.add_argument("--lora_alpha", type=int, default=16)
     parser.add_argument("--lora_freeze_a", action='store_true', help="freeze A matrix in lora")
     parser.add_argument("--cls_lr", type=float, default=-1, help="specific learning rate for the output layer")
+    parser.add_argument("--compute_base_grad", action='store_true', help="compute full base grad and the ratio of the real gradient to the full gradient")
 
     parser.add_argument("--loss",  type=str, choices=LOSSES, help="Training Loss")
     parser.add_argument("--opt",  type=str, choices=OPTIMIZERS, help="Training Optimizer")
@@ -1394,6 +1400,7 @@ if __name__ == "__main__":
 
     # lora parameters
     apply_lora          = args.apply_lora
+    opt_params["apply_lora"] = apply_lora
     lora_rank           = args.lora_rank
     lora_alpha          = args.lora_alpha
 
@@ -1485,6 +1492,7 @@ if __name__ == "__main__":
 
     opt_params["use_parallel"]     = args.use_parallel
     opt_params["multi_gpu"]        = args.multi_gpu
+    opt_params["compute_base_grad"]= args.compute_base_grad
 
     if opt_params["debug"]:
         torch.autograd.set_detect_anomaly(True)
@@ -1646,7 +1654,7 @@ if __name__ == "__main__":
             model_params = model_params | {"non_iid": opt_params["non_iid"]}
         else:
             from data.newsgroups import load_20newsgroups
-            train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_20newsgroups(loss=loss_name, batch_size=batch_size)
+            train_loader, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_20newsgroups(loss=loss_name, batch_size=batch_size)
     elif dataset_name == "mathqa_gsm8k":
         from data.mathqa_gsm8k import load_mathqa_gsm8k
         train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_mathqa_gsm8k(batch_size, client_num=opt_params["client_num"])
@@ -2092,6 +2100,11 @@ if __name__ == "__main__":
         print("number of parameters:", len(parameters_to_vector(model.parameters())))
 
     optimizer, lr_scheduler, model_params= load_optimizer(opt_params["opt_name"], model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, model_params, opt_params)
+
+    if apply_lora and opt_params["compute_base_grad"]:
+        for name, param in model.named_parameters():
+            if 'base_layer' in name:
+                param.requires_grad =True
 
     if not no_train:
         train_graphs = graphs()

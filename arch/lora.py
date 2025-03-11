@@ -224,3 +224,32 @@ def lora_merge_unmerge_state_dict(llm, state_dict, peft_config, merge=True):
             merge=merge
         )
 """
+
+def compute_base_proj(model):
+    base_layers = {}
+    with torch.no_grad():
+        for name, param in model.named_parameters():
+            if 'base_layer.weight' in name:
+                base_layers[name] = {}
+                base_layers[name]["base_grad"] = param.grad
+            elif 'lora_A' in name:
+                base_name = name.replace("lora_A.default", "base_layer")
+                base_layers[base_name]["A"] = param.data
+            elif 'lora_B' in name:
+                base_name = name.replace("lora_B.default", "base_layer")
+                base_layers[base_name]["B"] = param.data
+    
+        ratio_A, ratio_B = [], []
+        for name in base_layers:
+            U_B, _ = torch.linalg.qr(base_layers[name]["B"])
+            proj_B = (base_layers[name]["base_grad"]) @ U_B @ U_B.T
+            ratio_B.append((torch.norm(proj_B) / torch.norm(base_layers[name]["base_grad"])).item())
+
+            U_A, _ = torch.linalg.qr(base_layers[name]["A"].T)
+            proj_A = U_A @ (U_A.T @ base_layers[name]["base_grad"])
+            ratio_A.append((torch.norm(proj_A) / torch.norm(base_layers[name]["base_grad"])).item())
+    return {"ratio_A": ratio_A, "ratio_B": ratio_B}
+
+
+
+    

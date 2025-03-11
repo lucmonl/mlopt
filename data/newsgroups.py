@@ -105,6 +105,10 @@ def load_20newsgroups(loss: str, batch_size: int):
     C = 20
     transform_to_one_hot = True
     trainset, testset = build_20newsgroups()
+    val_size = len(trainset) // 10
+    valset = torch.utils.data.Subset(trainset, range(len(trainset) - val_size, len(trainset)))
+    trainset = torch.utils.data.Subset(trainset, range(len(trainset) - val_size))
+
     analysis_size = max(batch_size, 128)
     analysis = torch.utils.data.Subset(trainset, range(analysis_size))
     analysis_test = torch.utils.data.Subset(testset, range(analysis_size))
@@ -114,6 +118,9 @@ def load_20newsgroups(loss: str, batch_size: int):
     train_loader = torch.utils.data.DataLoader(
         trainset,
         batch_size=batch_size, shuffle=True)
+    val_loader = torch.utils.data.DataLoader(
+        valset,
+        batch_size=batch_size, shuffle=False)
     test_loader = torch.utils.data.DataLoader(
         testset,
         batch_size=batch_size, shuffle=False)
@@ -123,4 +130,4 @@ def load_20newsgroups(loss: str, batch_size: int):
     analysis_test_loader = torch.utils.data.DataLoader(
         analysis_test,
         batch_size=analysis_size, shuffle=False)
-    return train_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
+    return train_loader, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params

@@ -121,3 +121,7 @@ class graphs:
         self.lora_A_norm        = []
         self.lora_B_norm        = []
         self.truncate_err       = []
+
+        #lora
+        self.ratio_A            = []
+        self.ratio_B            = []
