@@ -3,7 +3,7 @@ from collections import defaultdict
 
 
 class LORA_RITE(torch.optim.Optimizer):
-    def __init__(self, model, lr=0.001, beta=0.9, output_layer_name=None, base_optimizer="adam"):
+    def __init__(self, model, lr=0.001, beta=0.9, output_layer_name=None):
         defaults = dict(lr=lr, beta=beta)
         super(LORA_RITE, self).__init__(model.parameters(), defaults)
         self.model = model
@@ -57,8 +57,11 @@ class LORA_RITE(torch.optim.Optimizer):
             d_lambda_B = 0
 
         #update unmagnified second moment
-        self.state[lora_B_param]["sq_avg"] = projected_sq_avg_B + unmagnified_B_grad.T @ unmagnified_B_grad #r*r
-
+        momentum_v = 0.999
+        if not isinstance(projected_sq_avg_B, int):
+            self.state[lora_B_param]["sq_avg"] = momentum_v * projected_sq_avg_B + (1- momentum_v) * unmagnified_B_grad.T @ unmagnified_B_grad #r*r
+        else:
+            self.state[lora_B_param]["sq_avg"] = unmagnified_B_grad.T @ unmagnified_B_grad
         #update escaped mass
         if "escape_mass" in self.state[lora_B_param]:
             self.state[lora_B_param]["escape_mass"] += d_lambda_B
@@ -66,15 +69,18 @@ class LORA_RITE(torch.optim.Optimizer):
             self.state[lora_B_param]["escape_mass"] = d_lambda_B
 
         #unmagnified precondition step
-        print(self.state[lora_B_param]["sq_avg"])
-        sq_avg_eigs, sq_avg_eigvecs = torch.linalg.eigh(self.state[lora_B_param]["sq_avg"]) #eigs L: r; eigvecs Q: r*r Q diag(L) Q^T = RHS
-        # avoid 0 in diags
-        damped_sq_avg_eigs = sq_avg_eigs + self.state[lora_B_param]["escape_mass"] #r
-        sq_avg_eigs_pow = torch.zeros_like(damped_sq_avg_eigs)
-        mask = damped_sq_avg_eigs > 1e-8
-        sq_avg_eigs_pow[mask] =  damped_sq_avg_eigs[mask].pow(-0.5)
-        #damped_sq_avg_eigs = damped_sq_avg_eigs * (torch.abs(damped_sq_avg_eigs) > 1e-8)
-        precondition_step = unmagnified_B_grad @ sq_avg_eigvecs @ torch.diag(sq_avg_eigs_pow) @ sq_avg_eigvecs.T #m*r
+        print(torch.norm(self.state[lora_B_param]["sq_avg"]))
+        if torch.norm(self.state[lora_B_param]["sq_avg"]) > 1e-6:
+            sq_avg_eigs, sq_avg_eigvecs = torch.linalg.eigh(self.state[lora_B_param]["sq_avg"]) #eigs L: r; eigvecs Q: r*r Q diag(L) Q^T = RHS
+            # avoid 0 in diags
+            damped_sq_avg_eigs = sq_avg_eigs + self.state[lora_B_param]["escape_mass"] #r
+            sq_avg_eigs_pow = torch.zeros_like(damped_sq_avg_eigs)
+            mask = damped_sq_avg_eigs > 1e-8
+            sq_avg_eigs_pow[mask] =  damped_sq_avg_eigs[mask].pow(-0.5)
+            #damped_sq_avg_eigs = damped_sq_avg_eigs * (torch.abs(damped_sq_avg_eigs) > 1e-8)
+            precondition_step = unmagnified_B_grad @ sq_avg_eigvecs @ torch.diag(sq_avg_eigs_pow) @ sq_avg_eigvecs.T #m*r
+        else:
+            precondition_step = unmagnified_B_grad 
 
         #unmaginified first moment
         if "exp_avg" in self.state[lora_B_param]:
@@ -84,9 +90,13 @@ class LORA_RITE(torch.optim.Optimizer):
 
         #update parameters
         if update_B:
-            lora_B_param.add_(-self.lr * self.state[lora_B_param]["exp_avg"] @ R_A_inv.T)
+            #lora_B_param.add_(-self.lr * self.state[lora_B_param]["exp_avg"] @ R_A_inv.T)
+            lora_B_update = -self.lr * self.state[lora_B_param]["exp_avg"] @ R_A_inv.T
+            return lora_B_update
         else:
-            lora_B_param.add_(-self.lr * (self.state[lora_B_param]["exp_avg"] @ R_A_inv.T).T)
+            #lora_B_param.add_(-self.lr * (self.state[lora_B_param]["exp_avg"] @ R_A_inv.T).T)
+            lora_A_update = -self.lr * (self.state[lora_B_param]["exp_avg"] @ R_A_inv.T).T
+            return lora_A_update
     
     @torch.no_grad()
     def step(self, zero_grad=True):
@@ -109,8 +119,10 @@ class LORA_RITE(torch.optim.Optimizer):
             lora_A_param, lora_B_param = adapter_weights[lora_A_name], adapter_weights[lora_B_name]
             print(lora_A_name, lora_B_name)
 
-            self.lora_rite(lora_A_param, lora_B_param, update_B = True)
-            self.lora_rite(lora_B_param, lora_A_param, update_B = False)
+            lora_B_update = self.lora_rite(lora_A_param, lora_B_param, update_B = True)
+            lora_A_update = self.lora_rite(lora_B_param, lora_A_param, update_B = False)
+            lora_B_param.add_(lora_B_update)
+            lora_A_param.add_(lora_A_update)
         
         if self.output_layer_name:
             self.output_layer_optimizer.step()

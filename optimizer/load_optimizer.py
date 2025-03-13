@@ -255,8 +255,8 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
             optimizer = Adam(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
     elif opt_name == "lora_rite":
         from optimizer.lora_rite import LORA_RITE
-        optimizer = LORA_RITE(model, lr=lr, beta=momentum, output_layer_name=kwargs["output_layer_name"], base_optimizer=kwargs["base_opt"])
-        model_params = model_params | {"base_opt": kwargs["base_opt"]}
+        optimizer = LORA_RITE(model, lr=lr, beta=momentum, output_layer_name=kwargs["output_layer_name"])
+        #model_params = model_params | {"base_opt": kwargs["base_opt"]}
     else:
         raise NotImplementedError
     """
