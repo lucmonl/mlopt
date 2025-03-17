@@ -2327,6 +2327,11 @@ if __name__ == "__main__":
             assert opt_params["apply_lora"]
             from analysis.rank import get_lora_eff_rank
             get_lora_eff_rank(eval_graphs, model)
+
+        if 'stable_rank' in analysis_list:
+            assert opt_params["apply_lora"]
+            from analysis.rank import get_lora_stable_rank
+            get_lora_stable_rank(eval_graphs, model)
         print(directory)
         os.makedirs(directory, exist_ok=True)
         pickle.dump(eval_graphs, open(f"{directory}/eval_graphs.pk", "wb"))
