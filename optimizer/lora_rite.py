@@ -3,13 +3,14 @@ from collections import defaultdict
 
 
 class LORA_RITE(torch.optim.Optimizer):
-    def __init__(self, model, lr=0.001, beta=0.9, output_layer_name=None):
+    def __init__(self, model, lr=0.001, beta=0.9, output_layer_name=None, version="v1"):
         defaults = dict(lr=lr, beta=beta)
         super(LORA_RITE, self).__init__(model.parameters(), defaults)
         self.model = model
         self.lr = lr
         self.beta = beta
         self.output_layer_name = output_layer_name
+        self.version = version
 
         from torch.optim import Adam
         output_params_list = []
@@ -78,9 +79,14 @@ class LORA_RITE(torch.optim.Optimizer):
             mask = damped_sq_avg_eigs > 1e-8
             sq_avg_eigs_pow[mask] =  damped_sq_avg_eigs[mask].pow(-0.5)
             #damped_sq_avg_eigs = damped_sq_avg_eigs * (torch.abs(damped_sq_avg_eigs) > 1e-8)
-            precondition_step = unmagnified_B_grad @ sq_avg_eigvecs @ torch.diag(sq_avg_eigs_pow) @ sq_avg_eigvecs.T #m*r
+            if self.version == "v1":
+                precondition_step = unmagnified_B_grad @ sq_avg_eigvecs @ torch.diag(sq_avg_eigs_pow) @ sq_avg_eigvecs.T #m*r
+            elif self.version == "v2":
+                precondition_step = unmagnified_B_grad #m*r
+                sq_avg = sq_avg_eigvecs @ torch.diag(sq_avg_eigs_pow) @ sq_avg_eigvecs.T
         else:
-            precondition_step = unmagnified_B_grad 
+            precondition_step = unmagnified_B_grad
+            sq_avg = torch.eye(self.state[lora_B_param]["sq_avg"].shape[0]).to(self.state[lora_B_param]["sq_avg"])
 
         #unmaginified first moment
         if "exp_avg" in self.state[lora_B_param]:
@@ -89,14 +95,24 @@ class LORA_RITE(torch.optim.Optimizer):
             self.state[lora_B_param]["exp_avg"] = precondition_step
 
         #update parameters
-        if update_B:
-            #lora_B_param.add_(-self.lr * self.state[lora_B_param]["exp_avg"] @ R_A_inv.T)
-            lora_B_update = -self.lr * self.state[lora_B_param]["exp_avg"] @ R_A_inv.T
-            return lora_B_update
-        else:
-            #lora_B_param.add_(-self.lr * (self.state[lora_B_param]["exp_avg"] @ R_A_inv.T).T)
-            lora_A_update = -self.lr * (self.state[lora_B_param]["exp_avg"] @ R_A_inv.T).T
-            return lora_A_update
+        if self.version == "v1":
+            if update_B:
+                #lora_B_param.add_(-self.lr * self.state[lora_B_param]["exp_avg"] @ R_A_inv.T)
+                lora_B_update = -self.lr * self.state[lora_B_param]["exp_avg"] @ R_A_inv.T
+                return lora_B_update
+            else:
+                #lora_B_param.add_(-self.lr * (self.state[lora_B_param]["exp_avg"] @ R_A_inv.T).T)
+                lora_A_update = -self.lr * (self.state[lora_B_param]["exp_avg"] @ R_A_inv.T).T
+                return lora_A_update
+        elif self.version == "v2":
+            if update_B:
+                #lora_B_param.add_(-self.lr * self.state[lora_B_param]["exp_avg"] @ R_A_inv.T)
+                lora_B_update = -self.lr * self.state[lora_B_param]["exp_avg"] @ sq_avg @ R_A_inv.T
+                return lora_B_update
+            else:
+                #lora_B_param.add_(-self.lr * (self.state[lora_B_param]["exp_avg"] @ R_A_inv.T).T)
+                lora_A_update = -self.lr * (self.state[lora_B_param]["exp_avg"] @ sq_avg @ R_A_inv.T).T
+                return lora_A_update
     
     @torch.no_grad()
     def step(self, zero_grad=True):

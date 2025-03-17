@@ -253,9 +253,12 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         elif kwargs["base_opt"] == "adam":
             from torch.optim import Adam
             optimizer = Adam(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
-    elif opt_name == "lora_rite":
+    elif opt_name in ["lora_rite", "lora_rite_v2"]:
         from optimizer.lora_rite import LORA_RITE
-        optimizer = LORA_RITE(model, lr=lr, beta=momentum, output_layer_name=kwargs["output_layer_name"])
+        if opt_name == "lora_rite":
+            optimizer = LORA_RITE(model, lr=lr, beta=momentum, output_layer_name=kwargs["output_layer_name"], version="v1")
+        elif opt_name == "lora_rite_v2":
+            optimizer = LORA_RITE(model, lr=lr, beta=momentum, output_layer_name=kwargs["output_layer_name"], version="v2")
         #model_params = model_params | {"base_opt": kwargs["base_opt"]}
     else:
         raise NotImplementedError
