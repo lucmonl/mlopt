@@ -1209,6 +1209,11 @@ def analysis(graphs, analysis_list, model, model_name, criterion_summed, device,
         get_diagonal_coef(graphs, model, device, train_loader)
         get_diagonal_invariate(graphs, model, device, train_loader)
 
+    if 'effective_rank' in analysis_list:
+        assert opt_params["apply_lora"]
+        from analysis.rank import get_lora_eff_rank
+        get_lora_eff_rank(graphs, model)
+
     """
     if 'minibatch_grad_norm' in analysis_list:
         from analysis.grad_norm import get_minibatch_grad_norm
@@ -2317,6 +2322,11 @@ if __name__ == "__main__":
             #print(type(eval_graphs.layer_cls_score))
             #transformer_probe(eval_graphs, model, train_loader, test_loader, device, zero_out_attn=args.zero_out_attn)
             transformer_probe(eval_graphs, model, train_loader, test_loader, device, **analysis_params)
+
+        if 'effective_rank' in analysis_list:
+            assert opt_params["apply_lora"]
+            from analysis.rank import get_lora_eff_rank
+            get_lora_eff_rank(eval_graphs, model)
         print(directory)
         os.makedirs(directory, exist_ok=True)
         pickle.dump(eval_graphs, open(f"{directory}/eval_graphs.pk", "wb"))

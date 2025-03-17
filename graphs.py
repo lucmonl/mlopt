@@ -125,3 +125,4 @@ class graphs:
         #lora
         self.ratio_A            = []
         self.ratio_B            = []
+        self.effective_rank     = []
