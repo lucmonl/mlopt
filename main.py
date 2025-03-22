@@ -601,7 +601,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     train_graphs.truncate_err.append(truncate_err)
 
 def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
-    if opt_params["server_opt_name"] == "cocktailsgd":
+    if opt_params["server_opt_name"] in ["cocktailsgd", "cocktailsgd2"]:
         from optimizer.cocktailsgd import federated_cocktail_train
         federated_cocktail_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, epochs_lr_decay, lr_decay, model_params, opt_params, server_epoch)
         return
@@ -1079,7 +1079,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 map_update(track_train_stats, {"batch_loss": loss.item()}, reduction = "append")
             optimizer.step()
 
-        if apply_lora and opt_params["compute_base_grad"]:
+        if opt_params["apply_lora"] and opt_params["compute_base_grad"]:
             from arch.lora import compute_base_proj
             ratio_A_B = compute_base_proj(model)
             map_update(track_train_stats, ratio_A_B, reduction = "append")
@@ -1114,7 +1114,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             optimizer.update_hessian()
             optimizer.zero_grad()
 
-        if opt_params["debug"] and batch_idx > 2:
+        if opt_params["debug"] and batch_idx > 3:
             break
         if opt_params["client_early_stop"] != -1 and batch_idx > opt_params["client_early_stop"]:
             break

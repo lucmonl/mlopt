@@ -136,15 +136,15 @@ def federated_cocktail_train(model, loss_name, criterion, device, train_loaders,
             
         new_params = parameters_to_vector(client_model.parameters())
 
-        model_diff_comp[client_id] = cocktail_compress(old_params - server_params)
-        client_model_temp[client_id] = new_params - model_diff_comp[client_id]
-        vector_m += model_diff_comp[client_id].detach() #* min(1, opt_params["clip_tau"] / param_norm.item())
+        model_diff_comp[client_id] = cocktail_compress(old_params - server_params) #C[delta_t_i]
+        client_model_temp[client_id] = new_params - model_diff_comp[client_id] 
+        vector_m += model_diff_comp[client_id].detach() #* min(1, opt_params["clip_tau"] / param_norm.item()) #sum C[delta_t_i]
         
 
     vector_m = vector_m / client_num
-    vector_m = vector_m + opt_params["server_error_feedback"]
-    vector_m_compress = cocktail_compress(vector_m)
-    opt_params["server_error_feedback"] = vector_m - vector_m_compress
+    vector_m = vector_m + opt_params["server_error_feedback"] #Delta_t
+    vector_m_compress = cocktail_compress(vector_m) #C[Delta_t]
+    opt_params["server_error_feedback"] = vector_m - vector_m_compress #e_{t+1}
 
     server_params += vector_m_compress
     vector_to_parameters(server_params, model.parameters())

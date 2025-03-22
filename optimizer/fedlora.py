@@ -3,6 +3,14 @@ from optimizer.load_optimizer import load_optimizer
 import copy
 import torch.nn.functional as F
 
+def compute_adapter_weight(model_name, lora_A_param, lora_B_param):
+    if model_name in ["google/vit-base-patch16-224-in21k", "roberta-base"]:
+        return lora_B_param @ lora_A_param
+    elif model_name in ["gpt2"]:
+        return (lora_B_param @ lora_A_param).T
+    else:
+        raise NotImplementedError
+
 #def federated_lora_avg(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
 def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
@@ -175,7 +183,7 @@ def federated_lora_fedex(model, loss_name, criterion, lora_rank, train_graphs, d
                         base_B_param = param.data
 
                         scaling = model_params["lora_alpha"] / model_params["lora_rank"]
-                        base_weights[base_name] +=  scaling * (base_B_param @ base_A_param) / client_num
+                        base_weights[base_name] +=  scaling * compute_adapter_weight(opt_params["model_name"], base_A_param, base_B_param) / client_num
                     else: assert False
                 else:
                     assert False
@@ -194,7 +202,7 @@ def federated_lora_fedex(model, loss_name, criterion, lora_rank, train_graphs, d
                 base_B_param = param.data
 
                 scaling = model_params["lora_alpha"] / model_params["lora_rank"]
-                base_weights[base_name] -= scaling * (base_B_param @ base_A_param)
+                base_weights[base_name] -= scaling * compute_adapter_weight(opt_params["model_name"], base_A_param, base_B_param)
                 #print(name, torch.norm(base_weights[base_name]).item())
             elif output_layer_name and output_layer_name in name:
                 #print(name, torch.norm(param.data).item(), torch.norm(output_weights[name].data).item())
@@ -270,7 +278,7 @@ def federated_lora_flora(model, loss_name, criterion, lora_rank, train_graphs, d
 
                         scaling = model_params["lora_alpha"] / model_params["lora_rank"]
                         original_base_weight_norm = torch.norm(base_weights[base_name])
-                        base_weights[base_name] +=  scaling * (base_B_param @ base_A_param) / client_num
+                        base_weights[base_name] +=  scaling * compute_adapter_weight(opt_params["model_name"], base_A_param, base_B_param) / client_num
                         #print(base_name, torch.norm(base_weights[base_name]), original_base_weight_norm, torch.norm(base_weights[base_name] - untouch_base_weights[base_name]))
                         #print(base_weights[base_name])
                         #print(base_weights[base_name] - untouch_base_weights[base_name])

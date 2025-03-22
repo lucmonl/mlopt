@@ -69,6 +69,11 @@ def lora_name_to_base(lora_A_name, use_parallel=False):
         base_weight_name = "module."+base_weight_name
     return base_weight_name
 
+def base_to_lora_name(base_name):
+    lora_A_name = base_name.replace("base_layer", "lora_A.default")
+    lora_B_name = base_name.replace("base_layer", "lora_B.default")
+    return lora_A_name, lora_B_name
+
 def get_lora_norm(adapter_weights):
     norm_A, norm_B = 0, 0 
     #norm_A_diff, norm_B_diff=0, 0
