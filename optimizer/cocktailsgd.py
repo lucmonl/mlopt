@@ -48,6 +48,8 @@ class QSGDCompressor(object):
         :param vec: torch tensor
         :return: norm, signs, quantized_intervals
         """
+        self.dim = vec.shape[0]
+        self.shape = vec.shape
         vec = vec.view(-1, self.dim)
         # norm = torch.norm(vec, dim=1, keepdim=True)
         norm = torch.max(torch.abs(vec), dim=1, keepdim=True)[0]
@@ -65,6 +67,7 @@ class QSGDCompressor(object):
             l[:] += (probabilities > r).type(self.code_dtype)
 
         signs = torch.sign(vec) > 0
+        #print(signs.shape)
         return [norm, signs.view(self.shape), l.view(self.shape)]
 
     def decompress(self, signature):
@@ -100,6 +103,8 @@ def cocktail_compress_2(v):
     topk_size = int(0.2 * p)
     v = tensor_topk(v, k=topk_size)
     ind = torch.where(v != 0)
+    if ind[0].nelement() == 0:
+        return v
     v_nz = v[ind]
     # quantization
     v_nz_comp = comp.decompress(comp.compress(v_nz))
