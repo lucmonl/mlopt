@@ -77,6 +77,19 @@ class QSGDCompressor(object):
         compressed = (scaled_vec.view((-1, self.dim))) * norm / self.s
         return compressed.view(self.shape)
 
+
+def cocktail_comp_round(sketch_size, full_dim):
+    import numpy as np
+    expected_ratio = sketch_size / full_dim
+    predefined_ratios = np.array([0.001, 0.01, 0.1])
+    #quant, top_k, rand_k
+    predefined_ops = [[4, 0.1, 0.04], 
+                      [8, 0.2, 0.1],
+                      [16, 0.4, 0.25]]
+    nearest_ratio_ind = np.argmin(np.abs(expected_ratio - predefined_ratios))
+    return predefined_ops[nearest_ratio_ind]
+
+
 def cocktail_compress(v):
     v = v.clone()
     p = v.numel()
@@ -92,15 +105,17 @@ def cocktail_compress(v):
     return v
 
 
-def cocktail_compress_2(v):
+def cocktail_compress_2(v, sketch_size):
     v = v.clone()
     p = v.numel()
-    comp = QSGDCompressor(size=p, shape=p, random=False, n_bit=8, c_dim=p, no_cuda=True)
+    quant_bit, top_k_ratio, rand_k_ratio = cocktail_comp_round(sketch_size, p)
+    print("Quantization {} bits; Top-k ratio: {}; Rand-k ratio: {}".format(quant_bit, top_k_ratio, rand_k_ratio))
+    comp = QSGDCompressor(size=p, shape=p, random=False, n_bit=quant_bit, c_dim=p, no_cuda=True)
     #randomly select
-    random_sample_prob = 0.1
+    random_sample_prob = rand_k_ratio
     v = v * torch.bernoulli(random_sample_prob * torch.ones(p)).to(v)
     #top-k
-    topk_size = int(0.2 * p)
+    topk_size = int(top_k_ratio * p)
     v = tensor_topk(v, k=topk_size)
     ind = torch.where(v != 0)
     if ind[0].nelement() == 0:
@@ -141,14 +156,14 @@ def federated_cocktail_train(model, loss_name, criterion, device, train_loaders,
             
         new_params = parameters_to_vector(client_model.parameters())
 
-        model_diff_comp[client_id] = cocktail_compress(old_params - server_params) #C[delta_t_i]
+        model_diff_comp[client_id] = cocktail_compress(old_params - server_params, sketch_size=opt_params["sketch_size"]) #C[delta_t_i]
         client_model_temp[client_id] = new_params - model_diff_comp[client_id] 
         vector_m += model_diff_comp[client_id].detach() #* min(1, opt_params["clip_tau"] / param_norm.item()) #sum C[delta_t_i]
         
 
     vector_m = vector_m / client_num
     vector_m = vector_m + opt_params["server_error_feedback"] #Delta_t
-    vector_m_compress = cocktail_compress(vector_m) #C[Delta_t]
+    vector_m_compress = cocktail_compress(vector_m, sketch_size=opt_params["sketch_size"]) #C[Delta_t]
     opt_params["server_error_feedback"] = vector_m - vector_m_compress #e_{t+1}
 
     server_params += vector_m_compress
