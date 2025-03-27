@@ -60,7 +60,12 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
             loss_sum += loss.item()
             accuracy_sum += accuracy
         graphs.loss.append(loss_sum / len(loader_abridged.dataset))
-        graphs.accuracy.append(accuracy_sum / len(loader_abridged.dataset))
+
+        if opt_params["compute_ex_score"] is not None:
+            accuracy = opt_params["compute_ex_score"](model, opt_params["analysis_dataset"], device)
+            graphs.accuracy.append(accuracy)
+        else:
+            graphs.accuracy.append(accuracy_sum / len(loader_abridged.dataset))
         
         if compute_model_output:
             graphs.model_output.append(np.concatenate(model_output))
@@ -136,13 +141,17 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
             loss_sum += loss.item()
             accuracy_sum += accuracy
         test_loss = loss_sum / len(test_loader.dataset)
-        test_accuracy = accuracy_sum / len(test_loader.dataset)
+        graphs.test_loss.append(test_loss)
+        if opt_params["compute_ex_score"] is not None:
+            test_accuracy = opt_params["compute_ex_score"](model, opt_params["test_dataset"], device)
+        else:
+            test_accuracy = accuracy_sum / len(test_loader.dataset)
         #print(loss_sum / len(test_loader.dataset))
         #print(out[:10])
         #print(target[:10])
         
         pbar.close()
-        graphs.test_loss.append(test_loss)
+        
         graphs.test_accuracy.append(test_accuracy)
         if graphs.test_accuracy[-1] > graphs.best_test_accuracy:
             graphs.best_test_accuracy = graphs.test_accuracy[-1]

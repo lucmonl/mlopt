@@ -926,7 +926,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                     if out.shape != target.shape:
                         accuracy = torch.mean((torch.argmax(out,dim=1)==target).float()).item()
                     else:
-                        accuracy = torch.mean((torch.argmax(out,dim=1)==torch.argmax(target,dim=1)).float()).item()
+                        accuracy = torch.mean((torch.argmax(out,dim=1)==torch.argmax(target,dim=-1)).float()).item()
                 else:
                     accuracy = torch.mean((out*target > 0).float()).item()
 
@@ -1236,12 +1236,14 @@ def hook(self, input, output):
     
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "cifar100", "imagenet_tiny", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", 
-                "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds", "icl", "20newsgroups", "mathqa_gsm8k", "swag"]
+                "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds", "icl", "20newsgroups", "mathqa_gsm8k", "swag",
+                "spider"]
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "res_conv_fixed_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2",
               "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", 
-              "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1", "dino_vit_small", "dino_vit_base",
+              "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1", 
+              "google/vit-huge-patch14-224-in21k", "dino_vit_small", "dino_vit_base",
                 "dinov2_vit_base", "dinov2_vit_small", 
-              "dinov2_vit_giant2", "vit_small", "vit_medium", "vit_base", "lin_attn", "mlp", "gpt2", "roberta-base", "bert-base-uncased"]
+              "dinov2_vit_giant2", "vit_small", "vit_medium", "vit_base", "lin_attn", "mlp", "gpt2", "roberta-base", "bert-base-uncased", "deepseek-ai/deepseek-coder-1.3b-instruct"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'dom_sgd', 'gn_dom_sgd', 'gn_bulk_sgd', 'bulk_sgd', 'norm-sgd','adam', 'adamw', 'federated',
@@ -1488,7 +1490,8 @@ if __name__ == "__main__":
     
     exp_avg, exp_avg_sq            = None, None
 
-    opt_params["hf_model"]         = args.dataset in ["glue"] or model_name in ["google/vit-base-patch16-224-in21k", "gpt2", "roberta-base", "akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1"]
+    opt_params["hf_model"]         = args.dataset in ["glue"] or model_name in ["google/vit-base-patch16-224-in21k", "gpt2", "roberta-base", "akjindal53244/Arithmo-Mistral-7B", 
+                                                                                "mistralai/Mistral-7B-v0.1", "google/vit-huge-patch14-224-in21k", "deepseek-ai/deepseek-coder-1.3b-instruct"]
     opt_params["cub_data"]         = args.dataset in ["cub"]
     opt_params["wild_data"]        = args.dataset in ["wilds"]
     analysis_params["model_path"]  = None #placeholder
@@ -1635,6 +1638,9 @@ if __name__ == "__main__":
         else:
             from data.swag import load_swag
             model, tokenizer, train_loader, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_swag(model_name, batch_size)
+    elif dataset_name == "spider":
+        from data.spider import load_spider
+        model, tokenizer, train_loader, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_spider(model_name, batch_size)
     elif dataset_name == "cub":
         from data.dro import load_dro
         train_loader, test_loader, analysis_loader, analysis_test_loader, n_groups, group_counts, group_str, C, transform_to_one_hot, data_params = load_dro(batch_size, dataset="CUB", target_name=args.target_name, confounder_names=args.confounder_names, model_name=model_name)
@@ -1668,6 +1674,10 @@ if __name__ == "__main__":
     opt_params["num_classes"] = C
 
     opt_params["compute_acc"] = data_params["compute_acc"]
+    if "compute_ex_score" in data_params:
+        opt_params["compute_ex_score"] = data_params["compute_ex_score"]
+        opt_params["analysis_dataset"] = data_params["analysis_dataset"]
+        opt_params["test_dataset"] = data_params["test_dataset"]
     if args.mixup == "cut":
         from data.data_process import CutMix
         cutmix = CutMix(int(np.sqrt(num_pixels/input_ch)), beta=1)
@@ -1777,8 +1787,8 @@ if __name__ == "__main__":
         from transformers import AutoTokenizer, AutoModelForMaskedLM
         tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-uncased")
         model = AutoModelForMaskedLM.from_pretrained("google-bert/bert-base-uncased")
-    elif model_name in ["roberta-base", "google-bert/bert-base-cased"]:
-        pass  # model is claimed in load_glue, or load_swag
+    elif model_name in ["roberta-base", "google-bert/bert-base-cased", "deepseek-ai/deepseek-coder-1.3b-instruct"]:
+        pass  # model is claimed in load_glue, or load_swag, or load_spider
         """
         from transformers import AutoModelForSequenceClassification
         model = AutoModelForSequenceClassification.from_pretrained(
@@ -1809,6 +1819,9 @@ if __name__ == "__main__":
         #                                                label2id=label2id)
         model = AutoModelForImageClassification.from_pretrained('google/vit-base-patch16-224-in21k', num_labels=C)
         #model.init_weights()
+    elif model_name == "google/vit-huge-patch14-224-in21k":
+        from transformers import AutoModelForImageClassification
+        model = AutoModelForImageClassification.from_pretrained('google/vit-huge-patch14-224-in21k', num_labels=C)
     elif model_name == "vit_small":
         from arch.dino_vit import vit_small
         from path_manage import vit_directory, pretain_num_classes
