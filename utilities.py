@@ -1029,6 +1029,24 @@ def tensor_topk(x, k):
     masked[ind] = 0
     return x - masked
 
+def tensor_randk(x, k):
+    n = x.numel()
+    device = x.device
+    
+    if k >= n:
+        return x  # No compression needed
+    
+    # Step 1: Randomly select k indices
+    indices = torch.randperm(n, device=device)[:k]
+    
+    # Step 2: Create sparse output (initialize as zeros)
+    x_hat = torch.zeros_like(x)
+    
+    # Step 3: Scale selected entries to ensure unbiasedness
+    x_hat[indices] = x[indices] * (n / k)
+    
+    return x_hat
+
 import sys
 def deepgso(ob):
     size = sys.getsizeof(ob)

@@ -733,6 +733,9 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                     from utilities import tensor_topk
                     vector_m_topk = tensor_topk(grad_diff, k=sketch_size)
                     vector_m += opt_params["server_update"] + vector_m_topk
+            elif opt_params["server_opt_name"] == "cams":
+                from utilities import tensor_randk
+                vector_m += tensor_randk(vector_m_true, k=sketch_size)
             else:
                 from hadamard_transform import hadamard_transform, pad_to_power_of_2 
                 new_params_pad = pad_to_power_of_2((old_params - new_params).detach())
@@ -795,6 +798,8 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             vector_m = opt_params["g_tilde"]
         elif opt_params["server_opt_name"] == "marina":
             opt_params["server_update"] = vector_m
+        elif opt_params["server_opt_name"] == "cams":
+            pass
         elif opt_params["server_opt_name"] != "fetchsgd":
             vector_m = sub_sample_row.T @ vector_m
             vector_m = hadamard_transform(vector_m) * D
@@ -1340,7 +1345,7 @@ if __name__ == "__main__":
     parser.add_argument("--zero_out_selfattn", type=int, default=0, help="if 0 preserves self attention, if 1 zero out self attention")
 
     #federated learning hyperparameters
-    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd", "onebit", "cdadam", "cocktailsgd", "cocktailsgd2", "marina"], help="optimizer of server")
+    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd", "onebit", "cdadam", "cocktailsgd", "cocktailsgd2", "marina", "cams"], help="optimizer of server")
     parser.add_argument("--client_num", type=int, default=1, help="number of clients")
     parser.add_argument("--client_partial", type=float, default=1.9, help="partial participation of clients")
     parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd", "adam", "adamw"], help="optimizer of clients")
@@ -1496,6 +1501,7 @@ if __name__ == "__main__":
     opt_params["wild_data"]        = args.dataset in ["wilds"]
     analysis_params["model_path"]  = None #placeholder
     analysis_params["tokenizer"]   = None #placeholder
+    opt_params["compute_ex_score"] = None #placeholder
     analysis_params["is_val"]       = True 
 
     opt_params["use_parallel"]     = args.use_parallel
@@ -1639,8 +1645,12 @@ if __name__ == "__main__":
             from data.swag import load_swag
             model, tokenizer, train_loader, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_swag(model_name, batch_size)
     elif dataset_name == "spider":
-        from data.spider import load_spider
-        model, tokenizer, train_loader, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_spider(model_name, batch_size)
+        if opt_params["opt_name"] == "federated":
+            from data.spider import load_spider_federated
+            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_spider_federated(model_name, batch_size, opt_params["client_num"])
+        else:
+            from data.spider import load_spider
+            model, tokenizer, train_loader, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_spider(model_name, batch_size)
     elif dataset_name == "cub":
         from data.dro import load_dro
         train_loader, test_loader, analysis_loader, analysis_test_loader, n_groups, group_counts, group_str, C, transform_to_one_hot, data_params = load_dro(batch_size, dataset="CUB", target_name=args.target_name, confounder_names=args.confounder_names, model_name=model_name)

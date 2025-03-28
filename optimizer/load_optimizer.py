@@ -253,6 +253,18 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         elif kwargs["base_opt"] == "adam":
             from torch.optim import Adam
             optimizer = Adam(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
+    elif opt_name == "cams":
+        if kwargs["base_opt"] == "sgd":
+             optimizer = optim.SGD(model.parameters(),
+                                lr=lr,
+                                momentum=momentum,
+                                weight_decay=weight_decay)
+        elif kwargs["base_opt"] == "adam":
+            from torch.optim import Adam
+            optimizer = Adam(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
+        else:
+            raise NotImplementedError
+        model_params = model_params | {"base_opt": kwargs["base_opt"]}
     elif opt_name in ["lora_rite", "lora_rite_v2"]:
         from optimizer.lora_rite import LORA_RITE
         if opt_name == "lora_rite":
