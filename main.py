@@ -736,6 +736,20 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             elif opt_params["server_opt_name"] == "cams":
                 from utilities import tensor_randk
                 vector_m += tensor_randk(vector_m_true, k=sketch_size)
+            elif opt_params["server_opt_name"] == "paq":
+                """https://arxiv.org/pdf/1909.13014"""
+                from optimizer.cocktailsgd import QSGDCompressor
+                p = vector_m_true.numel()
+                comp = QSGDCompressor(size=p, shape=p, random=True, n_bit=1, c_dim=p, no_cuda=False)
+                ind = torch.where(vector_m_true != 0)
+                if ind[0].nelement() == 0:
+                    pass
+                else:
+                    v_nz = vector_m_true[ind]
+                    # quantization
+                    v_nz_comp = comp.decompress(comp.compress(v_nz))
+                    vector_m_true[ind] = v_nz_comp
+                    vector_m += vector_m_true
             else:
                 from hadamard_transform import hadamard_transform, pad_to_power_of_2 
                 new_params_pad = pad_to_power_of_2((old_params - new_params).detach())
@@ -798,7 +812,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             vector_m = opt_params["g_tilde"]
         elif opt_params["server_opt_name"] == "marina":
             opt_params["server_update"] = vector_m
-        elif opt_params["server_opt_name"] == "cams":
+        elif opt_params["server_opt_name"] in ["cams", "paq"]:
             pass
         elif opt_params["server_opt_name"] != "fetchsgd":
             vector_m = sub_sample_row.T @ vector_m
@@ -1345,7 +1359,7 @@ if __name__ == "__main__":
     parser.add_argument("--zero_out_selfattn", type=int, default=0, help="if 0 preserves self attention, if 1 zero out self attention")
 
     #federated learning hyperparameters
-    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd", "onebit", "cdadam", "cocktailsgd", "cocktailsgd2", "marina", "cams"], help="optimizer of server")
+    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd", "onebit", "cdadam", "cocktailsgd", "cocktailsgd2", "marina", "cams", "paq"], help="optimizer of server")
     parser.add_argument("--client_num", type=int, default=1, help="number of clients")
     parser.add_argument("--client_partial", type=float, default=1.9, help="partial participation of clients")
     parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd", "adam", "adamw"], help="optimizer of clients")

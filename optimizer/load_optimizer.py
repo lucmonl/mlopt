@@ -253,7 +253,7 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         elif kwargs["base_opt"] == "adam":
             from torch.optim import Adam
             optimizer = Adam(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
-    elif opt_name == "cams":
+    elif opt_name in ["cams", "paq"]:
         if kwargs["base_opt"] == "sgd":
              optimizer = optim.SGD(model.parameters(),
                                 lr=lr,
