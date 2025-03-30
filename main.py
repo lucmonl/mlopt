@@ -636,14 +636,24 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     p_pad = pow(2, math.ceil(math.log(p)/math.log(2)))
     #for i in range(200):
     if sketch_size != -1:
-        D = (((torch.randn(p_pad, dtype=torch.float32) > 0).float() - 0.5) * 2).to(device)
-        sample_rows = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
-        sub_sample_row = torch.sparse_coo_tensor(sample_rows, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
+        if p_pad < 1e9:
+            D = (((torch.randn(p_pad, dtype=torch.float32) > 0).float() - 0.5) * 2).to(device)
+            sample_rows = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
+            sub_sample_row = torch.sparse_coo_tensor(sample_rows, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
 
-        D_sq = (((torch.randn(p_pad, dtype=torch.float32) > 0).float() - 0.5) * 2).to(device)
-        sample_rows_sq = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
-        sub_sample_row_sq = torch.sparse_coo_tensor(sample_rows_sq, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
-
+            #D_sq = (((torch.randn(p_pad, dtype=torch.float32) > 0).float() - 0.5) * 2).to(device)
+            #sample_rows_sq = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
+            #sub_sample_row_sq = torch.sparse_coo_tensor(sample_rows_sq, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
+        else:
+            print("use direct sample row")
+            sub_sample_row = None
+            sample_rows = torch.randperm(p_pad)[:sketch_size]
+            def sketch_v(v):
+                return v[sample_rows] * ((p_pad/sketch_size)**0.5)
+            def unsketch_v(sk_v):
+                unsk_v = torch.zeros(p_pad).to(sk_v)
+                unsk_v[sample_rows] = sk_v * ((p_pad/sketch_size)**0.5)
+                return unsk_v
     
     #running_stats = {}
     client_opt_params = copy.deepcopy(opt_params)
@@ -678,10 +688,12 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 clipped_vector_m = torch.clip(new_params_pad, min=-opt_params["clip_tau"], max=opt_params["clip_tau"])
                 vector_m_scale = torch.linalg.norm(new_params_pad) / torch.linalg.norm(clipped_vector_m)
                 new_params_pad = vector_m_scale * clipped_vector_m
+            else:
+                new_params_pad = (old_params - new_params).detach()
 
             vector_m += new_params_pad #* min(1, opt_params["clip_tau"] / param_norm.item())
             #if opt_params["clip_tau"] / param_norm.item() < 1: print("clip")
-            vector_v += new_params_pad ** 2
+            #vector_v += new_params_pad ** 2
             #vector_m_norm.append(torch.norm(old_params - new_params).item())
         else:
             vector_m_true = (old_params - new_params).detach()
@@ -760,7 +772,10 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                     print("after clip", torch.norm(new_params_pad).item())
 
                 hadamard_params_pad = hadamard_transform(D*new_params_pad)
-                sketch_vector_m = sub_sample_row @ hadamard_params_pad
+                if sub_sample_row is not None:
+                    sketch_vector_m = sub_sample_row @ hadamard_params_pad
+                else:
+                    sketch_vector_m = sketch_v(hadamard_params_pad)
 
                 if opt_params["clip_tau"] == -1:
                     if opt_params["privacy_clip"] != -1:
@@ -815,7 +830,10 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         elif opt_params["server_opt_name"] in ["cams", "paq"]:
             pass
         elif opt_params["server_opt_name"] != "fetchsgd":
-            vector_m = sub_sample_row.T @ vector_m
+            if sub_sample_row is not None:
+                vector_m = sub_sample_row.T @ vector_m
+            else:
+                vector_m = unsketch_v(vector_m)
             vector_m = hadamard_transform(vector_m) * D
             print("sketch error:", torch.norm(vector_m - new_params_pad), torch.norm(new_params_pad))
             vector_m = vector_m[:p]
@@ -1133,7 +1151,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             optimizer.update_hessian()
             optimizer.zero_grad()
 
-        if opt_params["debug"] and batch_idx > 3:
+        if opt_params["debug"] and batch_idx > 10:
             break
         if opt_params["client_early_stop"] != -1 and batch_idx > opt_params["client_early_stop"]:
             break
