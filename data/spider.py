@@ -133,6 +133,7 @@ def load_spider_federated(model_name, batch_size, client_num):
     hf_token = None
     analysis_size = max(batch_size, 128)
     analysis_ind = range(analysis_size)
+    
 
     spider_train = SpiderUnifiedDataset(split="train", dataset_folder=DATA_HOME, hf_token=hf_token).setup_dataset(model_name_or_path=base_model, tokenize=True)
     spider_analysis = SpiderUnifiedDataset(split="train", dataset_folder=DATA_HOME, hf_token=hf_token).setup_dataset(model_name_or_path=base_model, rows=analysis_ind, tokenize=False)
@@ -141,8 +142,9 @@ def load_spider_federated(model_name, batch_size, client_num):
     #spider_train = spider_train.setup_dataset(model_name_or_path=base_model, num_rows=100)
     #spider_analysis = spider_analysis.setup_dataset(model_name_or_path=base_model)
 
-    spider_val = SpiderUnifiedDataset(split="validation", dataset_folder=DATA_HOME, hf_token=hf_token).setup_dataset(model_name_or_path=base_model, tokenize=False)
-    spider_val_token = SpiderUnifiedDataset(split="validation", dataset_folder=DATA_HOME, hf_token=hf_token).setup_dataset(model_name_or_path=base_model, tokenize=True)
+    val_ind = torch.randperm(1000)[:128]
+    spider_val = SpiderUnifiedDataset(split="validation", dataset_folder=DATA_HOME, hf_token=hf_token).setup_dataset(model_name_or_path=base_model, rows=val_ind, tokenize=False)
+    spider_val_token = SpiderUnifiedDataset(split="validation", dataset_folder=DATA_HOME, hf_token=hf_token).setup_dataset(model_name_or_path=base_model, rows=val_ind, tokenize=True)
    
     model = AutoModelForCausalLM.from_pretrained(base_model, trust_remote_code=True, torch_dtype=torch.bfloat16, token=hf_token)
     tokenizer = AutoTokenizer.from_pretrained(base_model, padding_size="right", token=hf_token)

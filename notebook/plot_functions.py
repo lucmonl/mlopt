@@ -737,6 +737,7 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attrs, start=Non
                 
 
             if 'test_err' == attr:
+                print(1-1*np.array(train_graphs.test_accuracy[start:end]))
                 line=plot_xy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-1*np.array(train_graphs.test_accuracy[start:end]), name=title, alpha=alpha)
                 axs[ax_ptr].yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1, decimals=0))
                 last_val[-1].append(line.get_data()[-1][-1])

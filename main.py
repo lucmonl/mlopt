@@ -637,7 +637,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     #for i in range(200):
     if sketch_size != -1:
         if p_pad < 1e9:
-            D = (((torch.randn(p_pad, dtype=torch.float32) > 0).float() - 0.5) * 2).to(device)
+            D = (((torch.randn(p_pad, dtype=torch.float32) > 0).to(old_params) - 0.5) * 2).to(device)
             sample_rows = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
             sub_sample_row = torch.sparse_coo_tensor(sample_rows, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
 
@@ -648,6 +648,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             print("use direct sample row")
             sub_sample_row = None
             sample_rows = torch.randperm(p_pad)[:sketch_size]
+            D = (((torch.randn(p_pad, dtype=torch.float32) > 0).to(old_params) - 0.5) * 2).to(device)
             def sketch_v(v):
                 return v[sample_rows] * ((p_pad/sketch_size)**0.5)
             def unsketch_v(sk_v):
