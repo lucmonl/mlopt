@@ -760,6 +760,23 @@ def _check_param_device(param: torch.Tensor, old_param_device) -> int:
                             'this is currently not supported.')
     return old_param_device
 
+def get_exp_avg(optimizer):
+    state_dict = optimizer.state_dict()['state']
+    exp_avgs, exp_avg_sqs = [], []
+    # Flag for the device where the parameter is located
+    param_device = None
+    vec = []
+    for name in state_dict:
+        exp_avg = state_dict[name]['exp_avg']
+        exp_avg_sq = state_dict[name]['exp_avg_sq']
+        # Ensure the parameters are located in the same device
+        param_device = _check_param_device(exp_avg, param_device)
+
+        exp_avgs.append(exp_avg.view(-1))
+        exp_avg_sqs.append(exp_avg_sq.view(-1))
+    return torch.cat(exp_avgs), torch.cat(exp_avg_sqs)
+
+
 
 def state_dict_to_vector(state_dict) -> torch.Tensor:
     r"""Flatten an iterable of parameters into a single vector.

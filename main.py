@@ -717,6 +717,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 vector_m_true = vector_m_true+opt_params["client_error_feedback"][client_id]
                 vector_m_scale = torch.linalg.norm(vector_m_true) / np.sqrt(torch.numel(vector_m_true))
                 vector_m_sign = torch.sign(vector_m_true) * vector_m_scale
+                print(torch.sum(vector_m_sign > 0), torch.sum(vector_m_sign < 0), torch.sum(vector_m_sign == 0))
                 opt_params["client_error_feedback"][client_id] = vector_m_true - vector_m_sign
 
                 vector_m += vector_m_sign
@@ -726,6 +727,12 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 vector_m += vector_m_sign
                 opt_params["client_error_feedback"][client_id] += vector_m_true - vector_m_sign
                 """
+            elif opt_params["server_opt_name"] == "onebit_v2":
+                vector_m_true = opt_params["server_momentum"] * opt_params["server_exp_avg"] + (1 - opt_params["server_momentum"]) * vector_m_true
+                vector_m_scale = torch.linalg.norm(vector_m_true) / np.sqrt(torch.numel(vector_m_true))
+                vector_m_sign = torch.sign(vector_m_true) * vector_m_scale
+                opt_params["client_error_feedback"][client_id] = vector_m_true - vector_m_sign
+                vector_m += vector_m_sign
             elif opt_params["server_opt_name"] == "marina":
                 no_sketch = np.random.binomial(1, opt_params["marina_prob"])
                 if server_epoch==1 or no_sketch == 1:
@@ -753,7 +760,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 """https://arxiv.org/pdf/1909.13014"""
                 from optimizer.cocktailsgd import QSGDCompressor
                 p = vector_m_true.numel()
-                comp = QSGDCompressor(size=p, shape=p, random=True, n_bit=1, c_dim=p, no_cuda=False)
+                comp = QSGDCompressor(size=p, shape=p, random=False, n_bit=1, c_dim=p, no_cuda=False)
                 ind = torch.where(vector_m_true != 0)
                 if ind[0].nelement() == 0:
                     pass
@@ -800,7 +807,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     if opt_params["server_opt_name"] == "fetchsgd":
         model.avg_sketch = vector_m.detach()
     #vector_v = vector_v / client_num #deprecated
-    if sketch_size != -1 and server_epoch >= opt_params["switch_epoch"]:
+    if sketch_size != -1:
         if opt_params["server_opt_name"] == "onebit":
             if server_epoch < opt_params["switch_epoch"]:
                 pass
@@ -812,7 +819,8 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 vector_m = vector_m_sign
 
                 for group in server_optimizer.param_groups:
-                    group['betas']= (group['betas'][0], 1.0)
+                    #group['betas']= (group['betas'][0], 1.0)
+                    group['betas']= (0.0, 1.0)
                 """
                 vector_m_old = vector_m.clone()
                 vector_m = torch.sign(vector_m + opt_params["server_error_feedback"])
@@ -820,6 +828,21 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 for group in server_optimizer.param_groups:
                     group['betas']= (group['betas'][0], 1.0)
                 """
+        elif opt_params["server_opt_name"] == "onebit_v2":
+            if server_epoch < opt_params["switch_epoch"] - 1:
+                pass
+            elif server_epoch == opt_params["switch_epoch"] - 1:
+                print("before switch epoch... logging moments")
+                from utilities import get_exp_avg
+                opt_params["server_exp_avg"], opt_params["server_exp_avg_sq"] = get_exp_avg(server_optimizer)
+            else:
+                vector_m = vector_m + opt_params["server_error_feedback"]
+                vector_m_scale = torch.linalg.norm(vector_m) / np.sqrt(torch.numel(vector_m))
+                vector_m_sign = torch.sign(vector_m) * vector_m_scale
+                opt_params["server_error_feedback"] = vector_m - vector_m_sign
+                opt_params["server_exp_avg"] = vector_m_sign
+                vector_m = vector_m_sign
+                new_params = old_params - opt_params["server_lr"] * vector_m / (opt_params["server_exp_avg_sq"] + 1e-6)
         elif opt_params["server_opt_name"] == "cdadam":
             from utilities import tensor_topk
             opt_params["g_hat_server"] += vector_m
@@ -1152,7 +1175,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             optimizer.update_hessian()
             optimizer.zero_grad()
 
-        if opt_params["debug"] and batch_idx > 10:
+        if opt_params["debug"] and batch_idx > 2:
             break
         if opt_params["client_early_stop"] != -1 and batch_idx > opt_params["client_early_stop"]:
             break
@@ -1378,7 +1401,7 @@ if __name__ == "__main__":
     parser.add_argument("--zero_out_selfattn", type=int, default=0, help="if 0 preserves self attention, if 1 zero out self attention")
 
     #federated learning hyperparameters
-    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd", "onebit", "cdadam", "cocktailsgd", "cocktailsgd2", "marina", "cams", "paq"], help="optimizer of server")
+    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd", "onebit", "onebit_v2", "cdadam", "cocktailsgd", "cocktailsgd2", "marina", "cams", "paq"], help="optimizer of server")
     parser.add_argument("--client_num", type=int, default=1, help="number of clients")
     parser.add_argument("--client_partial", type=float, default=1.9, help="partial participation of clients")
     parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd", "adam", "adamw"], help="optimizer of clients")
@@ -1512,6 +1535,7 @@ if __name__ == "__main__":
     opt_params["client_partial"]   = args.client_partial
     opt_params["client_epoch"]     = args.client_epoch
     opt_params["sketch_size"]      = args.sketch_size
+    opt_params["server_lr"]        = args.lr
     opt_params["server_momentum"]  = args.momentum
     opt_params["client_momentum"]  = args.client_momentum
     opt_params["client_weight_decay"]  = args.client_weight_decay
