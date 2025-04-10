@@ -698,6 +698,10 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             #vector_m_norm.append(torch.norm(old_params - new_params).item())
         else:
             vector_m_true = (old_params - new_params).detach()
+            if opt_params["privacy_clip"] != -1:
+                print("before clip", torch.norm(vector_m_true).item())
+                vector_m_true = torch.clip(vector_m_true, min=-client_lr*opt_params["privacy_clip"], max=client_lr*opt_params["privacy_clip"])
+                print("after clip", torch.norm(vector_m_true).item())
 
             if server_epoch < opt_params["switch_epoch"]:
                 vector_m += vector_m_true
@@ -706,7 +710,11 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 from csvec import CSVec
                 sketch = CSVec(d=p, c=sketch_size, r=5, device=vector_m_true.device, numBlocks=20)
                 sketch.accumulateVec(vector_m_true)
+                print(sketch.table.shape)
                 vector_m += sketch.table
+                if opt_params["privacy_noise"] != 0.0:
+                    privacy_noise = torch.normal(0, opt_params["privacy_noise"], size=vector_m.size()).to(vector_m)
+                    vector_m = vector_m + client_lr*privacy_noise
             elif opt_params["server_opt_name"] == "cdadam":
                 from utilities import tensor_topk
                 update_param = (old_params - new_params).detach()
@@ -729,9 +737,10 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 """
             elif opt_params["server_opt_name"] == "onebit_v2":
                 vector_m_true = opt_params["server_momentum"] * opt_params["server_exp_avg"] + (1 - opt_params["server_momentum"]) * vector_m_true
+                vector_m_true += opt_params["client_error_feedback"][client_id]
                 vector_m_scale = torch.linalg.norm(vector_m_true) / np.sqrt(torch.numel(vector_m_true))
                 vector_m_sign = torch.sign(vector_m_true) * vector_m_scale
-                opt_params["client_error_feedback"][client_id] = vector_m_true - vector_m_sign
+                opt_params["client_error_feedback"][client_id] = (vector_m_true - vector_m_sign).detach()
                 vector_m += vector_m_sign
             elif opt_params["server_opt_name"] == "marina":
                 no_sketch = np.random.binomial(1, opt_params["marina_prob"])
@@ -760,7 +769,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 """https://arxiv.org/pdf/1909.13014"""
                 from optimizer.cocktailsgd import QSGDCompressor
                 p = vector_m_true.numel()
-                comp = QSGDCompressor(size=p, shape=p, random=False, n_bit=1, c_dim=p, no_cuda=False)
+                comp = QSGDCompressor(size=p, shape=p, random=True, n_bit=1, c_dim=p, no_cuda=False)
                 ind = torch.where(vector_m_true != 0)
                 if ind[0].nelement() == 0:
                     pass
@@ -836,13 +845,17 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 from utilities import get_exp_avg
                 opt_params["server_exp_avg"], opt_params["server_exp_avg_sq"] = get_exp_avg(server_optimizer)
             else:
+                print(torch.norm(vector_m), torch.norm(opt_params["server_exp_avg_sq"]))
                 vector_m = vector_m + opt_params["server_error_feedback"]
                 vector_m_scale = torch.linalg.norm(vector_m) / np.sqrt(torch.numel(vector_m))
                 vector_m_sign = torch.sign(vector_m) * vector_m_scale
                 opt_params["server_error_feedback"] = vector_m - vector_m_sign
                 opt_params["server_exp_avg"] = vector_m_sign
                 vector_m = vector_m_sign
-                new_params = old_params - opt_params["server_lr"] * vector_m / (opt_params["server_exp_avg_sq"] + 1e-6)
+                new_params = old_params - opt_params["server_lr"] * vector_m / torch.sqrt(opt_params["server_exp_avg_sq"] + 1e-6)
+                print(torch.norm(vector_m / torch.sqrt(opt_params["server_exp_avg_sq"] + 1e-6)))
+                vector_to_parameters(new_params.detach(), model.parameters())
+                return 
         elif opt_params["server_opt_name"] == "cdadam":
             from utilities import tensor_topk
             opt_params["g_hat_server"] += vector_m

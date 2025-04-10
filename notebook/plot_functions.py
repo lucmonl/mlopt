@@ -670,12 +670,13 @@ def plot_figures_attrs_hists(opt, model_params, opt_params, attrs, epochs):
     plt.tight_layout()
     plt.show()
 
-def plot_figures_opts_attr(opts_list, model_params, opt_params, attrs, start=None, end=None, alpha=1.0, linewidth=1.0, ylabel=None, legends=[], titles=[], yaxis=[], save_dir=None, return_last=False):
+def plot_figures_opts_attr(opts_list, model_params, opt_params, attrs, start=None, end=None, alpha=1.0, linewidth=1.0, ylabel=None, legends=[], titles=[], yaxis=[], save_dir=None, return_last=False, return_max=False):
     #rows, cols = (len(attrs) - 1) // 6 + 1, min(len(attrs), 6)
     import matplotlib.ticker as mtick
     rows, cols = 1, len(opts_list)
     fig, axs = plt.subplots(rows,cols, figsize=(cols*4, rows*3))
     last_val = []
+    max_val = []
     if len(opts_list) > 1:
         axs = axs.reshape(-1)
     else:
@@ -689,6 +690,7 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attrs, start=Non
 
     for opts, legend, title, attr in zip(opts_list, legends, titles, attrs):
         last_val.append([])
+        max_val.append([])
         for opt_name in opts:
             model_param = model_params[opt_name]
             directory = get_directory(opt_params[opt_name]['lr'], 
@@ -733,6 +735,7 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attrs, start=Non
                 line = plot_xy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=np.array(train_graphs.test_accuracy[start:end]), name=title, alpha=alpha)
                 axs[ax_ptr].yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1, decimals=0))
                 last_val[-1].append(line.get_data()[-1][-1])
+                max_val[-1].append(np.max(train_graphs.test_accuracy[start:end]))
                 #plot_test_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.test_accuracy[start:end])
                 
 
@@ -759,6 +762,8 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attrs, start=Non
         plt.savefig(save_dir)
     if return_last:
         return last_val
+    if return_max:
+        return max_val
 
 def plot_figure_cos_descent_ascent(opts, model_params, opt_params):
     for opt_name in opts:
