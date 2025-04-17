@@ -670,7 +670,7 @@ def plot_figures_attrs_hists(opt, model_params, opt_params, attrs, epochs):
     plt.tight_layout()
     plt.show()
 
-def plot_figures_opts_attr(opts_list, model_params, opt_params, attrs, start=None, end=None, alpha=1.0, linewidth=1.0, ylabel=None, legends=[], titles=[], yaxis=[], save_dir=None, return_last=False, return_max=False):
+def plot_figures_opts_attr(opts_list, model_params, opt_params, attrs, start=None, end=None, alpha=1.0, linewidth=1.0, legend_fontsize=None, ylabel=None, legends=[], titles=[], yaxis=[], save_dir=None, return_last=False, return_max=False):
     #rows, cols = (len(attrs) - 1) // 6 + 1, min(len(attrs), 6)
     import matplotlib.ticker as mtick
     rows, cols = 1, len(opts_list)
@@ -740,12 +740,12 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attrs, start=Non
                 
 
             if 'test_err' == attr:
-                print(1-1*np.array(train_graphs.test_accuracy[start:end]))
+                #print(1-1*np.array(train_graphs.test_accuracy[start:end]))
                 line=plot_xy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-1*np.array(train_graphs.test_accuracy[start:end]), name=title, alpha=alpha)
                 axs[ax_ptr].yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1, decimals=0))
                 last_val[-1].append(line.get_data()[-1][-1])
 
-        axs[ax_ptr].legend(legend)
+        axs[ax_ptr].legend(legend, fontsize=legend_fontsize)
         ax_ptr += 1
     if yaxis == []:
         if ylabel:

@@ -1427,6 +1427,8 @@ if __name__ == "__main__":
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
     parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het", "fedex", "flora", "flasc"], default="avg", help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
+    parser.add_argument("--uba_mode", type=str, default='none', choices=["ada", "none"], help="ada means adaptive uba")
+    parser.add_argument("--uba_weight", type=float, default=1.0, help="uba adaptive weight")
     parser.add_argument("--dl_density", type=float, default=1.0, help="downlink density of fedlora:flasc")
     parser.add_argument("--ul_density", type=float, default=1.0, help="uplink density of fedlora:flasc")
     parser.add_argument("--use_ef", type=int, default=False, help="use error feedback (currently only in lora)")
@@ -1556,6 +1558,8 @@ if __name__ == "__main__":
     opt_params["clip_tau"]         = args.clip_tau
     opt_params["fedlora_avg"]      = args.fedlora_avg
     opt_params["fedlora_uba"]      = args.fedlora_uba
+    opt_params["uba_mode"]         = args.uba_mode
+    opt_params["uba_weight"]       = args.uba_weight
     opt_params["lora_freeze_a"]    = args.lora_freeze_a
     opt_params["use_ef"]           = args.use_ef
     opt_params["client_early_stop"]= args.client_early_stop
@@ -2194,6 +2198,9 @@ if __name__ == "__main__":
                 model_params = model_params | {"fedlora_uba": opt_params["fedlora_uba"]}
             if opt_params["fedlora_avg"] == "flasc":
                 model_params = model_params | {"dl_density": args.dl_density, "ul_density": args.ul_density}
+        
+        if 'fedlora_uba' in model_params and opt_params["uba_mode"] != "none":
+            model_params["uba_mode"] = opt_params["uba_mode"]
         #load_optimizer = load_optimizer_param
     else:
         print("number of parameters:", len(parameters_to_vector(model.parameters())))

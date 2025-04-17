@@ -101,14 +101,24 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
                 base_name = name.replace("lora_B.default", "base_layer")
                 base_adapter_weights[base_name]["B"] = param.data
             
-                
+                B_norm, A_norm = torch.norm(base_adapter_weights[base_name]["B"]), torch.norm(base_adapter_weights[base_name]["A"])
                 base_full = (base_adapter_weights[base_name]["B"] @ base_adapter_weights[base_name]["A"]).T
             
                 U, S, Vh = torch.linalg.svd(base_full, full_matrices=False)
                 U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
                 lora_A_name, lora_B_name = name.replace("lora_B.default", "lora_A.default"), name
-                adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T * opt_params["fedlora_uba"]
-                adapter_weights[lora_B_name].data = Vh_truncate.T * S_truncate / opt_params["fedlora_uba"]
+
+                S_norm = torch.norm(S_truncate)
+                print("uba mode is " + opt_params["uba_mode"])
+                if opt_params["uba_mode"] == "ada":
+                    print("B_norm", B_norm, "A_norm", A_norm, "S_norm", S_norm)
+                    ratio = (A_norm + opt_params["fedlora_uba"]**2*S_norm) / (B_norm + S_norm)
+                    ratio = ratio**0.5
+                else:
+                    ratio = opt_params["fedlora_uba"]
+                    
+                adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T * ratio
+                adapter_weights[lora_B_name].data = Vh_truncate.T * S_truncate / ratio
         
         # assign new param to model
         for name, param in model.named_parameters():
