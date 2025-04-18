@@ -2201,6 +2201,7 @@ if __name__ == "__main__":
         
         if 'fedlora_uba' in model_params and opt_params["uba_mode"] != "none":
             model_params["uba_mode"] = opt_params["uba_mode"]
+            model_params["uba_weight"] = opt_params["uba_weight"]
         #load_optimizer = load_optimizer_param
     else:
         print("number of parameters:", len(parameters_to_vector(model.parameters())))

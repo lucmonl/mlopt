@@ -112,7 +112,7 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
                 print("uba mode is " + opt_params["uba_mode"])
                 if opt_params["uba_mode"] == "ada":
                     print("B_norm", B_norm, "A_norm", A_norm, "S_norm", S_norm)
-                    ratio = (A_norm + opt_params["fedlora_uba"]**2*S_norm) / (B_norm + S_norm)
+                    ratio = (A_norm + opt_params["uba_weight"] * opt_params["fedlora_uba"]**2*S_norm) / (B_norm + opt_params["uba_weight"] * S_norm)
                     ratio = ratio**0.5
                 else:
                     ratio = opt_params["fedlora_uba"]
