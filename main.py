@@ -1151,7 +1151,15 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 grad_norm = get_grad_norm(model)
                 map_update(track_train_stats, grad_norm, reduction = "append")
                 map_update(track_train_stats, {"batch_loss": loss.item()}, reduction = "append")
+            
+            #print("in train") 
+            #for name, param in model.named_parameters():
+            #    print(name, torch.norm(param).item(), torch.norm(param.grad).item() if param.grad is not None else None)
             optimizer.step()
+
+            #print("after step") 
+            #for name, param in model.named_parameters():
+            #    print(name, torch.norm(param).item(), param.grad is None)
 
         if opt_params["apply_lora"] and opt_params["compute_base_grad"]:
             from arch.lora import compute_base_proj
@@ -1351,6 +1359,7 @@ if __name__ == "__main__":
     parser.add_argument("--apply_lora", action='store_true', help="use peft methods to update model")
     parser.add_argument("--lora_rank", type=int, default=-2, help="0: linear finetuning; -1: full finetuning")
     parser.add_argument("--lora_alpha", type=int, default=16)
+    parser.add_argument("--hetero_rank", type=int, default=-1)
     parser.add_argument("--lora_freeze_a", action='store_true', help="freeze A matrix in lora")
     parser.add_argument("--cls_lr", type=float, default=-1, help="specific learning rate for the output layer")
     parser.add_argument("--compute_base_grad", action='store_true', help="compute full base grad and the ratio of the real gradient to the full gradient")
@@ -1561,6 +1570,7 @@ if __name__ == "__main__":
     opt_params["uba_mode"]         = args.uba_mode
     opt_params["uba_weight"]       = args.uba_weight
     opt_params["lora_freeze_a"]    = args.lora_freeze_a
+    opt_params["hetero_rank"]      = args.hetero_rank
     opt_params["use_ef"]           = args.use_ef
     opt_params["client_early_stop"]= args.client_early_stop
     opt_params["marina_prob"]      = args.marina_prob
@@ -2174,7 +2184,7 @@ if __name__ == "__main__":
         print(f"Training {trainable_params} parameters ({100*trainable_params/total_params:.2f}% of original {total_params})")
 
     if apply_lora:
-        from arch.lora import add_adapters_dataset
+        #from arch.lora import add_adapters_dataset
         #from optimizer.load_optimizer import load_optimizer_param
 
         #for name, _ in model.named_parameters():
@@ -2182,7 +2192,13 @@ if __name__ == "__main__":
         #print("=====")
 
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        model , output_layer_name, Lora_Config = add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a=args.lora_freeze_a)
+        if opt_params["hetero_rank"] == -1:
+            #model , output_layer_name, Lora_Config = add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a=args.lora_freeze_a)
+            from arch.lora import add_adapters_homo
+            model , output_layer_name, Lora_Config = add_adapters_homo(opt_params["client_num"], model_name, model, lora_rank, lora_alpha, lora_freeze_a=args.lora_freeze_a)
+        else:
+            from arch.lora import add_adapters_hetero
+            model , output_layer_name, Lora_Config = add_adapters_hetero(opt_params["client_num"], model_name, model, lora_rank, lora_alpha, lora_freeze_a=args.lora_freeze_a)
         for name, param in model.named_parameters():
             print(name, param.shape, param.requires_grad)
         opt_params["output_layer_name"] = output_layer_name
