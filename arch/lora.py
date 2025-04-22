@@ -34,8 +34,14 @@ def synchronize_lora(model, server_name):
         elif 'client' in name:
             import re
             server_adapter_name = re.sub(r'client_\d+', server_name, name)
-            print(server_adapter_name)
-            param.data = adapter_weights[server_adapter_name].data.clone() #assign the same param to client models
+            adapter_weight_full = adapter_weights[server_adapter_name].data.clone() #assign the same param to client models
+            if len(param.data.shape) == 2:
+                row, col = param.data.shape
+                param.data = adapter_weight_full[:row, :col]
+            elif len(param.data.shape) == 1:
+                param.data = adapter_weight_full
+            else:
+                assert False
 
 def examine_lora(model, name1, name2):
     for name, param in model.named_parameters():
@@ -69,12 +75,16 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, lora
     return model, output_layer_name, Lora_config
 
 def add_adapters_hetero(client_num, model_name, model, lora_rank, lora_alpha, lora_freeze_a=False):
-    model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, lora_freeze_a=lora_freeze_a, adapter_name="server")
+    model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a=lora_freeze_a, adapter_name="server")
+    client_ranks = []
     for i in range(client_num):
         client_rank = np.random.randint(1, lora_rank+1)
+        client_ranks.append(client_rank)
         client_id = "client_{}".format(i)
         model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, lora_freeze_a=lora_freeze_a, adapter_name=client_id)
-    synchronize_lora(model)
+    synchronize_lora(model, server_name="server")
+    model.set_adapter("server")
+    print("Client Ranks: ", client_ranks)
     return model, output_layer_name, Lora_config
 
 

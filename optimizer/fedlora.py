@@ -2,6 +2,7 @@ import torch
 from optimizer.load_optimizer import load_optimizer
 import copy
 import torch.nn.functional as F
+from arch.lora import synchronize_lora
 
 def compute_adapter_weight(model_name, lora_A_param, lora_B_param):
     if model_name in ["google/vit-base-patch16-224-in21k", "roberta-base"]:
@@ -200,7 +201,8 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
                     output_weights[server_adapter_name] += param.data / client_num
                 else:
                     if server_adapter_name in adapter_weights:
-                        adapter_weights[server_adapter_name] += param.data/client_num
+                        row, col = param.data.shape
+                        adapter_weights[server_adapter_name][:row, :col] += param.data/client_num
                     else:
                         assert False
                 """
@@ -284,9 +286,16 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
         if name in adapter_weights or name in output_weights:
             adapter_weights[name] = param #store the server param
         elif 'client' in name:
-            import re
+            import re 
             server_adapter_name = re.sub(r'client_\d+', 'server', name)
-            param.data = adapter_weights[server_adapter_name].data.clone() #assign the same param to client models
+            adapter_weight_full = adapter_weights[server_adapter_name].data.clone() #assign the same param to client models
+            if len(param.data.shape) == 2:
+                row, col = param.data.shape
+                param.data = adapter_weight_full[:row, :col]
+            elif len(param.data.shape) == 1:
+                param.data = adapter_weight_full
+            else:
+                assert False
         """
         if 'lora_A' in name or 'lora_B' in name:
             import re
