@@ -193,19 +193,14 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
             train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
             
         for name, param in client_model.named_parameters():
-            #print(name, param.shape)
-            #print(name, torch.norm(param).item())
-
             if param.requires_grad:
                 #param_names.append(name)
                 server_adapter_name = name.replace("{}".format(adapter_name), "server")
                 if output_layer_name and output_layer_name in name:
                     output_weights[server_adapter_name] += param.data / client_num
-                    #print(server_adapter_name, torch.norm(param.data / client_num).item())
                 else:
                     if server_adapter_name in adapter_weights:
                         adapter_weights[server_adapter_name] += param.data/client_num
-                        #print(server_adapter_name, torch.norm(param.data / client_num).item())
                     else:
                         assert False
                 """
@@ -225,7 +220,6 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
                 else:
                     assert False
                 """
-    #print("====== client ends ======")
     model.set_adapter("server")
     server_optimizer.zero_grad()
 
@@ -236,17 +230,13 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
         if param.requires_grad:
             if output_layer_name and output_layer_name in name:
                 param.grad = param.data - output_weights[name]
-                #print(name, torch.norm(param.grad).item(), torch.norm(param.data).item(), torch.norm(output_weights[name]).item())
             elif name in adapter_weights:
                 param.grad = param.data - adapter_weights[name]
-                #print(name, torch.norm(param.grad).item(), torch.norm(param.data).item(), torch.norm(adapter_weights[name]).item())
             else:
                 assert False
 
             if opt_params["train_stats"]:
                 grad_norm += torch.norm(param.grad).item()**2
-            #print(name, torch.norm(param.grad).item())
-    #print("======= pseudo grad ends =======")
     if opt_params["train_stats"]:
         train_graphs.grad_norm.append(grad_norm ** 0.5)
         print("grad norm:", train_graphs.grad_norm[-1])
@@ -289,7 +279,6 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
         for name, param in model.named_parameters():
             if name in adapter_weights:
                 param.data = adapter_weights[name].data
-                #print(torch.norm(param.data))
     
     for name, param in model.named_parameters():
         if name in adapter_weights or name in output_weights:
@@ -297,7 +286,6 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
         elif 'client' in name:
             import re
             server_adapter_name = re.sub(r'client_\d+', 'server', name)
-            print(server_adapter_name)
             param.data = adapter_weights[server_adapter_name].data.clone() #assign the same param to client models
         """
         if 'lora_A' in name or 'lora_B' in name:
@@ -305,7 +293,6 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
             server_adapter_name = re.sub(r'client_\d+', 'server', name)
             param.data = adapter_weights[server_adapter_name].data
         """
-    #print("===== server-client comm ends =====")
     if server_lr_scheduler is not None:
         server_lr_scheduler.step()
 
