@@ -302,6 +302,7 @@ def federated_lora_grad(model, loss_name, criterion, device, train_loaders, serv
     server_optimizer.step()
 
 def federated_lora(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
+    model.set_adapter(opt_params["server_name"])
     if lora_rank <= 0:
         # full finetuning
         return federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch)
@@ -367,7 +368,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     
     for i in range(0, len(adapter_names), 2):
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
-        base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
+        base_weight_name = lora_A_name.replace("lora_A.{}".format(opt_params["server_name"]), "base_layer")
         """
         lora_A_param, lora_B_param = adapter_weights[lora_A_name], adapter_weights[lora_B_name] 
         base_adapter_weights[base_weight_name] = lora_B_param @ lora_A_param
@@ -388,9 +389,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     #print(1)
     #for name in opt_params["server_params"]:
     #    print(name, torch.norm(opt_params["server_params"][name]).item())
-
     lora_params = {}
-    aggregated_weights = {}
     
     #get_gpu_memory()
     for client_id in range(client_num):
@@ -399,7 +398,10 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         #print(device)
         #client_model = copy.deepcopy(model.cpu())
         #client_model.to(torch.device("cuda:1"))
-        client_model = copy.deepcopy(model)
+        #client_model = copy.deepcopy(model)
+        adapter_name = "client_{}".format(client_id)
+        model.set_adapter(adapter_name)
+        client_model = model #alias
         """
         for param in client_model.parameters():
             print(param.device)
@@ -421,10 +423,11 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
             #print(name, param.shape)
             if param.requires_grad:
                 #param_names.append(name)
+                server_adapter_name = name.replace("{}".format(adapter_name), opt_params["server_name"])
                 if output_layer_name and output_layer_name in name:
-                    output_weights[name] = param.data / client_num
+                    output_weights[server_adapter_name] = param.data / client_num
                 else:
-                    lora_params[name] = param.data / (client_num**0.5)
+                    lora_params[server_adapter_name] = param.data / (client_num**0.5)
 
         #get_gpu_memory()
         for name in opt_params["server_params"]:
@@ -432,8 +435,8 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
             if output_layer_name and output_layer_name in name:
                 opt_params["server_params"][name].grad -= output_weights[name]
             else:
-                lora_A_name = name.replace("base_layer", "lora_A.default")
-                lora_B_name = name.replace("base_layer", "lora_B.default")
+                lora_A_name = name.replace("base_layer", "lora_A.{}".format(opt_params["server_name"]))
+                lora_B_name = name.replace("base_layer", "lora_B.{}".format(opt_params["server_name"]))
                 lora_A_param, lora_B_param = lora_params[lora_A_name], lora_params[lora_B_name]
                 #lora_A_param, lora_B_param = torch.cat(lora_params[lora_A_name]+[lora_A_param], dim=0), torch.cat(lora_params[lora_B_name]+[-lora_B_param], dim=1)
                 #opt_params["server_params"][name].grad -= (lora_B_param.to(torch.float16) @ lora_A_param.to(torch.float16)).T
@@ -443,6 +446,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                     opt_params["server_params"][name].grad -= (lora_B_param @ lora_A_param).T
                 #opt_params["server_params"][name].grad = (base_adapter_weights[name] - aggregated_weights[name]).T
                 #grad_norm += torch.linalg.norm(opt_params["server_params"][name].grad) ** 2
+
     """
     adapter_weights_avg = {}
     for i in range(0, len(adapter_names), 2):
@@ -509,6 +513,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         print("grad norm:", train_graphs.grad_norm[-1])
 
     server_optimizer.step()
+    model.set_adapter(opt_params["server_name"])
 
     if server_lr_scheduler is not None:
         server_lr_scheduler.step()
@@ -519,11 +524,11 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     truncate_err = 0
     for name, param in model.named_parameters():
         if name not in opt_params["server_params"]:
-            # examine if this the lora module base name
+            # examine if this is the lora module base name
             continue
         if output_layer_name and output_layer_name in name:
             if param.requires_grad:
-                param.data = opt_params["server_params"][name]
+                param.data = opt_params["server_params"][name].clone()
         else:
             #param.requires_grad = False # turn off updates in dense weights
             if opt_params["fedlora_avg"] in ["svd", "svd_v2"]:
@@ -595,6 +600,10 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 adapter_weights[lora_A_name].data = Q.T
                 adapter_weights[lora_B_name].data = X.T
     print("Truncation Error: ", truncate_err)
+
+    from arch.lora import synchronize_lora
+    synchronize_lora(model, opt_params["server_name"])
+
     from arch.lora import get_lora_norm, get_weight_norm
     get_lora_norm(adapter_weights) 
     get_weight_norm(opt_params["server_params"])
@@ -1163,7 +1172,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
 
         if opt_params["apply_lora"] and opt_params["compute_base_grad"]:
             from arch.lora import compute_base_proj
-            ratio_A_B = compute_base_proj(model)
+            ratio_A_B = compute_base_proj(model, opt_params["server_name"])
             map_update(track_train_stats, ratio_A_B, reduction = "append")
                 
         pbar.update(1)
@@ -2190,15 +2199,16 @@ if __name__ == "__main__":
         #for name, _ in model.named_parameters():
         #    print(name)
         #print("=====")
-
+        opt_params["server_name"] = "server"
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         if opt_params["hetero_rank"] == -1:
             #model , output_layer_name, Lora_Config = add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a=args.lora_freeze_a)
             from arch.lora import add_adapters_homo
-            model , output_layer_name, Lora_Config = add_adapters_homo(opt_params["client_num"], model_name, model, lora_rank, lora_alpha, lora_freeze_a=args.lora_freeze_a)
+            model , output_layer_name, Lora_Config = add_adapters_homo(opt_params["client_num"], model_name, model, lora_rank, lora_alpha, opt_params, lora_freeze_a=args.lora_freeze_a)
         else:
             from arch.lora import add_adapters_hetero
-            model , output_layer_name, Lora_Config = add_adapters_hetero(opt_params["client_num"], model_name, model, lora_rank, lora_alpha, lora_freeze_a=args.lora_freeze_a)
+            model , output_layer_name, Lora_Config = add_adapters_hetero(opt_params["client_num"], model_name, model, lora_rank, lora_alpha, opt_params, lora_freeze_a=args.lora_freeze_a)
+            model_params["hetero_rank"] = 1
         for name, param in model.named_parameters():
             print(name, param.shape, param.requires_grad)
         opt_params["output_layer_name"] = output_layer_name

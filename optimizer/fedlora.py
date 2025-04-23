@@ -60,11 +60,11 @@ def federated_lora_avg_v1(model, loss_name, criterion, lora_rank, train_graphs, 
                 elif name in adapter_weights:
                     #lora_params[name].append(param.data)
                     if 'lora_A' in name:
-                        base_name = name.replace("lora_A.default", "base_layer")
+                        base_name = name.replace("lora_A.{}".format(opt_params["server_name"]), "base_layer")
                         adapter_weights[name] += param.data/client_num
                         print(name, torch.norm(param.data / client_num).item())
                     elif 'lora_B' in name:
-                        base_name = name.replace("lora_B.default", "base_layer")
+                        base_name = name.replace("lora_B.{}".format(opt_params["server_name"]), "base_layer")
                         adapter_weights[name] += param.data/client_num
                         print(name, torch.norm(param.data / client_num).item())
                     else: assert False
@@ -105,11 +105,11 @@ def federated_lora_avg_v1(model, loss_name, criterion, lora_rank, train_graphs, 
             if not param.requires_grad:
                 continue
             if 'lora_A' in name:
-                base_name = name.replace("lora_A.default", "base_layer")
+                base_name = name.replace("lora_A.{}".format(opt_params["server_name"]), "base_layer")
                 base_adapter_weights[base_name] = {}
                 base_adapter_weights[base_name]["A"] = param.data
             elif 'lora_B' in name:
-                base_name = name.replace("lora_B.default", "base_layer")
+                base_name = name.replace("lora_B.{}".format(opt_params["server_name"]), "base_layer")
                 base_adapter_weights[base_name]["B"] = param.data
             
                 B_norm, A_norm = torch.norm(base_adapter_weights[base_name]["B"]), torch.norm(base_adapter_weights[base_name]["A"])
@@ -117,7 +117,7 @@ def federated_lora_avg_v1(model, loss_name, criterion, lora_rank, train_graphs, 
             
                 U, S, Vh = torch.linalg.svd(base_full, full_matrices=False)
                 U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
-                lora_A_name, lora_B_name = name.replace("lora_B.default", "lora_A.default"), name
+                lora_A_name, lora_B_name = name.replace("lora_B.{}".format(opt_params["server_name"]), "lora_A.{}".format(opt_params["server_name"])), name
 
                 S_norm = torch.norm(S_truncate)
                 print("uba mode is " + opt_params["uba_mode"])
@@ -160,7 +160,7 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
     output_weights = {}
     output_layer_name = opt_params["output_layer_name"]
 
-    model.set_adapter("server")
+    model.set_adapter(opt_params["server_name"])
     for name, param in model.named_parameters():
         # select lora_A and lora_B
         if param.requires_grad:
@@ -196,7 +196,7 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
         for name, param in client_model.named_parameters():
             if param.requires_grad:
                 #param_names.append(name)
-                server_adapter_name = name.replace("{}".format(adapter_name), "server")
+                server_adapter_name = name.replace("{}".format(adapter_name), opt_params["server_name"])
                 if output_layer_name and output_layer_name in name:
                     output_weights[server_adapter_name] += param.data / client_num
                 else:
@@ -222,7 +222,7 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
                 else:
                     assert False
                 """
-    model.set_adapter("server")
+    model.set_adapter(opt_params["server_name"])
     server_optimizer.zero_grad()
 
     if opt_params["train_stats"]:
@@ -251,11 +251,11 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
         for name, param in model.named_parameters():
             if param.requires_grad:
                 if 'lora_A' in name:
-                    base_name = name.replace("lora_A.{}".format("server"), "base_layer")
+                    base_name = name.replace("lora_A.{}".format(opt_params["server_name"]), "base_layer")
                     base_adapter_weights[base_name] = {}
                     base_adapter_weights[base_name]["A"] = param.data
                 elif 'lora_B' in name:
-                    base_name = name.replace("lora_B.{}".format("server"), "base_layer")
+                    base_name = name.replace("lora_B.{}".format(opt_params["server_name"]), "base_layer")
                     base_adapter_weights[base_name]["B"] = param.data
                 
                     B_norm, A_norm = torch.norm(base_adapter_weights[base_name]["B"]), torch.norm(base_adapter_weights[base_name]["A"])
@@ -263,7 +263,7 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
                 
                     U, S, Vh = torch.linalg.svd(base_full, full_matrices=False)
                     U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
-                    lora_A_name, lora_B_name = name.replace("lora_B.{}".format("server"), "lora_A.{}".format("server")), name
+                    lora_A_name, lora_B_name = name.replace("lora_B.{}".format(opt_params["server_name"]), "lora_A.{}".format(opt_params["server_name"])), name
 
                     S_norm = torch.norm(S_truncate)
                     print("uba mode is " + opt_params["uba_mode"])
@@ -282,6 +282,8 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
             if name in adapter_weights:
                 param.data = adapter_weights[name].data
     
+    synchronize_lora(model, opt_params["server_name"])
+    """
     for name, param in model.named_parameters():
         if name in adapter_weights or name in output_weights:
             adapter_weights[name] = param #store the server param
@@ -296,12 +298,13 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
                 param.data = adapter_weight_full
             else:
                 assert False
-        """
-        if 'lora_A' in name or 'lora_B' in name:
-            import re
-            server_adapter_name = re.sub(r'client_\d+', 'server', name)
-            param.data = adapter_weights[server_adapter_name].data
-        """
+        
+        #if 'lora_A' in name or 'lora_B' in name:
+        #    import re
+        #    server_adapter_name = re.sub(r'client_\d+', 'server', name)
+        #    param.data = adapter_weights[server_adapter_name].data
+        
+    """
     if server_lr_scheduler is not None:
         server_lr_scheduler.step()
 

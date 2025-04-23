@@ -63,27 +63,28 @@ def examine_lora(model, name1, name2):
             print(torch.norm(param).item())
         
 
-def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, lora_freeze_a=False):
+def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_params, lora_freeze_a=False):
     client_rank = lora_rank
-    model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, lora_freeze_a=lora_freeze_a, adapter_name="server")
+    model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, lora_freeze_a=lora_freeze_a, adapter_name=opt_params["server_name"])
     for i in range(client_num):
         client_id = "client_{}".format(i)
         model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, lora_freeze_a=lora_freeze_a, adapter_name=client_id)
-    synchronize_lora(model, server_name="server")
-    model.set_adapter("server")
+    synchronize_lora(model, server_name=opt_params["server_name"])
+    model.set_adapter(opt_params["server_name"])
     #examine_lora(model, name1="classifier.modules_to_save.server.weight", name2="classifier.modules_to_save.client_0.weight")
     return model, output_layer_name, Lora_config
 
-def add_adapters_hetero(client_num, model_name, model, lora_rank, lora_alpha, lora_freeze_a=False):
-    model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a=lora_freeze_a, adapter_name="server")
+def add_adapters_hetero(client_num, model_name, model, lora_rank, lora_alpha, opt_params, lora_freeze_a=False):
+    model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a=lora_freeze_a, adapter_name=opt_params["server_name"])
     client_ranks = []
     for i in range(client_num):
         client_rank = np.random.randint(1, lora_rank+1)
+        #client_rank = lora_rank
         client_ranks.append(client_rank)
         client_id = "client_{}".format(i)
         model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, lora_freeze_a=lora_freeze_a, adapter_name=client_id)
-    synchronize_lora(model, server_name="server")
-    model.set_adapter("server")
+    synchronize_lora(model, server_name=opt_params["server_name"])
+    model.set_adapter(opt_params["server_name"])
     print("Client Ranks: ", client_ranks)
     return model, output_layer_name, Lora_config
 
@@ -129,15 +130,15 @@ def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules
         add_ft(model, output_layer_name, target_modules)
     return model, config
 
-def lora_name_to_base(lora_A_name, use_parallel=False):
-    base_weight_name = lora_A_name.replace("lora_A.default", "base_layer")
+def lora_name_to_base(lora_A_name, server_name, use_parallel=False):
+    base_weight_name = lora_A_name.replace("lora_A.{}".format(server_name), "base_layer")
     if use_parallel:
         base_weight_name = "module."+base_weight_name
     return base_weight_name
 
-def base_to_lora_name(base_name):
-    lora_A_name = base_name.replace("base_layer", "lora_A.default")
-    lora_B_name = base_name.replace("base_layer", "lora_B.default")
+def base_to_lora_name(base_name, server_name):
+    lora_A_name = base_name.replace("base_layer", "lora_A.{}".format(server_name))
+    lora_B_name = base_name.replace("base_layer", "lora_B.{}".format(server_name))
     return lora_A_name, lora_B_name
 
 def get_lora_norm(adapter_weights):
@@ -180,7 +181,7 @@ def load_server_optimizer(model, lr, momentum, weight_decay, model_params, **kwa
 
     for i in range(0, len(adapter_names), 2):
         lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
-        base_weight_name = lora_name_to_base(lora_A_name, kwargs["use_parallel"])
+        base_weight_name = lora_name_to_base(lora_A_name, kwargs["server_name"], kwargs["use_parallel"])
         base_names.append(base_weight_name)
         #parameters[base_weight_name] = Parameter((adapter_weights[lora_B_name] @ adapter_weights[lora_A_name]).T.to(torch.float16).to(kwargs["device"]))
 
@@ -195,7 +196,7 @@ def load_server_optimizer(model, lr, momentum, weight_decay, model_params, **kwa
         #    parameters[name] = Parameter(torch.zeros_like(param.float()).to(kwargs["device"]))
         if output_layer_name and output_layer_name in name:
             if param.requires_grad:
-                parameters[name] = param
+                parameters[name] = Parameter(param.to(kwargs["device"]))
 
     if kwargs["server_opt_name"] == "sgd" or kwargs["server_opt_name"] == "gd":
         from torch.optim import SGD
@@ -296,7 +297,7 @@ def lora_merge_unmerge_state_dict(llm, state_dict, peft_config, merge=True):
         )
 """
 
-def compute_base_proj(model):
+def compute_base_proj(model, server_name):
     base_layers = {}
     with torch.no_grad():
         for name, param in model.named_parameters():
@@ -304,10 +305,10 @@ def compute_base_proj(model):
                 base_layers[name] = {}
                 base_layers[name]["base_grad"] = param.grad
             elif 'lora_A' in name:
-                base_name = name.replace("lora_A.default", "base_layer")
+                base_name = name.replace("lora_A.{}".format(server_name), "base_layer")
                 base_layers[base_name]["A"] = param.data
             elif 'lora_B' in name:
-                base_name = name.replace("lora_B.default", "base_layer")
+                base_name = name.replace("lora_B.{}".format(server_name), "base_layer")
                 base_layers[base_name]["B"] = param.data
     
         ratio_A, ratio_B = [], []
