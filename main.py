@@ -565,6 +565,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                     U_truncate, S_truncate, Vh_truncate = sp.svds((double_matrix + error_feedback).cpu().numpy(), k=lora_rank)
                     U_truncate= torch.from_numpy(U_truncate.copy()).to(device)
                     S_truncate= torch.sqrt(torch.from_numpy(S_truncate.copy()).to(device))
+                    print(S_truncate)
                     Vh_truncate= torch.from_numpy(Vh_truncate.copy()).to(device)
 
                     if opt_params["use_ef"] == 1:
@@ -599,10 +600,10 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 lora_A_name, lora_B_name = base_adapter_names[name]
                 adapter_weights[lora_A_name].data = Q.T
                 adapter_weights[lora_B_name].data = X.T
-    print("Truncation Error: ", truncate_err)
+    #print("Truncation Error: ", truncate_err)
 
     from arch.lora import synchronize_lora
-    synchronize_lora(model, opt_params["server_name"])
+    synchronize_lora(model, opt_params["server_name"], truncate_last=False)
 
     from arch.lora import get_lora_norm, get_weight_norm
     get_lora_norm(adapter_weights) 

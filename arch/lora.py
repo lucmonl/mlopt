@@ -25,23 +25,34 @@ def add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a
         output_layer_name = None   
     return model, output_layer_name, Lora_config
 
-def synchronize_lora(model, server_name):
+def synchronize_lora(model, server_name, truncate_last):
     #synchronize
     adapter_weights = {}
+    truncate_err = 0
     for name, param in model.named_parameters():
         if server_name in name:
             adapter_weights[name] = param #store the server param
+            if len(param.data.shape) == 2:
+                row, col = param.data.shape
+                print(name)
+                r_axis = 1 if row < col else 0
+                print(torch.norm(param.data, dim=r_axis))
         elif 'client' in name:
             import re
             server_adapter_name = re.sub(r'client_\d+', server_name, name)
             adapter_weight_full = adapter_weights[server_adapter_name].data.clone() #assign the same param to client models
             if len(param.data.shape) == 2:
                 row, col = param.data.shape
-                param.data = adapter_weight_full[:row, :col]
+                if truncate_last:
+                    param.data = adapter_weight_full[:row, :col]
+                else:
+                    param.data = adapter_weight_full[-row:, -col:]
+                truncate_err += torch.norm(adapter_weight_full)**2 - torch.norm(param.data)**2
             elif len(param.data.shape) == 1:
                 param.data = adapter_weight_full
             else:
                 assert False
+    print("Truncation Error: ", truncate_err)
 
 def examine_lora(model, name1, name2):
     for name, param in model.named_parameters():
@@ -65,25 +76,41 @@ def examine_lora(model, name1, name2):
 
 def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_params, lora_freeze_a=False):
     client_rank = lora_rank
+    lora_alpha = lora_rank
     model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, lora_freeze_a=lora_freeze_a, adapter_name=opt_params["server_name"])
     for i in range(client_num):
         client_id = "client_{}".format(i)
         model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, lora_freeze_a=lora_freeze_a, adapter_name=client_id)
-    synchronize_lora(model, server_name=opt_params["server_name"])
+    
+    if opt_params["fedlora_avg"] == "svd":
+        truncate_last=False
+    elif opt_params["fedlora_avg"] == "avg":
+        truncate_last=True
+    else:
+        assert False
+    synchronize_lora(model, server_name=opt_params["server_name"], truncate_last=truncate_last)
     model.set_adapter(opt_params["server_name"])
     #examine_lora(model, name1="classifier.modules_to_save.server.weight", name2="classifier.modules_to_save.client_0.weight")
     return model, output_layer_name, Lora_config
 
 def add_adapters_hetero(client_num, model_name, model, lora_rank, lora_alpha, opt_params, lora_freeze_a=False):
-    model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a=lora_freeze_a, adapter_name=opt_params["server_name"])
+    model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, lora_rank, lora_rank, lora_freeze_a=lora_freeze_a, adapter_name=opt_params["server_name"])
     client_ranks = []
+    np.random.seed(42)
     for i in range(client_num):
-        client_rank = np.random.randint(1, lora_rank+1)
+        client_rank = np.random.randint(4, lora_rank+1)
         #client_rank = lora_rank
         client_ranks.append(client_rank)
         client_id = "client_{}".format(i)
-        model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, lora_freeze_a=lora_freeze_a, adapter_name=client_id)
-    synchronize_lora(model, server_name=opt_params["server_name"])
+        model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, client_rank, lora_freeze_a=lora_freeze_a, adapter_name=client_id)
+
+    if opt_params["fedlora_avg"] == "svd":
+        truncate_last=False
+    elif opt_params["fedlora_avg"] == "avg":
+        truncate_last=True
+    else:
+        assert False
+    synchronize_lora(model, server_name=opt_params["server_name"], truncate_last=truncate_last)
     model.set_adapter(opt_params["server_name"])
     print("Client Ranks: ", client_ranks)
     return model, output_layer_name, Lora_config

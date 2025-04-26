@@ -282,7 +282,7 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
             if name in adapter_weights:
                 param.data = adapter_weights[name].data
     
-    synchronize_lora(model, opt_params["server_name"])
+    synchronize_lora(model, opt_params["server_name"], truncate_last=True)
     """
     for name, param in model.named_parameters():
         if name in adapter_weights or name in output_weights:
