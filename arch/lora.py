@@ -106,7 +106,7 @@ def add_adapters_hetero(client_num, model_name, model, lora_rank, lora_alpha, op
 
     if opt_params["fedlora_avg"] == "svd":
         truncate_last=False
-    elif opt_params["fedlora_avg"] == "avg":
+    elif opt_params["fedlora_avg"] in ["avg", "flora"]:
         truncate_last=True
     else:
         assert False

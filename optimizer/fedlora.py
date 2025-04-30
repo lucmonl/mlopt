@@ -439,8 +439,12 @@ def federated_lora_flora(model, loss_name, criterion, lora_rank, train_graphs, d
     client_opt_params = copy.deepcopy(opt_params)
     client_opt_params["train_stats"] = False
     for client_id in range(client_num):
+        adapter_name = "client_{}".format(client_id)
+        #client_model = copy.deepcopy(model)
+        model.set_adapter(adapter_name)
+        client_model = model #alias
         # update client models
-        client_model = copy.deepcopy(model)
+        #client_model = copy.deepcopy(model)
 
         client_model.train()
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], opt_params["lr_decay"], opt_params["epochs_lr_decay"], False, model_params, opt_params)
@@ -453,25 +457,34 @@ def federated_lora_flora(model, loss_name, criterion, lora_rank, train_graphs, d
             if param.requires_grad:
                 #param_names.append(name)
                 if output_layer_name and output_layer_name in name:
-                    output_weights[name] += param.data / client_num
+                    base_name = name.replace(adapter_name, opt_params["server_name"])
+                    output_weights[base_name] += param.data / client_num
                 else: #lora modules
                     #lora_params[name].append(param.data)
                     if 'lora_A' in name:
-                        base_name = name.replace("lora_A.default", "base_layer")
+                        base_name = name.replace("lora_A.{}".format(adapter_name), "base_layer")
                         base_name_A, base_A_param = base_name, param.data
                     elif 'lora_B' in name:
-                        base_name = name.replace("lora_B.default", "base_layer")
+                        base_name = name.replace("lora_B.{}".format(adapter_name), "base_layer")
                         assert base_name == base_name_A #ensure this module to be the sequel of A
                         base_B_param = param.data
 
-                        scaling = model_params["lora_alpha"] / model_params["lora_rank"]
+                        #scaling = model_params["lora_alpha"] / model_params["lora_rank"]
+                        # in the new implementation, lora_alpha is set to lora_rank in heteogeneous setting
+                        if opt_params["hetero_rank"] == 1:
+                            scaling = 1
+                        elif opt_params["hetero_rank"] == -1: #homogeneous
+                            scaling = model_params["lora_alpha"] / model_params["lora_rank"]
+                        else:
+                            raise NotImplementedError
                         original_base_weight_norm = torch.norm(base_weights[base_name])
                         base_weights[base_name] +=  scaling * compute_adapter_weight(opt_params["model_name"], base_A_param, base_B_param) / client_num
                         #print(base_name, torch.norm(base_weights[base_name]), original_base_weight_norm, torch.norm(base_weights[base_name] - untouch_base_weights[base_name]))
                         #print(base_weights[base_name])
                         #print(base_weights[base_name] - untouch_base_weights[base_name])
                     else: assert False
-
+    
+    model.set_adapter(opt_params["server_name"])
     print("original base layer")
     from arch.lora import get_base_layer_norm
     get_base_layer_norm(model)
@@ -496,7 +509,7 @@ def federated_lora_flora(model, loss_name, criterion, lora_rank, train_graphs, d
     print("update base layer")
     from arch.lora import get_base_layer_norm
     get_base_layer_norm(model)
-    unload_model = model.unload()
+    #unload_model = model.unload()
     #return unload_model.state_dict()
     #model.delete_adapter("default")
     """
@@ -516,14 +529,31 @@ def federated_lora_flora(model, loss_name, criterion, lora_rank, train_graphs, d
             #print(param)
             #print(param-untouch_base_weights[name])
     """
-    from arch.lora import add_adapters_dataset
-    model , _, _ = add_adapters_dataset(opt_params["model_name"], unload_model, model_params["lora_rank"], model_params["lora_alpha"], lora_freeze_a=opt_params["lora_freeze_a"])
+    #from arch.lora import add_adapters_dataset
+    #model , _, _ = add_adapters_dataset(opt_params["model_name"], unload_model, model_params["lora_rank"], model_params["lora_alpha"], lora_freeze_a=opt_params["lora_freeze_a"])
+
+    #from arch.lora import add_adapters_hetero
+    #model, _, _ = add_adapters_hetero(client_num, opt_params["model_name"], unload_model, model_params["lora_rank"], model_params["lora_alpha"], opt_params, lora_freeze_a=opt_params["lora_freeze_a"])
     
-    """
+
     print("reinitialize lora module")
+    """
     for name, param in model.named_parameters():
-        if param.requires_grad:
-            print(name, param.shape)
+        if 'lora' in name:
+            print("==== LoRA params ====")
+            print(name, torch.norm(param).item())
+    
+    for name, param in model.named_parameters():
+        if param.requires_grad and 'lora' in name:
+            param.data = torch.randn_like(param.data)
+    """
+    from arch.lora import synchronize_lora
+    synchronize_lora(model, opt_params["server_name"], truncate_last=True)
+    """
+    for name, param in model.named_parameters():
+        if 'lora' in name:
+            print("==== LoRA updated params ====")
+            print(name, torch.norm(param).item())
     """
     print("a new peft layer")
     from arch.lora import get_base_layer_norm
