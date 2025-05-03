@@ -119,7 +119,9 @@ def federated_train_1(model, loss_name, criterion, device, num_classes, train_lo
             hadamard_params_pad = hadamard_transform(D*new_params_pad)
             vector_m += sub_sample_row @ hadamard_params_pad
 
-            hadamard_params_pad = hadamard_transform(D_sq*(new_params_pad ** 2))
+            #hadamard_params_pad = hadamard_transform(D_sq*(new_params_pad ** 2))
+            #vector_v += sub_sample_row_sq @ hadamard_params_pad
+            hadamard_params_pad = hadamard_transform(D_sq*new_params_pad)
             vector_v += sub_sample_row_sq @ hadamard_params_pad
         #vector_m += sketch_matrix_m @ (old_params - new_params).detach()
         #vector_v += sketch_matrix_v @ ((old_params - new_params) ** 2).detach()
@@ -651,9 +653,9 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             sample_rows = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
             sub_sample_row = torch.sparse_coo_tensor(sample_rows, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
 
-            #D_sq = (((torch.randn(p_pad, dtype=torch.float32) > 0).float() - 0.5) * 2).to(device)
-            #sample_rows_sq = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
-            #sub_sample_row_sq = torch.sparse_coo_tensor(sample_rows_sq, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
+            D_sq = (((torch.randn(p_pad, dtype=torch.float32) > 0).float() - 0.5) * 2).to(device)
+            sample_rows_sq = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
+            sub_sample_row_sq = torch.sparse_coo_tensor(sample_rows_sq, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
         else:
             print("use direct sample row")
             sub_sample_row = None
@@ -705,6 +707,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             vector_m += new_params_pad #* min(1, opt_params["clip_tau"] / param_norm.item())
             #if opt_params["clip_tau"] / param_norm.item() < 1: print("clip")
             #vector_v += new_params_pad ** 2
+            #vector_v += new_params_pad
             #vector_m_norm.append(torch.norm(old_params - new_params).item())
         else:
             vector_m_true = (old_params - new_params).detach()
@@ -799,16 +802,20 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                     print("after clip", torch.norm(new_params_pad).item())
 
                 hadamard_params_pad = hadamard_transform(D*new_params_pad)
+                hadamard_params_pad_sq = hadamard_transform(D_sq*new_params_pad)
                 if sub_sample_row is not None:
                     sketch_vector_m = sub_sample_row @ hadamard_params_pad
+                    sketch_vector_v = sub_sample_row_sq @ hadamard_params_pad_sq
                 else:
                     sketch_vector_m = sketch_v(hadamard_params_pad)
+                    sketch_vector_v = sketch_v(hadamard_params_pad_sq)
 
                 if opt_params["clip_tau"] == -1:
                     if opt_params["privacy_clip"] != -1:
                         privacy_noise = torch.normal(0, opt_params["privacy_noise"], size=sketch_vector_m.size()).to(sketch_vector_m)
                         sketch_vector_m = client_lr * (sketch_vector_m + privacy_noise) 
                     vector_m += sketch_vector_m
+                    vector_v += sketch_vector_v
                 else:
                     unsketch_vector_m = sub_sample_row.T @ sketch_vector_m
                     unsketch_vector_m = hadamard_transform(unsketch_vector_m) * D
@@ -818,6 +825,14 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
 
                     vector_m += sketch_vector_m * vector_m_scale
 
+                    unsketch_vector_v = sub_sample_row_sq.T @ sketch_vector_v
+                    unsketch_vector_v = hadamard_transform(unsketch_vector_v) * D_sq
+                    unsketch_vector_v = unsketch_vector_v[:p]
+                    unsketch_vector_v = torch.clip(unsketch_vector_v, min=-opt_params["clip_tau"], max=opt_params["clip_tau"])
+                    vector_v_scale = torch.linalg.norm(new_params_pad) / torch.linalg.norm(unsketch_vector_v)
+
+                    vector_v += sketch_vector_v * vector_v_scale
+
                
             #hadamard_params_pad = hadamard_transform(D*(new_params_pad ** 2)) #deprecated
             #vector_v += sub_sample_row @ hadamard_params_pad
@@ -825,7 +840,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     vector_m = vector_m / client_num
     if opt_params["server_opt_name"] == "fetchsgd":
         model.avg_sketch = vector_m.detach()
-    #vector_v = vector_v / client_num #deprecated
+    vector_v = vector_v / client_num #deprecated
     if sketch_size != -1:
         if opt_params["server_opt_name"] == "onebit":
             if server_epoch < opt_params["switch_epoch"]:
@@ -879,6 +894,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         elif opt_params["server_opt_name"] != "fetchsgd":
             if sub_sample_row is not None:
                 vector_m = sub_sample_row.T @ vector_m
+                vector_v = sub_sample_row_sq.T @ vector_v
             else:
                 vector_m = unsketch_v(vector_m)
             vector_m = hadamard_transform(vector_m) * D
@@ -886,7 +902,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             vector_m = vector_m[:p]
 
             #vector_v = sub_sample_row_sq.T @ vector_v
-            #vector_v = hadamard_transform(vector_v) * D_sq
+            vector_v = hadamard_transform(vector_v) * D_sq
             """ #deprecated
             vector_v = sub_sample_row.T @ vector_v
             vector_v = hadamard_transform(vector_v) * D
@@ -918,7 +934,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         vector_to_grads(vector_m, model.parameters())
         if opt_params["clip_tau"] != -1:
             torch.nn.utils.clip_grad_value_(model.parameters(), 1.0)
-        #vector_to_grads_sq(vector_v, model.parameters()) #deprecated
+        vector_to_grads_sq(vector_v**2, model.parameters()) #deprecated
 
     if opt_params["train_stats"]:
         print(vector_m.numel())
@@ -1444,7 +1460,7 @@ if __name__ == "__main__":
     parser.add_argument("--sketch_size", type=int, default=-1, help="sketch size in communication")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
-    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het", "fedex", "flora", "flasc"], default="avg", help="methods to average A and B matrix in federated lora")
+    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het", "fedex", "flora", "flasc", "ffa"], default="avg", help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
     parser.add_argument("--uba_mode", type=str, default='none', choices=["ada", "none"], help="ada means adaptive uba")
     parser.add_argument("--uba_weight", type=float, default=1.0, help="uba adaptive weight")

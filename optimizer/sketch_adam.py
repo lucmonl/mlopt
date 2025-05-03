@@ -2,8 +2,8 @@ from typing import List, Optional, Union, Tuple
 
 import torch
 from torch import Tensor
-from torch.optim.optimizer import (Optimizer, params_t, _use_grad_for_differentiable, _get_value,
-                        _stack_if_compiling, _dispatch_sqrt, _default_to_fused_or_foreach,
+from torch.optim.optimizer import (Optimizer, _use_grad_for_differentiable, _get_value,
+                        _stack_if_compiling, _default_to_fused_or_foreach,
                         _capturable_doc, _differentiable_doc, _foreach_doc, _fused_doc,
                         _maximize_doc)
 from torch.utils._foreach_utils import _get_fused_kernels_supported_devices
@@ -13,7 +13,7 @@ __all__ = ['Adam', 'adam']
 
 class Adam(Optimizer):
     def __init__(self,
-                 params: params_t,
+                 params,
                  lr: Union[float, Tensor] = 1e-3,
                  betas: Tuple[float, float] = (0.9, 0.999),
                  eps: float = 1e-8,
@@ -404,7 +404,7 @@ def _single_tensor_adam(params: List[Tensor],
             step_size = lr / bias_correction1
             step_size_neg = step_size.neg()
 
-            bias_correction2_sqrt = bias_correction2.sqrt()
+            bias_correction2_sqrt = bias_correction2 ** 0.5
 
             if amsgrad:
                 # Maintains the maximum of all 2nd moment running avg. till now
@@ -431,7 +431,8 @@ def _single_tensor_adam(params: List[Tensor],
 
             step_size = lr / bias_correction1
 
-            bias_correction2_sqrt = _dispatch_sqrt(bias_correction2)
+            #bias_correction2_sqrt = _dispatch_sqrt(bias_correction2)
+            bias_correction2_sqrt = bias_correction2**0.5 #.sqrt()
 
             if amsgrad:
                 # Maintains the maximum of all 2nd moment running avg. till now
@@ -565,7 +566,8 @@ def _multi_tensor_adam(params: List[Tensor],
 
             step_size = _stack_if_compiling([(lr / bc) * -1 for bc in bias_correction1])
 
-            bias_correction2_sqrt = [_dispatch_sqrt(bc) for bc in bias_correction2]
+            #bias_correction2_sqrt = [_dispatch_sqrt(bc) for bc in bias_correction2]
+            bias_correction2_sqrt = [bc**0.5 for bc in bias_correction2]
 
             if amsgrad:
                 # Maintains the maximum of all 2nd moment running avg. till now
