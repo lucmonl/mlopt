@@ -652,10 +652,10 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             D = (((torch.randn(p_pad, dtype=torch.float32) > 0).to(old_params) - 0.5) * 2).to(device)
             sample_rows = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
             sub_sample_row = torch.sparse_coo_tensor(sample_rows, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
-
-            D_sq = (((torch.randn(p_pad, dtype=torch.float32) > 0).float() - 0.5) * 2).to(device)
-            sample_rows_sq = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
-            sub_sample_row_sq = torch.sparse_coo_tensor(sample_rows_sq, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
+            if opt_params["server_opt_name"] == "sketch_adam":
+                D_sq = (((torch.randn(p_pad, dtype=torch.float32) > 0).float() - 0.5) * 2).to(device)
+                sample_rows_sq = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
+                sub_sample_row_sq = torch.sparse_coo_tensor(sample_rows_sq, torch.ones(sketch_size).to(device), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
         else:
             print("use direct sample row")
             sub_sample_row = None
@@ -802,20 +802,25 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                     print("after clip", torch.norm(new_params_pad).item())
 
                 hadamard_params_pad = hadamard_transform(D*new_params_pad)
-                hadamard_params_pad_sq = hadamard_transform(D_sq*new_params_pad)
+                if opt_params["server_opt_name"] == "sketch_adam":
+                    hadamard_params_pad_sq = hadamard_transform(D_sq*new_params_pad)
+                    
                 if sub_sample_row is not None:
                     sketch_vector_m = sub_sample_row @ hadamard_params_pad
-                    sketch_vector_v = sub_sample_row_sq @ hadamard_params_pad_sq
+                    if opt_params["server_opt_name"] == "sketch_adam":
+                        sketch_vector_v = sub_sample_row_sq @ hadamard_params_pad_sq
                 else:
                     sketch_vector_m = sketch_v(hadamard_params_pad)
-                    sketch_vector_v = sketch_v(hadamard_params_pad_sq)
+                    if opt_params["server_opt_name"] == "sketch_adam":
+                        sketch_vector_v = sketch_v(hadamard_params_pad_sq)
 
                 if opt_params["clip_tau"] == -1:
                     if opt_params["privacy_clip"] != -1:
                         privacy_noise = torch.normal(0, opt_params["privacy_noise"], size=sketch_vector_m.size()).to(sketch_vector_m)
                         sketch_vector_m = client_lr * (sketch_vector_m + privacy_noise) 
                     vector_m += sketch_vector_m
-                    vector_v += sketch_vector_v
+                    if opt_params["server_opt_name"] == "sketch_adam":
+                        vector_v += sketch_vector_v
                 else:
                     unsketch_vector_m = sub_sample_row.T @ sketch_vector_m
                     unsketch_vector_m = hadamard_transform(unsketch_vector_m) * D
@@ -825,13 +830,14 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
 
                     vector_m += sketch_vector_m * vector_m_scale
 
-                    unsketch_vector_v = sub_sample_row_sq.T @ sketch_vector_v
-                    unsketch_vector_v = hadamard_transform(unsketch_vector_v) * D_sq
-                    unsketch_vector_v = unsketch_vector_v[:p]
-                    unsketch_vector_v = torch.clip(unsketch_vector_v, min=-opt_params["clip_tau"], max=opt_params["clip_tau"])
-                    vector_v_scale = torch.linalg.norm(new_params_pad) / torch.linalg.norm(unsketch_vector_v)
+                    if opt_params["server_opt_name"] == "sketch_adam":
+                        unsketch_vector_v = sub_sample_row_sq.T @ sketch_vector_v
+                        unsketch_vector_v = hadamard_transform(unsketch_vector_v) * D_sq
+                        unsketch_vector_v = unsketch_vector_v[:p]
+                        unsketch_vector_v = torch.clip(unsketch_vector_v, min=-opt_params["clip_tau"], max=opt_params["clip_tau"])
+                        vector_v_scale = torch.linalg.norm(new_params_pad) / torch.linalg.norm(unsketch_vector_v)
 
-                    vector_v += sketch_vector_v * vector_v_scale
+                        vector_v += sketch_vector_v * vector_v_scale
 
                
             #hadamard_params_pad = hadamard_transform(D*(new_params_pad ** 2)) #deprecated
@@ -902,7 +908,8 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             vector_m = vector_m[:p]
 
             #vector_v = sub_sample_row_sq.T @ vector_v
-            vector_v = hadamard_transform(vector_v) * D_sq
+            if opt_params["server_opt_name"] == "sketch_adam":
+                vector_v = hadamard_transform(vector_v) * D_sq
             """ #deprecated
             vector_v = sub_sample_row.T @ vector_v
             vector_v = hadamard_transform(vector_v) * D
@@ -934,7 +941,8 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         vector_to_grads(vector_m, model.parameters())
         if opt_params["clip_tau"] != -1:
             torch.nn.utils.clip_grad_value_(model.parameters(), 1.0)
-        vector_to_grads_sq(vector_v**2, model.parameters()) #deprecated
+        if opt_params["server_opt_name"] == "sketch_adam":
+            vector_to_grads_sq(vector_v**2, model.parameters()) #deprecated
 
     if opt_params["train_stats"]:
         print(vector_m.numel())
