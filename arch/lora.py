@@ -76,8 +76,15 @@ def examine_lora(model, name1, name2):
 
 def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_params, lora_freeze_a=False):
     client_rank = lora_rank
-    lora_alpha = lora_rank
+    #lora_alpha = lora_rank
+    if opt_params["fedlora_avg"] == "sb":
+        opt_params["server_name"] = "default"
     model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, lora_freeze_a=lora_freeze_a, adapter_name=opt_params["server_name"])
+    if opt_params["fedlora_avg"] == "sb":
+        from optimizer.fedlora_sb import find_and_initialize
+        find_and_initialize(model, Lora_config, lora_rank)
+        return model, output_layer_name, Lora_config
+
     for i in range(client_num):
         client_id = "client_{}".format(i)
         model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, lora_freeze_a=lora_freeze_a, adapter_name=client_id)
@@ -173,14 +180,14 @@ def get_lora_norm(adapter_weights):
     #norm_A_diff, norm_B_diff=0, 0
     for name in adapter_weights:
         if 'lora_A' in name:
-            norm_A += torch.norm(adapter_weights[name]) ** 2
+            norm_A += torch.norm(adapter_weights[name]).item() ** 2
             #norm_A_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
         elif 'lora_B' in name:
-            norm_B += torch.norm(adapter_weights[name]) ** 2
+            norm_B += torch.norm(adapter_weights[name]).item() ** 2
             #norm_B_diff += torch.norm(adapter_weights_avg[name] - adapter_weights[name]) ** 2
     #print("param norms: ", norm_A.item(), norm_B.item(), norm_A_diff.item(), norm_B_diff.item())
-    print("param norms: ", norm_A.item(), norm_B.item())
-    return norm_A.item(), norm_B.item()
+    print("param norms: ", norm_A, norm_B)
+    return norm_A, norm_B
 
 def get_base_layer_norm(model):
     norm_base_layer = 0
