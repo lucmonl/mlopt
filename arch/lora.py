@@ -82,7 +82,7 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
     model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, lora_freeze_a=lora_freeze_a, adapter_name=opt_params["server_name"])
     if opt_params["fedlora_avg"] == "sb":
         from optimizer.fedlora_sb import find_and_initialize
-        find_and_initialize(model, Lora_config, lora_rank)
+        find_and_initialize(model, Lora_config, lora_rank, model_name)
         return model, output_layer_name, Lora_config
 
     for i in range(client_num):

@@ -69,6 +69,47 @@ def get_replacement_module(weight, module_name, type, lora_rank, init_scaling=1)
     return final_enc, final_dec
 
 
+def forward_latent_transpose(self, x: torch.Tensor):
+    previous_dtype = x.dtype
+
+    if self.active_adapter[0] not in self.lora_A.keys():
+        return F.linear(x, transpose(self.weight, self.fan_in_fan_out), bias=self.bias)
+    if self.disable_adapters:
+        if self.r[self.active_adapter[0]] > 0 and self.merged:
+            self.unmerge()
+        result = F.linear(x, transpose(self.weight, self.fan_in_fan_out), bias=self.bias)
+    elif self.r[self.active_adapter[0]] > 0 and not self.merged:
+        result = F.linear(x, transpose(self.weight, self.fan_in_fan_out), bias=self.bias)
+
+        x = x.to(self.lora_A[self.active_adapter[0]].weight.dtype)
+
+        # adding latent_mapping in the forward loop
+        #print(self.lora_dropout[self.active_adapter[0]](x).shape)
+        #print(self.lora_A[self.active_adapter[0]].weight.shape)
+        #print(self.lora_B[self.active_adapter[0]].weight.shape)
+        x = self.lora_dropout[self.active_adapter[0]](x)
+        x = F.linear(x, transpose(self.lora_B[self.active_adapter[0]].weight, self.fan_in_fan_out), bias=self.lora_B[self.active_adapter[0]].bias)
+        x = self.default_lora_latent_mapping(x)
+        x = F.linear(x, transpose(self.lora_A[self.active_adapter[0]].weight, self.fan_in_fan_out), bias=self.lora_A[self.active_adapter[0]].bias)
+
+        result += x * self.scaling[self.active_adapter[0]]
+        """
+        result += (
+            self.lora_B[self.active_adapter[0]](
+                self.default_lora_latent_mapping(
+                    self.lora_A[self.active_adapter[0]](self.lora_dropout[self.active_adapter[0]](x))
+                )
+            )
+            * self.scaling[self.active_adapter[0]]
+        )
+        """
+    else:
+        result = F.linear(x, transpose(self.weight, self.fan_in_fan_out), bias=self.bias)
+
+    result = result.to(previous_dtype)
+
+    return result
+
 def forward_latent(self, x: torch.Tensor):
     previous_dtype = x.dtype
 
@@ -154,7 +195,7 @@ def kaiming_uniform_init(matrix: torch.tensor):
     init.kaiming_uniform_(matrix, a=math.sqrt(5))
     return matrix
 
-def find_and_initialize(model, peft_config, lora_rank, reconstr_type="svd"):
+def find_and_initialize(model, peft_config, lora_rank, model_name, reconstr_type="svd"):
     """
     :param adapter_name: options: 'default'
     :param reconstr_type: options: 'svd'
@@ -197,7 +238,12 @@ def find_and_initialize(model, peft_config, lora_rank, reconstr_type="svd"):
                         kaiming_uniform_init(replacement_decoder_weight)
                     replace_module_weights(target.lora_B.default, replacement_decoder_weight.T)
                     if r_squared:
-                        target.forward = types.MethodType(forward_latent, target)
+                        if model_name in ["google/vit-base-patch16-224-in21k", "roberta-base"]:
+                            target.forward = types.MethodType(forward_latent, target)
+                        elif model_name in ["gpt2"]:
+                            target.forward = types.MethodType(forward_latent_transpose, target)
+                        else:
+                            raise NotImplementedError
                         target.get_delta_weight = types.MethodType(get_delta_weight, target)
                         replace_module_weights(target.lora_A.default, replacement_encoder_weight.T)
                         target.default_lora_latent_mapping = torch.nn.Linear(lora_config.r, lora_config.r, bias=False)
