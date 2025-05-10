@@ -577,8 +577,21 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                     if opt_params["use_ef"] == 1:
                         opt_params["error_feedback"][name] += opt_params["server_params"][name].data - U_truncate @ torch.diag(S_truncate**2) @ Vh_truncate
                     lora_A_name, lora_B_name = base_adapter_names[name]
-                    adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T.contiguous() * opt_params["fedlora_uba"]
-                    adapter_weights[lora_B_name].data = (Vh_truncate.T * S_truncate).contiguous() / opt_params["fedlora_uba"]
+                    #adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T.contiguous() * opt_params["fedlora_uba"]
+                    #adapter_weights[lora_B_name].data = (Vh_truncate.T * S_truncate).contiguous() / opt_params["fedlora_uba"]
+
+                    S_norm = torch.norm(S_truncate).item()
+                    B_norm, A_norm = torch.norm(adapter_weights[lora_B_name].data).item(), torch.norm(adapter_weights[lora_A_name].data).item()
+                    print("uba mode is " + opt_params["uba_mode"])
+                    if opt_params["uba_mode"] == "ada":
+                        print("B_norm", B_norm, "A_norm", A_norm, "S_norm", S_norm)
+                        ratio = (A_norm + opt_params["uba_weight"] * opt_params["fedlora_uba"]**2*S_norm) / (B_norm + opt_params["uba_weight"] * S_norm)
+                        ratio = ratio**0.5
+                    else:
+                        ratio = opt_params["fedlora_uba"]
+                        
+                    adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T * ratio
+                    adapter_weights[lora_B_name].data = Vh_truncate.T * S_truncate / ratio
 
             elif opt_params["fedlora_avg"] == "sketch":
                 # sketching
