@@ -6,6 +6,7 @@ import pickle
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 import gc
+import time
 import argparse
 import numpy as np
 import torch.nn as nn
@@ -396,9 +397,11 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     #for name in opt_params["server_params"]:
     #    print(name, torch.norm(opt_params["server_params"][name]).item())
     lora_params = {}
-    
+    client_time_elapse = []
     #get_gpu_memory()
     for client_id in range(client_num):
+        if opt_params["timeit"]:
+            client_start_time = time.time()
         # update client models
         #get_gpu_memory()
         #print(device)
@@ -452,7 +455,9 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                     opt_params["server_params"][name].grad -= (lora_B_param @ lora_A_param).T
                 #opt_params["server_params"][name].grad = (base_adapter_weights[name] - aggregated_weights[name]).T
                 #grad_norm += torch.linalg.norm(opt_params["server_params"][name].grad) ** 2
-
+        if opt_params["timeit"]:
+            print("Client training time: ", time.time() - client_start_time)
+            client_time_elapse.append(time.time() - client_start_time)
     """
     adapter_weights_avg = {}
     for i in range(0, len(adapter_names), 2):
@@ -492,6 +497,10 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     grad_norm = 0
     #get_gpu_memory()
     
+    if opt_params["timeit"]:
+        print("Client Time Mean: ", np.mean(client_time_elapse), " Max: ", np.max(client_time_elapse))
+        server_optimize_start_time = time.time()
+
     for name in opt_params["server_params"]:
         """
         if output_layer_name and output_layer_name in name:
@@ -528,6 +537,10 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         print("server lr", group['lr'])
 
     truncate_err = 0
+    if opt_params["timeit"]:
+        print("Server optimize time: ", time.time()-server_optimize_start_time)
+        redistribution_start_time = time.time()
+
     for name, param in model.named_parameters():
         if name not in opt_params["server_params"]:
             # examine if this is the lora module base name
@@ -568,12 +581,22 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                     truncate_err += torch.sum(S[lora_rank:]).item()
                     """
                     import scipy.sparse.linalg as sp
-                    U_truncate, S_truncate, Vh_truncate = sp.svds((double_matrix + error_feedback).cpu().numpy(), k=lora_rank)
+                    if opt_params["timeit"]:
+                        cpu_load_start_time = time.time()
+                    cpu_matrix = (double_matrix + error_feedback).contiguous().cpu().numpy()
+                    if opt_params["timeit"]:
+                        print("cpu load time: ", time.time() - cpu_load_start_time)
+                        svd_start_time = time.time()
+                    U_truncate, S_truncate, Vh_truncate = sp.svds(cpu_matrix, k=lora_rank)
+                    if opt_params["timeit"]:
+                        print("svd time: ", time.time() - svd_start_time)
+                        gpu_load_start_time = time.time()
                     U_truncate= torch.from_numpy(U_truncate.copy()).to(device)
                     S_truncate= torch.sqrt(torch.from_numpy(S_truncate.copy()).to(device))
                     print(S_truncate)
                     Vh_truncate= torch.from_numpy(Vh_truncate.copy()).to(device)
-
+                    if opt_params["timeit"]:
+                        print("gpu load time: ", time.time() - gpu_load_start_time)
                     if opt_params["use_ef"] == 1:
                         opt_params["error_feedback"][name] += opt_params["server_params"][name].data - U_truncate @ torch.diag(S_truncate**2) @ Vh_truncate
                     lora_A_name, lora_B_name = base_adapter_names[name]
@@ -589,9 +612,12 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                         ratio = ratio**0.5
                     else:
                         ratio = opt_params["fedlora_uba"]
-                        
+                    if opt_params["timeit"]:
+                        param_assign_start_time = time.time()
                     adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T * ratio
                     adapter_weights[lora_B_name].data = Vh_truncate.T * S_truncate / ratio
+                    if opt_params["timeit"]:
+                        print("param assign time: ", time.time() - param_assign_start_time)
 
             elif opt_params["fedlora_avg"] == "sketch":
                 # sketching
@@ -620,6 +646,8 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 adapter_weights[lora_A_name].data = Q.T
                 adapter_weights[lora_B_name].data = X.T
     #print("Truncation Error: ", truncate_err)
+    if opt_params["timeit"]:
+        print("Truncation step time: ", time.time() - redistribution_start_time)
 
     from arch.lora import synchronize_lora
     synchronize_lora(model, opt_params["server_name"], truncate_last=False)
@@ -1393,6 +1421,7 @@ if __name__ == "__main__":
     parser.add_argument("--pretrain_aug", type=str, default="none", choices=["none", "sam", "clip", "sbb"], help="augmentation used in pretrained model.")
     parser.add_argument("--use_parallel", action='store_true', help="wrap the model with nn.DataParallel")
     parser.add_argument("--multi_gpu", action='store_true', help="use second gpus as fedlora server optimizer")
+    parser.add_argument("--timeit", action='store_true', help="show the time elapse of certain steps")
 
     #model
     parser.add_argument("--width", type=int, default=512, help="network width for weight norm or number of filters in convnets")
@@ -1513,6 +1542,7 @@ if __name__ == "__main__":
     do_eval             = args.do_eval
     analysis_params["no_val"] = args.no_val
     multi_run           = args.multiple_run
+    opt_params["timeit"]= args.timeit
     run_from_scratch    = args.run_from_scratch
     store_model_checkpoint = args.store_model_checkpoint
     load_checkpoint     = args.load_checkpoint
