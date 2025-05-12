@@ -56,7 +56,7 @@ def sparse_skethc(m,n,s):
 
 import scipy.sparse.linalg as sp
 from multiprocessing import shared_memory
-def worker(ind):
+def worker(ind, row, col):
     """
     Worker function that prepares the input and computes the SVD.
     Args:
@@ -67,22 +67,22 @@ def worker(ind):
         tuple: Truncated SVD result (U, S, Vh).
     """
     visit_shm_time = time.time()
-    shm = shared_memory.SharedMemory(name="server_param")
-    matrix = np.ndarray((24, 768, 2304), dtype=np.float32, buffer=shm.buf)[ind]
+    shm = shared_memory.SharedMemory(name="server_param_{}".format(ind))
+    matrix = np.ndarray((row, col), dtype=np.float32, buffer=shm.buf)
     worker_start_time = time.time()
     U_truncate, S_truncate, Vh_truncate = sp.svds(matrix, k=lora_rank)
 
-    shm_Vh = shared_memory.SharedMemory(name="Vh")
-    shm_Vh_matrix = np.ndarray((24, 16, 2304), dtype=np.float32, buffer=shm_Vh.buf)
-    np.copyto(shm_Vh_matrix[ind], Vh_truncate)
+    shm_Vh = shared_memory.SharedMemory(name="Vh_{}".format(ind))
+    shm_Vh_matrix = np.ndarray((16, col), dtype=np.float32, buffer=shm_Vh.buf)
+    np.copyto(shm_Vh_matrix, Vh_truncate)
 
-    shm_U = shared_memory.SharedMemory(name="U")
-    shm_U_matrix = np.ndarray((24, 768, 16), dtype=np.float32, buffer=shm_U.buf)
-    np.copyto(shm_U_matrix[ind], U_truncate)
+    shm_U = shared_memory.SharedMemory(name="U_{}".format(ind))
+    shm_U_matrix = np.ndarray((row, 16), dtype=np.float32, buffer=shm_U.buf)
+    np.copyto(shm_U_matrix, U_truncate)
 
-    shm_S = shared_memory.SharedMemory(name="S")
-    shm_S_matrix = np.ndarray((24, 16), dtype=np.float32, buffer=shm_S.buf)
-    np.copyto(shm_S_matrix[ind], S_truncate)
+    shm_S = shared_memory.SharedMemory(name="S_{}".format(ind))
+    shm_S_matrix = np.ndarray((16), dtype=np.float32, buffer=shm_S.buf)
+    np.copyto(shm_S_matrix, S_truncate)
     #return U_truncate, S_truncate, Vh_truncate, worker_start_time - visit_shm_time, time.time()-worker_start_time
     #return worker_start_time - visit_shm_time, time.time()-worker_start_time
 
@@ -599,21 +599,23 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 print(server_params_list[-1].shape)
         import multiprocessing as mp
         from multiprocessing import Process, Manager, shared_memory
-        server_params_list = np.stack(server_params_list, axis=0)
-        lora_U_params_list = np.zeros((24, 768, 16))
-        lora_Vh_params_list = np.zeros((24, 16, 2304))
-        lora_S_params_list = np.zeros((24, 16))
+        #server_params_list = np.stack(server_params_list, axis=0)
+        #lora_U_params_list = np.zeros((24, 768, 16))
+        #lora_Vh_params_list = np.zeros((24, 16, 2304))
+        #lora_S_params_list = np.zeros((24, 16))
         manager = Manager()
         #result_dict = manager.dict()
         #processes = []
 
-        shm = shared_memory.SharedMemory(create=True, size=server_params_list.nbytes, name="server_param")
-        shm_matrix = np.ndarray(server_params_list.shape, dtype=server_params_list.dtype, buffer=shm.buf)
-        np.copyto(shm_matrix, server_params_list)
+        shm, shm_U, shm_Vh, shm_S = [], [], [], []
+        for i in range(len(server_params_list)):
+            shm.append(shared_memory.SharedMemory(create=True, size=server_params_list[i].nbytes, name="server_param_{}".format(i)))
+            shm_matrix = np.ndarray(server_params_list[i].shape, dtype=server_params_list[i].dtype, buffer=shm[-1].buf)
+            np.copyto(shm_matrix, server_params_list[i])
 
-        shm_U = shared_memory.SharedMemory(create=True, size=lora_U_params_list.nbytes, name="U")
-        shm_Vh = shared_memory.SharedMemory(create=True, size=lora_Vh_params_list.nbytes, name="Vh")
-        shm_S = shared_memory.SharedMemory(create=True, size=lora_S_params_list.nbytes, name="S")
+            shm_U.append(shared_memory.SharedMemory(create=True, size=np.zeros((server_params_list[i].shape[0], 16)).nbytes, name="U_{}".format(i)))
+            shm_Vh.append(shared_memory.SharedMemory(create=True, size=np.zeros((16, server_params_list[i].shape[1])).nbytes, name="Vh_{}".format(i)))
+            shm_S.append(shared_memory.SharedMemory(create=True, size=np.zeros(16).nbytes, name="S_{}".format(i)))
         #shm_matrix = np.ndarray(server_params_list.shape, dtype=server_params_list.dtype, buffer=shm.buf)
         #np.copyto(shm_matrix, server_params_list)
         
@@ -621,7 +623,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
             print("Preparation time: ", time.time() - redistribution_start_time)
             subprocess_start = time.time()
         with mp.Pool(processes=4) as pool:
-            results = pool.map(worker, [i for i in range(server_params_list.shape[0])])
+            results = pool.starmap(worker, [(i, server_params_list[i].shape[0], server_params_list[i].shape[1]) for i in range(len(server_params_list))])
         
         if opt_params["timeit"]:
             train_graphs.subprocess_time.append(time.time()-subprocess_start)
@@ -629,10 +631,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         #print(len(results))
         #for i in range(len(results[0])):
         #    print(type(results[0][i]), results[0][i].shape)
-        
-        shm.close()
-        shm.unlink()
-        
+                
         pointer = 0
         for name, param in model.named_parameters():
             if name not in opt_params["server_params"]:
@@ -643,14 +642,17 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
             else:
                 #U_truncate, S_truncate, Vh_truncate, shm_time, svd_time = results[pointer]
                 #shm_time, svd_time = results[pointer]
-                shm_Vh_matrix = np.ndarray((24, 16, 2304), dtype=np.float32, buffer=shm_Vh.buf)
-                Vh_truncate = shm_Vh_matrix[pointer]
+                #shm_Vh_matrix = np.ndarray((24, 16, 2304), dtype=np.float32, buffer=shm_Vh.buf)
+                #Vh_truncate = shm_Vh_matrix[pointer]
+                Vh_truncate = np.ndarray((16, server_params_list[pointer].shape[1]), dtype=np.float32, buffer=shm_Vh[pointer].buf)
 
-                shm_U_matrix = np.ndarray((24, 768, 16), dtype=np.float32, buffer=shm_U.buf)
-                U_truncate = shm_U_matrix[pointer]
+                #shm_U_matrix = np.ndarray((24, 768, 16), dtype=np.float32, buffer=shm_U.buf)
+                #U_truncate = shm_U_matrix[pointer]
+                U_truncate = np.ndarray((server_params_list[pointer].shape[0], 16), dtype=np.float32, buffer=shm_U[pointer].buf)
 
-                shm_S_matrix = np.ndarray((24, 16), dtype=np.float32, buffer=shm_S.buf)
-                S_truncate = shm_S_matrix[pointer]
+                #shm_S_matrix = np.ndarray((24, 16), dtype=np.float32, buffer=shm_S.buf)
+                #S_truncate = shm_S_matrix[pointer]
+                S_truncate = np.ndarray((16), dtype=np.float32, buffer=shm_S[pointer].buf)
 
                 U_truncate= torch.from_numpy(U_truncate.copy()).to(device)
                 S_truncate= torch.sqrt(torch.from_numpy(S_truncate.copy()).to(device))
@@ -660,12 +662,20 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                 adapter_weights[lora_B_name].data = Vh_truncate.T * S_truncate / opt_params["fedlora_uba"]
                 pointer += 1
                 #print("Worker ", pointer, shm_time, svd_time)
-        shm_U.close()
-        shm_U.unlink()
-        shm_S.close()
-        shm_S.unlink()
-        shm_Vh.close()
-        shm_Vh.unlink()
+        
+        if opt_params["timeit"]:
+            train_graphs.redistribution_time.append(time.time() - redistribution_start_time)
+            print("Truncation step time: ", time.time() - redistribution_start_time)
+
+        for i in range(len(shm_U)):
+            shm[i].close()
+            shm[i].unlink()
+            shm_U[i].close()
+            shm_U[i].unlink()
+            shm_S[i].close()
+            shm_S[i].unlink()
+            shm_Vh[i].close()
+            shm_Vh[i].unlink()
     else:
         for name, param in model.named_parameters():
             if name not in opt_params["server_params"]:
@@ -772,9 +782,6 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                     adapter_weights[lora_A_name].data = Q.T
                     adapter_weights[lora_B_name].data = X.T
         #print("Truncation Error: ", truncate_err)
-    if opt_params["timeit"]:
-        train_graphs.redistribution_time.append(time.time() - redistribution_start_time)
-        print("Truncation step time: ", time.time() - redistribution_start_time)
 
     from arch.lora import synchronize_lora
     synchronize_lora(model, opt_params["server_name"], truncate_last=False)
