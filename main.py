@@ -15,6 +15,8 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
 from tqdm import tqdm
+import os
+os.environ["OMP_NUM_THREADS"] = "1"
 
 if not sys.stdout.isatty():
     pbar = range  # Use a simple range iterator instead of tqdm
@@ -51,6 +53,38 @@ def sparse_skethc(m,n,s):
     assert s < m
     non_zero_index = torch.randint(low=0, high=m, size=(s, n))
     return 
+
+import scipy.sparse.linalg as sp
+from multiprocessing import shared_memory
+def worker(ind):
+    """
+    Worker function that prepares the input and computes the SVD.
+    Args:
+        matrix_torch (torch.Tensor): Matrix to decompose.
+        error_feedback_torch (torch.Tensor): Error feedback to add.
+        k (int): Rank of truncated SVD.
+    Returns:
+        tuple: Truncated SVD result (U, S, Vh).
+    """
+    visit_shm_time = time.time()
+    shm = shared_memory.SharedMemory(name="server_param")
+    matrix = np.ndarray((24, 768, 2304), dtype=np.float32, buffer=shm.buf)[ind]
+    worker_start_time = time.time()
+    U_truncate, S_truncate, Vh_truncate = sp.svds(matrix, k=lora_rank)
+
+    shm_Vh = shared_memory.SharedMemory(name="Vh")
+    shm_Vh_matrix = np.ndarray((24, 16, 2304), dtype=np.float32, buffer=shm_Vh.buf)
+    np.copyto(shm_Vh_matrix[ind], Vh_truncate)
+
+    shm_U = shared_memory.SharedMemory(name="U")
+    shm_U_matrix = np.ndarray((24, 768, 16), dtype=np.float32, buffer=shm_U.buf)
+    np.copyto(shm_U_matrix[ind], U_truncate)
+
+    shm_S = shared_memory.SharedMemory(name="S")
+    shm_S_matrix = np.ndarray((24, 16), dtype=np.float32, buffer=shm_S.buf)
+    np.copyto(shm_S_matrix[ind], S_truncate)
+    #return U_truncate, S_truncate, Vh_truncate, worker_start_time - visit_shm_time, time.time()-worker_start_time
+    #return worker_start_time - visit_shm_time, time.time()-worker_start_time
 
 def federated_train_1(model, loss_name, criterion, device, num_classes, train_loaders, server_optimizer, exp_avg, exp_avg_sq, opt_params, server_epoch):
     client_num, client_opt_name, client_lr, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_lr"], opt_params["client_epoch"]
@@ -499,6 +533,8 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     
     if opt_params["timeit"]:
         print("Client Time Mean: ", np.mean(client_time_elapse), " Max: ", np.max(client_time_elapse))
+        train_graphs.client_time_mean.append(np.mean(client_time_elapse))
+        train_graphs.client_time_max.append(np.max(client_time_elapse))
         server_optimize_start_time = time.time()
 
     for name in opt_params["server_params"]:
@@ -538,115 +574,206 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
 
     truncate_err = 0
     if opt_params["timeit"]:
+        train_graphs.server_optimize_time.append(time.time()-server_optimize_start_time)
         print("Server optimize time: ", time.time()-server_optimize_start_time)
         redistribution_start_time = time.time()
-
-    for name, param in model.named_parameters():
-        if name not in opt_params["server_params"]:
-            # examine if this is the lora module base name
-            continue
-        if output_layer_name and output_layer_name in name:
-            if param.requires_grad:
-                param.data = opt_params["server_params"][name].clone()
-        else:
-            #param.requires_grad = False # turn off updates in dense weights
-            if opt_params["fedlora_avg"] in ["svd", "svd_v2"]:
-                # SVD
-                if opt_params["use_ef"] == 21:
-                    lora_A_name, lora_B_name = base_adapter_names[name]
-                    U, S, Vh = torch.linalg.svd(opt_params["server_params"][name].data - adapter_weights[lora_A_name].data.T @ adapter_weights[lora_B_name].data.T)
-                    U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
-                    truncate_err += torch.sum(S[lora_rank:]).item()
-                    adapter_weights[lora_A_name].data += (U_truncate * S_truncate).T * opt_params["fedlora_uba"]
-                    adapter_weights[lora_B_name].data += Vh_truncate.T * S_truncate / opt_params["fedlora_uba"]
-                
-                else:
-                    if opt_params["use_ef"] == 1:
-                        if name not in opt_params["error_feedback"]:
-                            opt_params["error_feedback"][name] = 0
-                        error_feedback = opt_params["error_feedback"][name]
-                    elif opt_params["use_ef"] == 0:
-                        error_feedback = 0
-                    else:
-                        assert False
-                    #print(opt_params["server_params"][name].data.shape)
-                    #print(torch.isnan(opt_params["server_params"][name].data).any(), torch.isinf(opt_params["server_params"][name].data).any())
-                    double_matrix = opt_params["server_params"][name].data
-                    """
-                    print("start svd")
-                    U, S, Vh = torch.linalg.svd(double_matrix.to(torch.float) + error_feedback, full_matrices=False)
-                    print("end svd", torch.sum(S[lora_rank:]).item())
-                    #print(S[:lora_rank+5])
-                    U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
-                    truncate_err += torch.sum(S[lora_rank:]).item()
-                    """
-                    import scipy.sparse.linalg as sp
-                    if opt_params["timeit"]:
-                        cpu_load_start_time = time.time()
-                    cpu_matrix = (double_matrix + error_feedback).contiguous().cpu().numpy()
-                    if opt_params["timeit"]:
-                        print("cpu load time: ", time.time() - cpu_load_start_time)
-                        svd_start_time = time.time()
-                    U_truncate, S_truncate, Vh_truncate = sp.svds(cpu_matrix, k=lora_rank)
-                    if opt_params["timeit"]:
-                        print("svd time: ", time.time() - svd_start_time)
-                        gpu_load_start_time = time.time()
-                    U_truncate= torch.from_numpy(U_truncate.copy()).to(device)
-                    S_truncate= torch.sqrt(torch.from_numpy(S_truncate.copy()).to(device))
-                    print(S_truncate)
-                    Vh_truncate= torch.from_numpy(Vh_truncate.copy()).to(device)
-                    if opt_params["timeit"]:
-                        print("gpu load time: ", time.time() - gpu_load_start_time)
-                    if opt_params["use_ef"] == 1:
-                        opt_params["error_feedback"][name] += opt_params["server_params"][name].data - U_truncate @ torch.diag(S_truncate**2) @ Vh_truncate
-                    lora_A_name, lora_B_name = base_adapter_names[name]
-                    #adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T.contiguous() * opt_params["fedlora_uba"]
-                    #adapter_weights[lora_B_name].data = (Vh_truncate.T * S_truncate).contiguous() / opt_params["fedlora_uba"]
-
-                    S_norm = torch.norm(S_truncate).item()
-                    B_norm, A_norm = torch.norm(adapter_weights[lora_B_name].data).item(), torch.norm(adapter_weights[lora_A_name].data).item()
-                    print("uba mode is " + opt_params["uba_mode"])
-                    if opt_params["uba_mode"] == "ada":
-                        print("B_norm", B_norm, "A_norm", A_norm, "S_norm", S_norm)
-                        ratio = (A_norm + opt_params["uba_weight"] * opt_params["fedlora_uba"]**2*S_norm) / (B_norm + opt_params["uba_weight"] * S_norm)
-                        ratio = ratio**0.5
-                    else:
-                        ratio = opt_params["fedlora_uba"]
-                    if opt_params["timeit"]:
-                        param_assign_start_time = time.time()
-                    adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T * ratio
-                    adapter_weights[lora_B_name].data = Vh_truncate.T * S_truncate / ratio
-                    if opt_params["timeit"]:
-                        print("param assign time: ", time.time() - param_assign_start_time)
-
-            elif opt_params["fedlora_avg"] == "sketch":
-                # sketching
-                m, _ = param.shape
-                #Q = torch.rand(m, lora_rank).to(param) / (lora_rank**0.5)
-                Q = torch.normal(0, 1/(lora_rank**0.5), (m, lora_rank)).to(param)
-                
-                lora_A_name, lora_B_name = base_adapter_names[name]
-                adapter_weights[lora_A_name].data = Q.T
-                adapter_weights[lora_B_name].data = param.detach().T @ Q
-                #print(param.shape, lora_A_name, adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
-                #adapter_weights[lora_B_name].data = param.detach() @ Q
-            elif opt_params["fedlora_avg"] == "sketch_v2":
-                """from paper https://arxiv.org/pdf/1609.00048"""
-                A = opt_params["server_params"][name].data # m*n
-                row_A, col_A = A.shape[0], A.shape[1]
-                col_k, row_l = lora_rank, lora_rank
-                Omega, Phi = torch.randn(col_A, col_k).to(A), torch.randn(row_l, row_A).to(A)
-                Omega, _ = torch.linalg.qr(Omega)
-                Phi = torch.linalg.qr(Phi.T)[0].T
-                Y, W = A @ Omega, Phi @ A
-                Q, _ = torch.linalg.qr(Y) # m*k
-                U, T = torch.linalg.qr(Phi @ Q)
-                X = torch.linalg.solve_triangular(T, U.T @ W, upper=True)
-                lora_A_name, lora_B_name = base_adapter_names[name]
-                adapter_weights[lora_A_name].data = Q.T
-                adapter_weights[lora_B_name].data = X.T
-    #print("Truncation Error: ", truncate_err)
+  
     if opt_params["timeit"]:
+        server_params_list = []
+        lora_B_params_list = []
+        lora_A_params_list = []
+        S_params_list = []
+        for name, param in model.named_parameters():
+            if name not in opt_params["server_params"]:
+                # examine if this is the lora module base name
+                #if "lora_B" in name:
+                #    lora_B_params_list.append(param.data.contiguous().cpu().numpy())
+                #elif "lora_A" in name:
+                #    lora_A_params_list.append(param.data.contiguous().cpu().numpy())
+                continue
+            if output_layer_name and output_layer_name in name:
+                if param.requires_grad:
+                    param.data = opt_params["server_params"][name].clone()
+            else:
+                server_params_list.append(opt_params["server_params"][name].data.contiguous().cpu().numpy())
+                print(server_params_list[-1].shape)
+        import multiprocessing as mp
+        from multiprocessing import Process, Manager, shared_memory
+        server_params_list = np.stack(server_params_list, axis=0)
+        lora_U_params_list = np.zeros((24, 768, 16))
+        lora_Vh_params_list = np.zeros((24, 16, 2304))
+        lora_S_params_list = np.zeros((24, 16))
+        manager = Manager()
+        #result_dict = manager.dict()
+        #processes = []
+
+        shm = shared_memory.SharedMemory(create=True, size=server_params_list.nbytes, name="server_param")
+        shm_matrix = np.ndarray(server_params_list.shape, dtype=server_params_list.dtype, buffer=shm.buf)
+        np.copyto(shm_matrix, server_params_list)
+
+        shm_U = shared_memory.SharedMemory(create=True, size=lora_U_params_list.nbytes, name="U")
+        shm_Vh = shared_memory.SharedMemory(create=True, size=lora_Vh_params_list.nbytes, name="Vh")
+        shm_S = shared_memory.SharedMemory(create=True, size=lora_S_params_list.nbytes, name="S")
+        #shm_matrix = np.ndarray(server_params_list.shape, dtype=server_params_list.dtype, buffer=shm.buf)
+        #np.copyto(shm_matrix, server_params_list)
+        
+        if opt_params["timeit"]:
+            print("Preparation time: ", time.time() - redistribution_start_time)
+            subprocess_start = time.time()
+        with mp.Pool(processes=4) as pool:
+            results = pool.map(worker, [i for i in range(server_params_list.shape[0])])
+        
+        if opt_params["timeit"]:
+            train_graphs.subprocess_time.append(time.time()-subprocess_start)
+            print("subprocess time: ", time.time()-subprocess_start)
+        #print(len(results))
+        #for i in range(len(results[0])):
+        #    print(type(results[0][i]), results[0][i].shape)
+        
+        shm.close()
+        shm.unlink()
+        
+        pointer = 0
+        for name, param in model.named_parameters():
+            if name not in opt_params["server_params"]:
+                # examine if this is the lora module base name
+                continue
+            elif output_layer_name and output_layer_name in name:
+                continue
+            else:
+                #U_truncate, S_truncate, Vh_truncate, shm_time, svd_time = results[pointer]
+                #shm_time, svd_time = results[pointer]
+                shm_Vh_matrix = np.ndarray((24, 16, 2304), dtype=np.float32, buffer=shm_Vh.buf)
+                Vh_truncate = shm_Vh_matrix[pointer]
+
+                shm_U_matrix = np.ndarray((24, 768, 16), dtype=np.float32, buffer=shm_U.buf)
+                U_truncate = shm_U_matrix[pointer]
+
+                shm_S_matrix = np.ndarray((24, 16), dtype=np.float32, buffer=shm_S.buf)
+                S_truncate = shm_S_matrix[pointer]
+
+                U_truncate= torch.from_numpy(U_truncate.copy()).to(device)
+                S_truncate= torch.sqrt(torch.from_numpy(S_truncate.copy()).to(device))
+                Vh_truncate= torch.from_numpy(Vh_truncate.copy()).to(device)
+                lora_A_name, lora_B_name = base_adapter_names[name]
+                adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T * opt_params["fedlora_uba"]
+                adapter_weights[lora_B_name].data = Vh_truncate.T * S_truncate / opt_params["fedlora_uba"]
+                pointer += 1
+                #print("Worker ", pointer, shm_time, svd_time)
+        shm_U.close()
+        shm_U.unlink()
+        shm_S.close()
+        shm_S.unlink()
+        shm_Vh.close()
+        shm_Vh.unlink()
+    else:
+        for name, param in model.named_parameters():
+            if name not in opt_params["server_params"]:
+                # examine if this is the lora module base name
+                continue
+            if output_layer_name and output_layer_name in name:
+                if param.requires_grad:
+                    param.data = opt_params["server_params"][name].clone()
+            else:
+                #param.requires_grad = False # turn off updates in dense weights
+                if opt_params["fedlora_avg"] in ["svd", "svd_v2"]:
+                    # SVD
+                    if opt_params["use_ef"] == 21:
+                        lora_A_name, lora_B_name = base_adapter_names[name]
+                        U, S, Vh = torch.linalg.svd(opt_params["server_params"][name].data - adapter_weights[lora_A_name].data.T @ adapter_weights[lora_B_name].data.T)
+                        U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
+                        truncate_err += torch.sum(S[lora_rank:]).item()
+                        adapter_weights[lora_A_name].data += (U_truncate * S_truncate).T * opt_params["fedlora_uba"]
+                        adapter_weights[lora_B_name].data += Vh_truncate.T * S_truncate / opt_params["fedlora_uba"]
+                    
+                    else:
+                        if opt_params["use_ef"] == 1:
+                            if name not in opt_params["error_feedback"]:
+                                opt_params["error_feedback"][name] = 0
+                            error_feedback = opt_params["error_feedback"][name]
+                        elif opt_params["use_ef"] == 0:
+                            error_feedback = 0
+                        else:
+                            assert False
+                        #print(opt_params["server_params"][name].data.shape)
+                        #print(torch.isnan(opt_params["server_params"][name].data).any(), torch.isinf(opt_params["server_params"][name].data).any())
+                        double_matrix = opt_params["server_params"][name].data
+                        """
+                        print("start svd")
+                        U, S, Vh = torch.linalg.svd(double_matrix.to(torch.float) + error_feedback, full_matrices=False)
+                        print("end svd", torch.sum(S[lora_rank:]).item())
+                        #print(S[:lora_rank+5])
+                        U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
+                        truncate_err += torch.sum(S[lora_rank:]).item()
+                        """
+                        import scipy.sparse.linalg as sp
+                        if opt_params["timeit"]:
+                            cpu_load_start_time = time.time()
+                        cpu_matrix = (double_matrix + error_feedback).contiguous().cpu().numpy()
+                        if opt_params["timeit"]:
+                            print("cpu load time: ", time.time() - cpu_load_start_time)
+                            svd_start_time = time.time()
+                        U_truncate, S_truncate, Vh_truncate = sp.svds(cpu_matrix, k=lora_rank)
+                        if opt_params["timeit"]:
+                            print("svd time: ", time.time() - svd_start_time)
+                            gpu_load_start_time = time.time()
+                        U_truncate= torch.from_numpy(U_truncate.copy()).to(device)
+                        S_truncate= torch.sqrt(torch.from_numpy(S_truncate.copy()).to(device))
+                        print(S_truncate)
+                        Vh_truncate= torch.from_numpy(Vh_truncate.copy()).to(device)
+                        if opt_params["timeit"]:
+                            print("gpu load time: ", time.time() - gpu_load_start_time)
+                        if opt_params["use_ef"] == 1:
+                            opt_params["error_feedback"][name] += opt_params["server_params"][name].data - U_truncate @ torch.diag(S_truncate**2) @ Vh_truncate
+                        lora_A_name, lora_B_name = base_adapter_names[name]
+                        #adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T.contiguous() * opt_params["fedlora_uba"]
+                        #adapter_weights[lora_B_name].data = (Vh_truncate.T * S_truncate).contiguous() / opt_params["fedlora_uba"]
+
+                        S_norm = torch.norm(S_truncate).item()
+                        B_norm, A_norm = torch.norm(adapter_weights[lora_B_name].data).item(), torch.norm(adapter_weights[lora_A_name].data).item()
+                        print("uba mode is " + opt_params["uba_mode"])
+                        if opt_params["uba_mode"] == "ada":
+                            print("B_norm", B_norm, "A_norm", A_norm, "S_norm", S_norm)
+                            ratio = (A_norm + opt_params["uba_weight"] * opt_params["fedlora_uba"]**2*S_norm) / (B_norm + opt_params["uba_weight"] * S_norm)
+                            ratio = ratio**0.5
+                        else:
+                            ratio = opt_params["fedlora_uba"]
+                        if opt_params["timeit"]:
+                            param_assign_start_time = time.time()
+                        adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T * ratio
+                        adapter_weights[lora_B_name].data = Vh_truncate.T * S_truncate / ratio
+                        if opt_params["timeit"]:
+                            print("param assign time: ", time.time() - param_assign_start_time)
+
+                elif opt_params["fedlora_avg"] == "sketch":
+                    # sketching
+                    m, _ = param.shape
+                    #Q = torch.rand(m, lora_rank).to(param) / (lora_rank**0.5)
+                    Q = torch.normal(0, 1/(lora_rank**0.5), (m, lora_rank)).to(param)
+                    
+                    lora_A_name, lora_B_name = base_adapter_names[name]
+                    adapter_weights[lora_A_name].data = Q.T
+                    adapter_weights[lora_B_name].data = param.detach().T @ Q
+                    #print(param.shape, lora_A_name, adapter_weights[lora_A_name].data.shape, adapter_weights[lora_B_name].data.shape)
+                    #adapter_weights[lora_B_name].data = param.detach() @ Q
+                elif opt_params["fedlora_avg"] == "sketch_v2":
+                    """from paper https://arxiv.org/pdf/1609.00048"""
+                    A = opt_params["server_params"][name].data # m*n
+                    row_A, col_A = A.shape[0], A.shape[1]
+                    col_k, row_l = lora_rank, lora_rank
+                    Omega, Phi = torch.randn(col_A, col_k).to(A), torch.randn(row_l, row_A).to(A)
+                    Omega, _ = torch.linalg.qr(Omega)
+                    Phi = torch.linalg.qr(Phi.T)[0].T
+                    Y, W = A @ Omega, Phi @ A
+                    Q, _ = torch.linalg.qr(Y) # m*k
+                    U, T = torch.linalg.qr(Phi @ Q)
+                    X = torch.linalg.solve_triangular(T, U.T @ W, upper=True)
+                    lora_A_name, lora_B_name = base_adapter_names[name]
+                    adapter_weights[lora_A_name].data = Q.T
+                    adapter_weights[lora_B_name].data = X.T
+        #print("Truncation Error: ", truncate_err)
+    if opt_params["timeit"]:
+        train_graphs.redistribution_time.append(time.time() - redistribution_start_time)
         print("Truncation step time: ", time.time() - redistribution_start_time)
 
     from arch.lora import synchronize_lora

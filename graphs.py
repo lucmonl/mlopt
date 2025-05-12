@@ -127,3 +127,10 @@ class graphs:
         self.ratio_B            = []
         self.effective_rank     = []
         self.stable_rank        = []
+
+        #timeit
+        self.server_optimize_time = []
+        self.client_time_mean     = []
+        self.client_time_max      = []
+        self.redistribution_time  = []
+        self.subprocess_time      = []
