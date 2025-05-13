@@ -1079,7 +1079,8 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         elif opt_params["server_opt_name"] != "fetchsgd":
             if sub_sample_row is not None:
                 vector_m = sub_sample_row.T @ vector_m
-                vector_v = sub_sample_row_sq.T @ vector_v
+                if opt_params["server_opt_name"] == "sketch_adam":
+                    vector_v = sub_sample_row_sq.T @ vector_v
             else:
                 vector_m = unsketch_v(vector_m)
             vector_m = hadamard_transform(vector_m) * D
