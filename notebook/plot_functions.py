@@ -94,7 +94,7 @@ def plot_figures_opts(opts, model_params, opt_params):
     plt.tight_layout()
     plt.show()
 
-def get_attr(opt_name, model_params, opt_params, attr, eval_graph=False):
+def get_attr(opt_name, model_params, opt_params, attr, eval_graph=False, return_x =False):
     model_param = model_params[opt_name]
     directory = get_running_directory(opt_params[opt_name]['lr'], 
                             opt_params[opt_name]['dataset_name'],
@@ -109,6 +109,7 @@ def get_attr(opt_name, model_params, opt_params, attr, eval_graph=False):
                             )
     print(directory)
     run_dir = os.listdir(directory)
+    xaxis = []
     return_attr = []
     for run_id in run_dir:
         if not eval_graph:
@@ -117,8 +118,12 @@ def get_attr(opt_name, model_params, opt_params, attr, eval_graph=False):
         else:
             with open(f'{directory}/{run_id}/eval_graphs.pk', 'rb') as f:
                 train_graphs = pickle.load(f)
+        xaxis.append(train_graphs.log_epochs)
         return_attr.append(getattr(train_graphs, attr))
-    return return_attr
+    if return_x:
+        return xaxis, return_attr
+    else:
+        return return_attr
 
 def get_attr_eval(opt_name, model_params, opt_params, attr):
     model_param = model_params[opt_name]
@@ -301,6 +306,7 @@ def plot_test_loss(ax, xaxis, yaxis):
 def plot_test_acc(ax, xaxis, yaxis):
     ax.plot(xaxis, yaxis)
     ax.set_xlabel('Epoch')
+    #ax.set_xlabel('Communication Round')
     ax.set_title('Test Accuracy')
 
 def plot_test_eigs(ax, xaxis, yaxis):
@@ -315,7 +321,7 @@ def plot_ascent_step_diff(ax, yaxis):
 
 def plot_xy(ax, xaxis, yaxis, name, alpha=1.0, linewidth=1.0):
     line = ax.plot(xaxis, yaxis, alpha=alpha, linewidth=linewidth)[0]
-    ax.set_xlabel('Epoch')
+    #ax.set_xlabel('Communication Round')
     ax.set_title(name)
     return line
 
@@ -721,6 +727,7 @@ def plot_figures_opts_attr(opts_list, model_params, opt_params, attrs, start=Non
             if 'acc' == attr:
                 axs[ax_ptr].yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1, decimals=0))
                 plot_train_acc(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=train_graphs.accuracy[start:end])
+                max_val[-1].append(np.max(train_graphs.accuracy[start:end]))
 
             if 'train_err' == attr:
                 line=plot_xy(ax=axs[ax_ptr], xaxis=cur_epochs, yaxis=1-1*np.array(train_graphs.accuracy[start:end]), name=title, alpha=alpha)
