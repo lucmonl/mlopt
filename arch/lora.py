@@ -91,7 +91,7 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
     
     if opt_params["fedlora_avg"] == "svd":
         truncate_last=False
-    elif opt_params["fedlora_avg"] in ["avg", "flora"]:
+    elif opt_params["fedlora_avg"] in ["avg", "flora", "flasc"]:
         truncate_last=True
     else:
         assert False
