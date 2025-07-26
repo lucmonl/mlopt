@@ -305,8 +305,8 @@ def plot_test_loss(ax, xaxis, yaxis):
 
 def plot_test_acc(ax, xaxis, yaxis):
     ax.plot(xaxis, yaxis)
-    ax.set_xlabel('Epoch')
-    #ax.set_xlabel('Communication Round')
+    #ax.set_xlabel('Epoch')
+    ax.set_xlabel('Communication Round')
     ax.set_title('Test Accuracy')
 
 def plot_test_eigs(ax, xaxis, yaxis):
@@ -321,7 +321,7 @@ def plot_ascent_step_diff(ax, yaxis):
 
 def plot_xy(ax, xaxis, yaxis, name, alpha=1.0, linewidth=1.0):
     line = ax.plot(xaxis, yaxis, alpha=alpha, linewidth=linewidth)[0]
-    #ax.set_xlabel('Communication Round')
+    ax.set_xlabel('Communication Round')
     ax.set_title(name)
     return line
 

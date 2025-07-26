@@ -792,6 +792,9 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     train_graphs.truncate_err.append(truncate_err)
 
 def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
+    import psutil
+    process = psutil.Process()
+    print("Memory Usage (Bytes):", process.memory_info().rss)  # in bytes 
     if opt_params["server_opt_name"] in ["cocktailsgd", "cocktailsgd2"]:
         from optimizer.cocktailsgd import federated_cocktail_train
         federated_cocktail_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, epochs_lr_decay, lr_decay, model_params, opt_params, server_epoch)
@@ -1542,7 +1545,7 @@ if __name__ == "__main__":
               "dinov2_vit_giant2", "vit_small", "vit_medium", "vit_base", "lin_attn", "mlp", "gpt2", "roberta-base", "bert-base-uncased", "deepseek-ai/deepseek-coder-1.3b-instruct"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
-    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'dom_sgd', 'gn_dom_sgd', 'gn_bulk_sgd', 'bulk_sgd', 'norm-sgd','adam', 'adamw', 'federated',
+    OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'dom_sgd', 'gn_dom_sgd', 'gn_bulk_sgd', 'bulk_sgd', 'norm-sgd','adam', 'amsgrad', 'amsgradw', 'adamw', 'federated',
                   'replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam', 'adams_v1', 
                   'sophia', 'sophus', 'lora_rite', 'lora_rite_v2']
     BASE_OPTIMIZERS = ['sgd','adam']
@@ -1873,8 +1876,12 @@ if __name__ == "__main__":
         from data.imagenet import load_imagenet_tiny
         train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_imagenet_tiny(batch_size, tiny_analysis=tiny_analysis)
     elif dataset_name == "mnist":
-        from data.mnist import load_mnist
-        train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_mnist(loss_name, batch_size, train_size=sp_train_size)
+        if opt_params["opt_name"] == "federated":
+            from data.mnist import load_mnist_federated
+            train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_mnist_federated(loss_name, batch_size, client_num=opt_params["client_num"])
+        else:
+            from data.mnist import load_mnist
+            train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_mnist(loss_name, batch_size, train_size=sp_train_size)
         if sp_train_size != -1:
             model_params = model_params | {"train_size": sp_train_size}
     elif dataset_name == "emnist":

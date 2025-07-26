@@ -288,7 +288,7 @@ def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num
     train = CIFAR10(root=DATASETS_FOLDER, download=True, train=True, transform=train_transform)
     test = CIFAR10(root=DATASETS_FOLDER, download=True, train=False, transform=test_transform)
     
-    torch.manual_seed(42)
+    #torch.manual_seed(42)
     val, test = torch.utils.data.random_split(test, [int(0.5*len(test)), len(test) - int(0.5*len(test))])
     
     analysis_size = max(batch_size, 128)
@@ -310,7 +310,7 @@ def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num
         majority_index, minority_index = [], []
         class_randperm = np.random.permutation(C)
         class_chunk_perm = [(i,j) for i in range(C) for j in range(int(client_num*num_chunks/C))]
-        random.seed(42)
+        #random.seed(42)
         random.shuffle(class_chunk_perm)
 
         for i in range(C):
@@ -355,7 +355,7 @@ def load_cifar_federated(loss: str, batch_size: int, train_size = -1, client_num
         analysis_test,
         batch_size=analysis_size, shuffle=False)
     
-    torch.manual_seed(torch.initial_seed())
+    #torch.manual_seed(torch.initial_seed())
     return train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params
 
 def load_cifar_vit_federated(model_name: str, batch_size: int, train_size = -1, client_num=1, alpha=0.0):
