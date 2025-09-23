@@ -68,14 +68,14 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
                             lr=lr,
                             momentum=momentum,
                             weight_decay=weight_decay)
-    elif opt_name == "adam":
+    elif opt_name in ["adam", "adam_ctsk"]: 
         from torch.optim import Adam
         optimizer = Adam(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
-    elif opt_name == "amsgrad":
+    elif opt_name in ["amsgrad", "amsgrad_ctsk"]:
         from torch.optim import Adam
         optimizer = Adam(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay, amsgrad=True)
     elif opt_name == "amsgradw":
-        from torch.optim import Adam
+        from torch.optim import AdamW
         optimizer = AdamW(model.parameters(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay, amsgrad=True)
     elif opt_name == "adamw":
         from torch.optim import AdamW

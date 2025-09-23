@@ -96,7 +96,8 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
     else:
         assert False
     synchronize_lora(model, server_name=opt_params["server_name"], truncate_last=truncate_last)
-    model.set_adapter(opt_params["server_name"])
+    if Lora_config:
+        model.set_adapter(opt_params["server_name"])
     #examine_lora(model, name1="classifier.modules_to_save.server.weight", name2="classifier.modules_to_save.client_0.weight")
     return model, output_layer_name, Lora_config
 
@@ -162,6 +163,7 @@ def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules
                 p.requires_grad = False
     elif lora_rank == -1: #full fine-tune
         add_ft(model, output_layer_name, target_modules)
+        config = None
     return model, config
 
 def lora_name_to_base(lora_A_name, server_name, use_parallel=False):

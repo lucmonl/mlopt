@@ -5,6 +5,7 @@ sbatch/
 *.sbatch
 data/camelyon17_v1.0
 *.bin
+notebook/data
 #results/**/*.ckpt
 #results/**/*.json
 #results/**/*.pt

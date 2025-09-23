@@ -8,6 +8,7 @@ import torch
 from torch import Tensor
 import torch.nn.functional as F
 from torchvision import datasets, transforms
+from data.dirichlet import partition_dirichlet
 
 DATASETS_FOLDER = os.environ["DATA_HOME"]
 
@@ -117,8 +118,9 @@ def load_emnist(loss: str, batch_size: int, train_size = -1, tiny_analysis=False
         batch_size=analysis_size, shuffle=False)
     return train_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params
 
-def load_emnist_federated(loss: str, batch_size: int, train_size = -1, client_num=1):
+def load_emnist_federated(loss: str, batch_size: int, train_size = -1, client_num=1, alpha=0.0):
     data_params = {"compute_acc": True}
+    seed  = 42
     input_ch = 1
     num_pixels = 28 * 28 * input_ch
     C = 62
@@ -130,6 +132,13 @@ def load_emnist_federated(loss: str, batch_size: int, train_size = -1, client_nu
                                     ])
 
     train = EMNIST(root=DATASETS_FOLDER, split='byclass', download=True, train=True, transform=train_transform)
+    N = len(train)
+    trainidx = np.arange(0, N)
+    Y_tr = np.array([train.targets[i] for i in trainidx])
+    clientidx = partition_dirichlet(Y_tr, client_num, alpha, seed)
+    clients = [torch.utils.data.Subset(train, trainidx[cidx]) for cidx in clientidx]
+
+    
     test = EMNIST(root=DATASETS_FOLDER, split='byclass', download=True, train=False, transform=train_transform)
     val = torch.utils.data.Subset(test, range(10000))
     analysis_size = max(batch_size, 128)
@@ -137,12 +146,19 @@ def load_emnist_federated(loss: str, batch_size: int, train_size = -1, client_nu
     analysis_test = torch.utils.data.Subset(test, range(analysis_size))
     client_loaders = []
     randperm = np.random.permutation(len(train))
+    """
     for i in range(client_num):
         data_index = randperm[i:-1:client_num]
         client_train = torch.utils.data.Subset(train, data_index)
         client_loaders.append(torch.utils.data.DataLoader(
                         client_train,
                         batch_size=batch_size, shuffle=True))
+    """
+    client_loaders = [torch.utils.data.DataLoader(
+                        client_train,
+                        #collate_fn=collate_fn, 
+                        batch_size=batch_size, shuffle=True) for client_train in clients]
+    
     train_loader = torch.utils.data.DataLoader(
         train,
         batch_size=batch_size, shuffle=True)

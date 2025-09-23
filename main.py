@@ -339,12 +339,12 @@ def federated_lora_grad(model, loss_name, criterion, device, train_loaders, serv
     server_optimizer.step()
 
 def federated_lora(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
-    if opt_params["fedlora_avg"] != "sb":
-        model.set_adapter(opt_params["server_name"])
     if lora_rank <= 0:
         # full finetuning
         return federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch)
     
+    if opt_params["fedlora_avg"] != "sb":
+        model.set_adapter(opt_params["server_name"])
     import copy
     
     adapter_names = []
@@ -372,10 +372,15 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
             get_weight_norm(opt_params["server_params"])
     
     if opt_params["fedlora_avg"] == "avg":
-        from optimizer.fedlora import federated_lora_avg
-        opt_params["train_stats"] = True
-        federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
-        return
+        if opt_params["privacy_noise"] == 0.0:
+            from optimizer.fedlora import federated_lora_avg
+            opt_params["train_stats"] = True
+            federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
+            return
+        else:
+           from optimizer.fedlora import private_lora_avg
+           private_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
+           return
     elif opt_params["fedlora_avg"] == "fedex":
         from optimizer.fedlora import federated_lora_fedex
         federated_lora_fedex(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
@@ -795,6 +800,19 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     import psutil
     process = psutil.Process()
     print("Memory Usage (Bytes):", process.memory_info().rss)  # in bytes 
+
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    allocated = torch.cuda.memory_allocated(device) / (1024 ** 3)
+    reserved = torch.cuda.memory_reserved(device) / (1024 ** 3)
+
+    print(f"Allocated memory: {allocated:.2f} GB")
+    print(f"Reserved memory: {reserved:.2f} GB")
+    peak_allocated = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
+    peak_reserved = torch.cuda.max_memory_reserved(device) / (1024 ** 3)
+
+    print(f"Peak allocated memory: {peak_allocated:.2f} GB")
+    print(f"Peak reserved memory: {peak_reserved:.2f} GB")
+
     if opt_params["server_opt_name"] in ["cocktailsgd", "cocktailsgd2"]:
         from optimizer.cocktailsgd import federated_cocktail_train
         federated_cocktail_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, epochs_lr_decay, lr_decay, model_params, opt_params, server_epoch)
@@ -830,6 +848,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     p_pad = pow(2, math.ceil(math.log(p)/math.log(2)))
     #for i in range(200):
     if sketch_size != -1:
+        print("p_pad:", p_pad)
         if p_pad < 1e9:
             D = (((torch.randn(p_pad, dtype=torch.float32) > 0).to(old_params) - 0.5) * 2).to(device)
             sample_rows = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(device)
@@ -910,6 +929,22 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 if opt_params["privacy_noise"] != 0.0:
                     privacy_noise = torch.normal(0, opt_params["privacy_noise"], size=vector_m.size()).to(vector_m)
                     vector_m = vector_m + client_lr*privacy_noise
+            elif opt_params["server_opt_name"] in ["adam_ctsk", "amsgrad_ctsk"]:
+                """CountSketch lib https://github.com/nikitaivkin/csh"""
+                from csvec import CSVec
+                sketch = CSVec(d=p, c=sketch_size, r=5, device=vector_m_true.device, numBlocks=20)
+                sketch.accumulateVec(vector_m_true)
+                print(sketch.table.shape)
+                sketch_vector_m = sketch.table
+
+                sketch = CSVec(d=p, c=sketch_size, r=5, device=vector_m_true.device, numBlocks=20)
+                sketch.accumulateTable(sketch_vector_m)
+                unsketch_vector_m = sketch.unSketch(k=sketch_size)
+                unsketch_vector_m = torch.clip(unsketch_vector_m, min=-opt_params["clip_tau"], max=opt_params["clip_tau"])
+                vector_m_scale = torch.linalg.norm(vector_m_true) / torch.linalg.norm(unsketch_vector_m)
+
+                vector_m += vector_m_scale * sketch_vector_m
+
             elif opt_params["server_opt_name"] == "cdadam":
                 from utilities import tensor_topk
                 update_param = (old_params - new_params).detach()
@@ -1079,6 +1114,10 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
             opt_params["server_update"] = vector_m
         elif opt_params["server_opt_name"] in ["cams", "paq"]:
             pass
+        elif opt_params["server_opt_name"] in ["adam_ctsk", "amsgrad_ctsk"]:
+            sketch = CSVec(d=p, c=sketch_size, r=5, device=vector_m.device, numBlocks=20)
+            sketch.accumulateTable(vector_m)
+            vector_m = sketch.unSketch(k=sketch_size)
         elif opt_params["server_opt_name"] != "fetchsgd":
             if sub_sample_row is not None:
                 vector_m = sub_sample_row.T @ vector_m
@@ -1118,12 +1157,14 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         """
         #vector_to_grads(vector_m, model.parameters())
     elif opt_params["server_opt_name"] == "fetchsgd":
-        model.desketch_operator = sub_sample_row.T
-        model.D = D
+        #model.desketch_operator = sub_sample_row.T
+        #model.D = D
+        pass
     else:
         vector_to_grads(vector_m, model.parameters())
         if opt_params["clip_tau"] != -1:
             torch.nn.utils.clip_grad_value_(model.parameters(), 1.0)
+            #torch.nn.utils.clip_grad_value_(model.parameters(), opt_params["clip_tau"])
         if opt_params["server_opt_name"] == "sketch_adam":
             vector_to_grads_sq(vector_v**2, model.parameters()) #deprecated
 
@@ -1413,7 +1454,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             optimizer.update_hessian()
             optimizer.zero_grad()
 
-        if opt_params["debug"] and batch_idx > 2:
+        if opt_params["debug"] and batch_idx > 10:
             break
         if opt_params["client_early_stop"] != -1 and batch_idx > opt_params["client_early_stop"]:
             break
@@ -1641,7 +1682,7 @@ if __name__ == "__main__":
     parser.add_argument("--zero_out_selfattn", type=int, default=0, help="if 0 preserves self attention, if 1 zero out self attention")
 
     #federated learning hyperparameters
-    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd", "onebit", "onebit_v2", "cdadam", "cocktailsgd", "cocktailsgd2", "marina", "cams", "paq"], help="optimizer of server")
+    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd", "onebit", "onebit_v2", "cdadam", "cocktailsgd", "cocktailsgd2", "marina", "cams", "paq", "adam_ctsk", "amsgrad_ctsk"], help="optimizer of server")
     parser.add_argument("--client_num", type=int, default=1, help="number of clients")
     parser.add_argument("--client_partial", type=float, default=1.9, help="partial participation of clients")
     parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd", "adam", "adamw"], help="optimizer of clients")
@@ -1887,7 +1928,7 @@ if __name__ == "__main__":
     elif dataset_name == "emnist":
         if opt_params["opt_name"] == "federated":
             from data.emnist import load_emnist_federated
-            train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_emnist_federated(loss_name, batch_size, client_num=opt_params["client_num"])
+            train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, input_ch, num_pixels, C, transform_to_one_hot, data_params = load_emnist_federated(loss_name, batch_size, client_num=opt_params["client_num"], alpha=opt_params["non_iid"])
         else:
             raise NotImplementedError
     elif dataset_name == "mnist_cifar":
@@ -2423,8 +2464,8 @@ if __name__ == "__main__":
             from arch.lora import add_adapters_hetero
             model , output_layer_name, Lora_Config = add_adapters_hetero(opt_params["client_num"], model_name, model, lora_rank, lora_alpha, opt_params, lora_freeze_a=args.lora_freeze_a)
             model_params["hetero_rank"] = 1
-        for name, param in model.named_parameters():
-            print(name, param.shape, param.requires_grad)
+        #for name, param in model.named_parameters():
+        #    print(name, param.shape, param.requires_grad)
         opt_params["output_layer_name"] = output_layer_name
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"Training {trainable_params} parameters ({100*trainable_params/total_params:.2f}% of original {total_params})")

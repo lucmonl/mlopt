@@ -3,6 +3,7 @@ from optimizer.load_optimizer import load_optimizer
 import copy
 import torch.nn.functional as F
 from arch.lora import synchronize_lora
+import numpy as np
 
 def compute_adapter_weight(model_name, lora_A_param, lora_B_param):
     if model_name in ["google/vit-base-patch16-224-in21k", "roberta-base"]:
@@ -839,3 +840,115 @@ def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, dev
             opt_params["lora_param"][lora_B_name] = torch.zeros_like(Vh.T)
         elif output_layer_name in name:
             param.data = opt_params["server_params"][name]
+
+def add_noise(mat, noise, clip_quantile):
+    q95 = torch.quantile(mat.abs().reshape(-1), clip_quantile)
+    print("clip threshold: ", q95)
+    clip_threshold = q95
+    mat = torch.clamp(mat, -clip_threshold, clip_threshold)
+    noise = noise * clip_threshold
+    mat = mat + torch.randn_like(mat) * noise
+    return mat
+
+def private_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
+    print("in private lora avg")
+    client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
+    import copy
+    import math
+    from utilities import vector_to_grads, vector_to_grads_sq
+    from main import train
+
+    adapter_names = []
+    adapter_weights = {}
+    output_weights = {}
+    output_layer_name = opt_params["output_layer_name"]
+
+    model.set_adapter(opt_params["server_name"])
+    for name, param in model.named_parameters():
+        # select lora_A and lora_B
+        if param.requires_grad:
+            if output_layer_name and output_layer_name in name:
+                output_weights[name]= 0
+            else:
+                adapter_names.append(name)
+                adapter_weights[name] = torch.zeros_like(param)
+
+    client_opt_params = copy.deepcopy(opt_params)
+    client_opt_params["train_stats"] = False
+
+    if opt_params["client_partial"] < 1:
+        client_num = int(opt_params["client_partial"] * client_num)
+        client_selected = np.random.choice(opt_params["client_num"], client_num, replace=False)
+    else:
+        client_selected = np.arange(client_num)
+
+    print("after local train on client: ", client_selected)
+    for client_id in client_selected:
+        # update client models
+        adapter_name = "client_{}".format(client_id)
+        
+        #client_model = model #alias
+        client_model = copy.deepcopy(model)
+        client_model.set_adapter(adapter_name)
+
+        client_model.train()
+        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], opt_params["lr_decay"], opt_params["epochs_lr_decay"], False, model_params, opt_params)
+        for epoch in range(client_epoch):
+            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
+            
+        for name, param in client_model.named_parameters():
+            if param.requires_grad:
+                #param_names.append(name)
+                server_adapter_name = name.replace("{}".format(adapter_name), opt_params["server_name"])
+                if output_layer_name and output_layer_name in name:
+                    output_weights[server_adapter_name] += param.data / client_num
+                else:
+                    if server_adapter_name in adapter_weights:
+                        row, col = param.data.shape
+                        noise_param = add_noise(param.data, opt_params["privacy_noise"], opt_params["privacy_clip"])
+                        print(name, param.data.norm().item(), noise_param.norm().item())
+                        adapter_weights[server_adapter_name][:row, :col] += noise_param/client_num
+                        #print(server_adapter_name, noise_param.norm().item())
+                    else:
+                        assert False
+    model.set_adapter(opt_params["server_name"])
+
+    print("after privacy perturb")
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            if output_layer_name and output_layer_name in name:
+                param.data = output_weights[name]
+            elif name in adapter_weights:
+                param.data = adapter_weights[name]
+                print(name, param.data.norm())
+            else:
+                assert False
+   
+    synchronize_lora(model, opt_params["server_name"], truncate_last=True)
+    """
+    for name, param in model.named_parameters():
+        if name in adapter_weights or name in output_weights:
+            adapter_weights[name] = param #store the server param
+        elif 'client' in name:
+            import re 
+            server_adapter_name = re.sub(r'client_\d+', 'server', name)
+            adapter_weight_full = adapter_weights[server_adapter_name].data.clone() #assign the same param to client models
+            if len(param.data.shape) == 2:
+                row, col = param.data.shape
+                param.data = adapter_weight_full[:row, :col]
+            elif len(param.data.shape) == 1:
+                param.data = adapter_weight_full
+            else:
+                assert False
+        
+        #if 'lora_A' in name or 'lora_B' in name:
+        #    import re
+        #    server_adapter_name = re.sub(r'client_\d+', 'server', name)
+        #    param.data = adapter_weights[server_adapter_name].data
+        
+    """
+    if server_lr_scheduler is not None:
+        server_lr_scheduler.step()
+
+    for group in server_optimizer.param_groups:
+        print("server lr", group['lr'])

@@ -898,7 +898,7 @@ def vector_to_group_grads(vec, param_groups):
             param_device = _check_param_device(param, param_device)
             num_param = param.numel()
             # Slice the vector, reshape it, and replace the old data of the parameter
-            param.grad = vec[pointer:pointer + num_param].view_as(param).data
+            param.grad = vec[pointer:pointer + num_param].view_as(param).data.to(param.data.dtype)
 
             # Increment the pointer
             pointer += num_param
@@ -926,7 +926,7 @@ def vector_to_grads(vec: torch.Tensor, parameters: Iterable[torch.Tensor]) -> No
         # The length of the parameter
         num_param = param.numel()
         # Slice the vector, reshape it, and replace the old data of the parameter
-        param.grad = vec[pointer:pointer + num_param].to(param).view_as(param).data
+        param.grad = vec[pointer:pointer + num_param].to(param).view_as(param).data.to(param.data.dtype)
         #print(param.requires_grad, torch.norm(param.grad).item())
 
         # Increment the pointer
