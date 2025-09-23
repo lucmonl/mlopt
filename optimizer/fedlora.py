@@ -864,6 +864,10 @@ def private_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, devic
     output_layer_name = opt_params["output_layer_name"]
 
     model.set_adapter(opt_params["server_name"])
+    if opt_params["lora_freeze_a"]:
+        for n, p in model.named_parameters():
+            if "lora_A" in n:
+                p.requires_grad=False
     for name, param in model.named_parameters():
         # select lora_A and lora_B
         if param.requires_grad:
@@ -887,9 +891,13 @@ def private_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, devic
         # update client models
         adapter_name = "client_{}".format(client_id)
         
-        #client_model = model #alias
-        client_model = copy.deepcopy(model)
+        client_model = model #alias
+        #client_model = copy.deepcopy(model)
         client_model.set_adapter(adapter_name)
+        if opt_params["lora_freeze_a"]:
+            for n, p in client_model.named_parameters():
+                if "lora_A" in n:
+                    p.requires_grad=False
 
         client_model.train()
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], opt_params["lr_decay"], opt_params["epochs_lr_decay"], False, model_params, opt_params)
@@ -912,6 +920,10 @@ def private_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, devic
                     else:
                         assert False
     model.set_adapter(opt_params["server_name"])
+    if opt_params["lora_freeze_a"]:
+        for n, p in model.named_parameters():
+            if "lora_A" in n:
+                p.requires_grad=False
 
     print("after privacy perturb")
     for name, param in model.named_parameters():

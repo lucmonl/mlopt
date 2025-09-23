@@ -345,6 +345,10 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     
     if opt_params["fedlora_avg"] != "sb":
         model.set_adapter(opt_params["server_name"])
+        if opt_params["lora_freeze_a"]:
+            for n, p in model.named_parameters():
+                if "lora_A" in n:
+                    p.requires_grad=False
     import copy
     
     adapter_names = []
@@ -2464,8 +2468,8 @@ if __name__ == "__main__":
             from arch.lora import add_adapters_hetero
             model , output_layer_name, Lora_Config = add_adapters_hetero(opt_params["client_num"], model_name, model, lora_rank, lora_alpha, opt_params, lora_freeze_a=args.lora_freeze_a)
             model_params["hetero_rank"] = 1
-        #for name, param in model.named_parameters():
-        #    print(name, param.shape, param.requires_grad)
+        for name, param in model.named_parameters():
+            print(name, param.shape, param.requires_grad)
         opt_params["output_layer_name"] = output_layer_name
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"Training {trainable_params} parameters ({100*trainable_params/total_params:.2f}% of original {total_params})")

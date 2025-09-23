@@ -5,10 +5,10 @@ import numpy as np
 
 def add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a=False, adapter_name="default"):
     if model_name == "google/vit-base-patch16-224-in21k":
-        model, Lora_config = add_adapters(model, lora_rank, lora_alpha, "classifier", ["query", "value"], adapter_name=adapter_name)
+        model, Lora_config = add_adapters(model, lora_rank, lora_alpha, "classifier", ["query", "value"], freeze_a=lora_freeze_a, adapter_name=adapter_name)
         output_layer_name = 'classifier' 
     elif model_name == 'flair':
-        add_adapters(model, lora_rank, lora_alpha, "classifier", ["query", "value"])
+        add_adapters(model, lora_rank, lora_alpha, "classifier", ["query", "value"], freeze_a=lora_freeze_a)
         # add_adapters(model, lora_rank, lora_alpha, 'classifier', ['convolution'])
     elif model_name == 'gpt2':
         model, Lora_config = add_adapters(model, lora_rank, lora_alpha, "score", ["c_attn", "c_proj", "c_fc"], freeze_a=lora_freeze_a, adapter_name=adapter_name) #"score"
@@ -16,12 +16,12 @@ def add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a
     elif model_name == 'reddit':
         add_adapters(model, lora_rank, lora_alpha, None, ["c_attn", "c_proj", "c_fc"])
     elif model_name == "roberta-base":
-        model, Lora_config = add_adapters(model, lora_rank, lora_alpha, "classifier", ["query", "value"], adapter_name=adapter_name)
+        model, Lora_config = add_adapters(model, lora_rank, lora_alpha, "classifier", ["query", "value"], freeze_a=lora_freeze_a, adapter_name=adapter_name)
         output_layer_name = 'classifier'
     elif model_name in ["akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1"]:
         # from https://huggingface.co/upaya07/Arithmo2-Mistral-7B-adapter/blob/main/adapter_config.json
         #model, Lora_config = add_adapters(model, lora_rank, lora_alpha, None, ["o_proj", "q_proj", "v_proj", "down_proj", "up_proj", "k_proj", "gate_proj"], task_type="CAUSAL_LM")
-        model, Lora_config = add_adapters(model, lora_rank, lora_alpha, None, ["q_proj", "v_proj"], task_type="CAUSAL_LM", adapter_name=adapter_name)
+        model, Lora_config = add_adapters(model, lora_rank, lora_alpha, None, ["q_proj", "v_proj"], freeze_a=lora_freeze_a, task_type="CAUSAL_LM", adapter_name=adapter_name)
         output_layer_name = None   
     return model, output_layer_name, Lora_config
 
@@ -98,6 +98,10 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
     synchronize_lora(model, server_name=opt_params["server_name"], truncate_last=truncate_last)
     if Lora_config:
         model.set_adapter(opt_params["server_name"])
+        if opt_params["lora_freeze_a"]:
+            for n, p in model.named_parameters():
+                if "lora_A" in n:
+                    p.requires_grad=False
     #examine_lora(model, name1="classifier.modules_to_save.server.weight", name2="classifier.modules_to_save.client_0.weight")
     return model, output_layer_name, Lora_config
 
@@ -120,6 +124,10 @@ def add_adapters_hetero(client_num, model_name, model, lora_rank, lora_alpha, op
         assert False
     synchronize_lora(model, server_name=opt_params["server_name"], truncate_last=truncate_last)
     model.set_adapter(opt_params["server_name"])
+    if opt_params["lora_freeze_a"]:
+        for n, p in model.named_parameters():
+            if "lora_A" in n:
+                p.requires_grad=False
     print("Client Ranks: ", client_ranks)
     return model, output_layer_name, Lora_config
 
