@@ -385,6 +385,11 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
            from optimizer.fedlora import private_lora_avg
            private_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
            return
+    elif opt_params["fedlora_avg"] == "svd":
+        if opt_params["privacy_noise"] != 0.0:
+            from optimizer.fedlora import privacy_lora_svd
+            privacy_lora_svd(model, loss_name, criterion, lora_rank, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
+            return
     elif opt_params["fedlora_avg"] == "fedex":
         from optimizer.fedlora import federated_lora_fedex
         federated_lora_fedex(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)

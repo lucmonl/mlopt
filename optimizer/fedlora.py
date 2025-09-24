@@ -964,3 +964,129 @@ def private_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, devic
 
     for group in server_optimizer.param_groups:
         print("server lr", group['lr'])
+
+
+
+def privacy_lora_svd(model, loss_name, criterion, lora_rank, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
+    from main import train
+    if opt_params["fedlora_avg"] != "sb":
+        model.set_adapter(opt_params["server_name"])
+        if opt_params["lora_freeze_a"]:
+            for n, p in model.named_parameters():
+                if "lora_A" in n:
+                    p.requires_grad=False
+   
+    adapter_names = []
+    adapter_weights = {}
+    output_weights = {}
+
+    output_layer_name = opt_params["output_layer_name"]
+    for name, param in model.named_parameters():
+        # select lora_A and lora_B
+        if param.requires_grad:
+            if output_layer_name and output_layer_name in name:
+                output_weights[name]= 0
+            else:
+                adapter_names.append(name)
+                adapter_weights[name] = param
+    
+    client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
+    
+    base_names = []
+    base_weights = {}
+    base_adapter_weights = {}
+    base_adapter_names = {}
+    from utilities import get_gpu_memory
+    #get_gpu_memory()
+    server_optimizer.zero_grad()
+    
+    for i in range(0, len(adapter_names), 2):
+        lora_A_name, lora_B_name = adapter_names[i], adapter_names[i+1]
+        base_weight_name = lora_A_name.replace("lora_A.{}".format(opt_params["server_name"]), "base_layer")
+        base_adapter_names[base_weight_name] = [lora_A_name, lora_B_name]
+    
+    lora_params = {}
+
+    if opt_params["client_partial"] < 1:
+        client_num = int(opt_params["client_partial"] * client_num)
+        client_selected = np.random.choice(opt_params["client_num"], client_num, replace=False)
+    else:
+        client_selected = np.arange(client_num)
+
+    print("after local train on client: ", client_selected)
+    for client_id in client_selected:
+        adapter_name = "client_{}".format(client_id)
+        model.set_adapter(adapter_name)
+        client_model = model #alias
+        #get_gpu_memory()
+        client_model.train()
+        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], opt_params["lr_decay"], opt_params["epochs_lr_decay"], False, model_params, opt_params)
+        #client_opt_params = copy.deepcopy(opt_params)
+        from utilities import get_model_size
+        #print(get_model_size(client_model))
+        opt_params["train_stats"] = False
+        for epoch in range(client_epoch):
+            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, opt_params)
+        opt_params["train_stats"] = True
+        
+        for name, param in client_model.named_parameters():
+            #print(name, param.shape)
+            if param.requires_grad:
+                server_adapter_name = name.replace("{}".format(adapter_name), opt_params["server_name"])
+                if output_layer_name and output_layer_name in name:
+                    output_weights[server_adapter_name] += param.data / client_num
+                else:
+                    lora_params[server_adapter_name] = add_noise(param.data, opt_params["privacy_noise"], opt_params["privacy_clip"]) / (client_num**0.5)
+
+        #get_gpu_memory()
+        for name in opt_params["server_params"]:
+            if output_layer_name and output_layer_name in name:
+                pass
+            else:
+                lora_A_name = name.replace("base_layer", "lora_A.{}".format(opt_params["server_name"]))
+                lora_B_name = name.replace("base_layer", "lora_B.{}".format(opt_params["server_name"]))
+                lora_A_param, lora_B_param = lora_params[lora_A_name], lora_params[lora_B_name]
+                #lora_A_param, lora_B_param = torch.cat(lora_params[lora_A_name]+[lora_A_param], dim=0), torch.cat(lora_params[lora_B_name]+[-lora_B_param], dim=1)
+                #opt_params["server_params"][name].grad -= (lora_B_param.to(torch.float16) @ lora_A_param.to(torch.float16)).T
+                if name in base_weights:
+                    base_weights[name] += (lora_B_param @ lora_A_param).T
+                else:
+                    base_weights[name] = (lora_B_param @ lora_A_param).T
+
+    model.set_adapter(opt_params["server_name"])
+
+    if server_lr_scheduler is not None:
+        server_lr_scheduler.step()
+
+    for group in server_optimizer.param_groups:
+        print("server lr", group['lr'])
+
+    truncate_err = 0
+ 
+    for name, param in model.named_parameters():
+        if name not in opt_params["server_params"]:
+            # examine if this is the lora module base name
+            continue
+        if output_layer_name and output_layer_name in name:
+            if param.requires_grad:
+                param.data = output_weights[name].clone() #opt_params["server_params"][name].clone()
+        else:
+            error_feedback = 0
+            double_matrix = base_weights[name] #opt_params["server_params"][name].data
+            import scipy.sparse.linalg as sp
+            cpu_matrix = (double_matrix + error_feedback).contiguous().cpu().numpy()
+            U_truncate, S_truncate, Vh_truncate = sp.svds(cpu_matrix, k=lora_rank)
+            U_truncate= torch.from_numpy(U_truncate.copy()).to(device)
+            S_truncate= torch.sqrt(torch.from_numpy(S_truncate.copy()).to(device))
+            print(S_truncate)
+            Vh_truncate= torch.from_numpy(Vh_truncate.copy()).to(device)
+            lora_A_name, lora_B_name = base_adapter_names[name]
+            ratio = opt_params["fedlora_uba"]
+            adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T * ratio
+            adapter_weights[lora_B_name].data = Vh_truncate.T * S_truncate / ratio
+
+    from arch.lora import synchronize_lora
+    synchronize_lora(model, opt_params["server_name"], truncate_last=False)
+
+    from arch.lora import get_lora_norm, get_weight_norm
+    get_lora_norm(adapter_weights) 
