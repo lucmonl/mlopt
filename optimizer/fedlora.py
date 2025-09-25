@@ -841,13 +841,45 @@ def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, dev
         elif output_layer_name in name:
             param.data = opt_params["server_params"][name]
 
-def add_noise(mat, noise, clip_quantile):
+def add_noise(mat, noise, clip_quantile, sketch_size=-1):
     q95 = torch.quantile(mat.abs().reshape(-1), clip_quantile)
     print("clip threshold: ", q95)
     clip_threshold = q95
     mat = torch.clamp(mat, -clip_threshold, clip_threshold)
-    noise = noise * clip_threshold
-    mat = mat + torch.randn_like(mat) * noise
+    mat_clone = mat.clone()
+    if sketch_size == -1:
+        noise = noise * clip_threshold
+        mat = mat + torch.randn_like(mat) * noise
+    else:
+        from hadamard_transform import hadamard_transform, pad_to_power_of_2 
+        import math
+        p = max(mat.size())
+        p_pad = pow(2, math.ceil(math.log(p)/math.log(2)))
+
+        D = (((torch.randn(p_pad, dtype=torch.float32) > 0).float() - 0.5) * 2).to(mat)
+        sample_rows = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(mat)
+        sub_sample_row = torch.sparse_coo_tensor(sample_rows, torch.ones(sketch_size).to(mat), [sketch_size, p_pad]) * ((p_pad/sketch_size)**0.5)
+
+        assert mat.ndim == 2
+        #sketch
+        if mat.shape[0] > mat.shape[1]:
+            mat = mat.T
+        params_pad = pad_to_power_of_2(mat.detach()) #r * m -> r * p_pad
+        hadamard_params_pad = hadamard_transform(D*params_pad)
+        sketched_mat = hadamard_params_pad @ sub_sample_row.T #r * sketch
+        #desketch
+        desk_mat = sketched_mat @ sub_sample_row # r * p_pad
+        desk_mat = hadamard_transform(desk_mat) * D # r * p_pad
+        desk_mat = desk_mat[:, :p]
+        
+        if mat_clone.shape[0] > mat_clone.shape[1]: #compare the orginal shape
+            mat = desk_mat.T
+        else:
+            mat = desk_mat
+        print("sketching error: ", torch.norm(mat - mat_clone).item(), torch.norm(mat_clone).item())
+        #additive noise
+        noise = noise * clip_threshold
+        mat = mat + torch.randn_like(mat) * noise
     return mat
 
 def private_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
@@ -913,7 +945,7 @@ def private_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, devic
                 else:
                     if server_adapter_name in adapter_weights:
                         row, col = param.data.shape
-                        noise_param = add_noise(param.data, opt_params["privacy_noise"], opt_params["privacy_clip"])
+                        noise_param = add_noise(param.data, opt_params["privacy_noise"], opt_params["privacy_clip"], opt_params["sketch_size"])
                         print(name, param.data.norm().item(), noise_param.norm().item())
                         adapter_weights[server_adapter_name][:row, :col] += noise_param/client_num
                         #print(server_adapter_name, noise_param.norm().item())
@@ -1036,7 +1068,7 @@ def privacy_lora_svd(model, loss_name, criterion, lora_rank, device, train_loade
                 if output_layer_name and output_layer_name in name:
                     output_weights[server_adapter_name] += param.data / client_num
                 else:
-                    lora_params[server_adapter_name] = add_noise(param.data, opt_params["privacy_noise"], opt_params["privacy_clip"]) / (client_num**0.5)
+                    lora_params[server_adapter_name] = add_noise(param.data, opt_params["privacy_noise"], opt_params["privacy_clip"], opt_params["sketch_size"]) / (client_num**0.5)
 
         #get_gpu_memory()
         for name in opt_params["server_params"]:
