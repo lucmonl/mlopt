@@ -845,6 +845,9 @@ def add_noise(mat, noise, clip_quantile, sketch_size=-1):
     q95 = torch.quantile(mat.abs().reshape(-1), clip_quantile)
     print("clip threshold: ", q95)
     clip_threshold = q95
+    #clip_threshold = torch.min(0.2 * torch.ones_like(clip_threshold), clip_threshold)
+    clip_threshold = torch.min(0.1 * torch.ones_like(clip_threshold), clip_threshold)
+    clip_threshold = torch.max(0.01 * torch.ones_like(clip_threshold), clip_threshold)
     mat = torch.clamp(mat, -clip_threshold, clip_threshold)
     mat_clone = mat.clone()
     if sketch_size == -1:

@@ -13,6 +13,10 @@ def add_adapters_dataset(model_name, model, lora_rank, lora_alpha, lora_freeze_a
     elif model_name == 'gpt2':
         model, Lora_config = add_adapters(model, lora_rank, lora_alpha, "score", ["c_attn", "c_proj", "c_fc"], freeze_a=lora_freeze_a, adapter_name=adapter_name) #"score"
         output_layer_name = 'score'
+    elif model_name == "google-bert/bert-base-cased":
+        sys.exit()
+        model, Lora_config = add_adapters(model, lora_rank, lora_alpha, "classifier", ["query", "value"], freeze_a=lora_freeze_a, adapter_name=adapter_name) #"score"
+        output_layer_name = 'classifier'
     elif model_name == 'reddit':
         add_adapters(model, lora_rank, lora_alpha, None, ["c_attn", "c_proj", "c_fc"])
     elif model_name == "roberta-base":

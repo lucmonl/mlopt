@@ -821,7 +821,7 @@ def plot_eval_attr_keys(opt_name, model_params, opt_params, attrs, keys, zero_ou
     plt.tight_layout()
     plt.show()
 
-def plot_eigen_density(model_param, opt_param, start=None, end=None, save_dir=None):
+def plot_eigen_density(model_param, opt_param, start=None, end=None, step=None, save_dir=None, transparent=False):
     from utilities import get_esd_plot
     directory = get_directory(opt_param['lr'], 
                             opt_param['dataset_name'],
@@ -836,12 +836,12 @@ def plot_eigen_density(model_param, opt_param, start=None, end=None, save_dir=No
                             **model_param
                             )
     print(directory)
-    with open(f'../{directory}train_graphs.pk', 'rb') as f:
+    with open(f'{directory}train_graphs.pk', 'rb') as f:
         eval_graphs = pickle.load(f)
     
     cur_epochs = eval_graphs.log_epochs
     density_eigens, density_weights = eval_graphs.density_eigen, eval_graphs.density_weight
-    density_eigens, density_weights, epochs = density_eigens[start:end], density_weights[start:end], cur_epochs[start:end]
+    density_eigens, density_weights, epochs = density_eigens[start:end:step], density_weights[start:end:step], cur_epochs[start:end:step]
     rows, cols = (len(density_eigens)-1) // 4 + 1, min(len(density_eigens), 4)
     fig, axs = plt.subplots(rows,cols, figsize=(cols*2.5, rows*2))
     axs = axs.reshape(-1)
@@ -852,7 +852,7 @@ def plot_eigen_density(model_param, opt_param, start=None, end=None, save_dir=No
         get_esd_plot(ax, density_eigen, density_weight, epochs[i], ylabel=i%6)
     plt.tight_layout()
     if save_dir:
-        plt.savefig(save_dir)
+        plt.savefig(save_dir, transparent=transparent)
 
 def plot_attention_map(model_param, opt_param, depths=None):
     directory = get_directory(opt_param['lr'], 
