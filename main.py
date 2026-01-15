@@ -586,7 +586,8 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     for group in server_optimizer.param_groups:
         print("server lr", group['lr'])
 
-    truncate_err = 0
+    truncate_err = []
+    truncate_err_ratio = []
     if opt_params["timeit"]:
         train_graphs.server_optimize_time.append(time.time()-server_optimize_start_time)
         print("Server optimize time: ", time.time()-server_optimize_start_time)
@@ -722,14 +723,17 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                         #print(opt_params["server_params"][name].data.shape)
                         #print(torch.isnan(opt_params["server_params"][name].data).any(), torch.isinf(opt_params["server_params"][name].data).any())
                         double_matrix = opt_params["server_params"][name].data
-                        """
+                        
                         print("start svd")
                         U, S, Vh = torch.linalg.svd(double_matrix.to(torch.float) + error_feedback, full_matrices=False)
                         print("end svd", torch.sum(S[lora_rank:]).item())
                         #print(S[:lora_rank+5])
                         U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
-                        truncate_err += torch.sum(S[lora_rank:]).item()
+                        truncate_err.append(torch.sum(S[lora_rank:]).item())
+                        truncate_err_ratio.append((torch.sum(S[lora_rank:])/torch.sum(S)).item())
+                        
                         """
+                        ### using  sp.svds to compute truncated SVD, higher efficiency but we cannot compute truncation error
                         import scipy.sparse.linalg as sp
                         if opt_params["timeit"]:
                             cpu_load_start_time = time.time()
@@ -749,6 +753,8 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                             print("gpu load time: ", time.time() - gpu_load_start_time)
                         if opt_params["use_ef"] == 1:
                             opt_params["error_feedback"][name] += opt_params["server_params"][name].data - U_truncate @ torch.diag(S_truncate**2) @ Vh_truncate
+                        """
+                        
                         lora_A_name, lora_B_name = base_adapter_names[name]
                         #adapter_weights[lora_A_name].data = (U_truncate * S_truncate).T.contiguous() * opt_params["fedlora_uba"]
                         #adapter_weights[lora_B_name].data = (Vh_truncate.T * S_truncate).contiguous() / opt_params["fedlora_uba"]
@@ -803,7 +809,8 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     from arch.lora import get_lora_norm, get_weight_norm
     get_lora_norm(adapter_weights) 
     get_weight_norm(opt_params["server_params"])
-    train_graphs.truncate_err.append(truncate_err)
+    train_graphs.truncate_err.append(np.mean(truncate_err))
+    train_graphs.truncate_err_ratio.append(np.mean(truncate_err_ratio))
 
 def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
     import psutil
