@@ -14,6 +14,60 @@ def compute_adapter_weight(model_name, lora_A_param, lora_B_param):
         raise NotImplementedError
 
 
+def compute_truncate_err(model, adapter_weights, client_num, model_name, server_name):
+    truncate_err_list, truncate_err_ratio_list = [], []
+    client_weights = {}
+    import re
+    # reorganize client adapter weights in one dict
+    for name, param in model.named_parameters():
+        if 'client_' not in name:
+            # skip server adapter
+            continue
+        client_id = int(re.search(r"client_(\d+)\.", name).group(1))
+        adapter_name = "client_{}".format(client_id)
+        server_adapter_name = name.replace("{}".format(adapter_name), server_name)
+        if server_adapter_name not in client_weights:
+            client_weights[server_adapter_name] = {}
+        """
+        if 'lora_A' in name:
+            if client_id not in client_weights[server_adapter_name]:
+                client_weights[server_adapter_name][client_id] = {}
+            client_weights[server_adapter_name][client_id]["A"] = param
+        elif 'lora_B' in name:
+            if client_id not in client_weights[server_adapter_name]:
+                client_weights[server_adapter_name][client_id] = {}
+            client_weights[server_adapter_name][client_id]["B"] = param
+        """
+        if 'lora' in name:
+            client_weights[server_adapter_name][client_id] = param
+        else:
+            #skip output layer
+            pass
+
+    #compute truncate error layer by layer
+    for server_adapter_name in client_weights:
+        assert len(client_weights[server_adapter_name].keys()) == client_num
+        if 'lora_A' in server_adapter_name:
+            pass
+        else:
+            continue
+        layer_matrix = 0
+        for client_id in client_weights[server_adapter_name]:
+            lora_A_param = client_weights[server_adapter_name][client_id]
+            server_adapter_name_B = server_adapter_name.replace("lora_A", "lora_B")
+            lora_B_param = client_weights[server_adapter_name_B][client_id]
+            layer_matrix += compute_adapter_weight(model_name, lora_A_param, lora_B_param) / client_num
+        layer_matrix_gt_norm = torch.norm(layer_matrix, ord='nuc')
+        layer_matrix -= compute_adapter_weight(model_name, adapter_weights[server_adapter_name], lora_B_param[server_adapter_name_B]) / client_num
+        truncate_err = torch.norm(layer_matrix, ord='nuc').item()
+        truncate_err_ratio = (truncate_err / layer_matrix_gt_norm).item()
+        truncate_err_list.append(truncate_err)
+        truncate_err_ratio_list.append(truncate_err_ratio)
+
+    print("Truncation Error List: ", truncate_err_list)
+    print("Truncation Error Ratio List: ", truncate_err_ratio_list)
+    return np.mean(truncate_err_list), np.mean(truncate_err_ratio_list)
+
 def federated_lora_avg_v1(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
     import copy
@@ -224,7 +278,13 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
                     assert False
                 """
     model.set_adapter(opt_params["server_name"])
+    truncate_err, truncate_err_ratio = compute_truncate_err(model, adapter_weights, client_num, opt_params["model_name"], server_name)
     server_optimizer.zero_grad()
+
+    train_graphs.truncate_err.append(truncate_err)
+    train_graphs.truncate_err_ratio.append(truncate_err_ratio)
+    print("Truncation Error: ", train_graphs.truncate_err[-1])
+    print("Truncation Error Ratio: ", train_graphs.truncate_err_ratio[-1])
 
     if opt_params["train_stats"]:
         grad_norm = 0

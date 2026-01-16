@@ -56,7 +56,7 @@ def synchronize_lora(model, server_name, truncate_last):
                 param.data = adapter_weight_full
             else:
                 assert False
-    print("Truncation Error: ", truncate_err)
+    print("Rank Heterogeneity Truncation Error: ", truncate_err)
 
 def examine_lora(model, name1, name2):
     for name, param in model.named_parameters():
