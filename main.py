@@ -729,8 +729,8 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                         print("end svd", torch.sum(S[lora_rank:]).item())
                         #print(S[:lora_rank+5])
                         U_truncate, S_truncate, Vh_truncate = U[:, :lora_rank], torch.sqrt(S[:lora_rank]), Vh[:lora_rank, :]
-                        #truncate_err.append(torch.sum(S[lora_rank:]).item())
-                        #truncate_err_ratio.append((torch.sum(S[lora_rank:])/torch.sum(S)).item())
+                        truncate_err.append(torch.sum(S[lora_rank:]).item())
+                        truncate_err_ratio.append((torch.sum(S[lora_rank:])/torch.sum(S)).item())
                         
                         """
                         ### using  sp.svds to compute truncated SVD, higher efficiency but we cannot compute truncation error
@@ -1473,7 +1473,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             optimizer.update_hessian()
             optimizer.zero_grad()
 
-        if opt_params["debug"] and batch_idx > 10:
+        if opt_params["debug"] and batch_idx > 4:
             break
         if opt_params["client_early_stop"] != -1 and batch_idx > opt_params["client_early_stop"]:
             break

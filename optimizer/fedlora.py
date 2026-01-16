@@ -23,6 +23,9 @@ def compute_truncate_err(model, adapter_weights, client_num, model_name, server_
         if 'client_' not in name:
             # skip server adapter
             continue
+        if 'lora' not in name:
+            #skip output layer
+            continue
         client_id = int(re.search(r"client_(\d+)\.", name).group(1))
         adapter_name = "client_{}".format(client_id)
         server_adapter_name = name.replace("{}".format(adapter_name), server_name)
@@ -38,11 +41,7 @@ def compute_truncate_err(model, adapter_weights, client_num, model_name, server_
                 client_weights[server_adapter_name][client_id] = {}
             client_weights[server_adapter_name][client_id]["B"] = param
         """
-        if 'lora' in name:
-            client_weights[server_adapter_name][client_id] = param
-        else:
-            #skip output layer
-            pass
+        client_weights[server_adapter_name][client_id] = param
 
     #compute truncate error layer by layer
     for server_adapter_name in client_weights:
@@ -57,9 +56,9 @@ def compute_truncate_err(model, adapter_weights, client_num, model_name, server_
             server_adapter_name_B = server_adapter_name.replace("lora_A", "lora_B")
             lora_B_param = client_weights[server_adapter_name_B][client_id]
             layer_matrix += compute_adapter_weight(model_name, lora_A_param, lora_B_param) / client_num
-        layer_matrix_gt_norm = torch.norm(layer_matrix, ord='nuc')
-        layer_matrix -= compute_adapter_weight(model_name, adapter_weights[server_adapter_name], lora_B_param[server_adapter_name_B]) / client_num
-        truncate_err = torch.norm(layer_matrix, ord='nuc').item()
+        layer_matrix_gt_norm = torch.norm(layer_matrix, p='nuc')
+        layer_matrix -= compute_adapter_weight(model_name, adapter_weights[server_adapter_name], adapter_weights[server_adapter_name_B])
+        truncate_err = torch.norm(layer_matrix, p='nuc').item()
         truncate_err_ratio = (truncate_err / layer_matrix_gt_norm).item()
         truncate_err_list.append(truncate_err)
         truncate_err_ratio_list.append(truncate_err_ratio)
@@ -278,7 +277,7 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
                     assert False
                 """
     model.set_adapter(opt_params["server_name"])
-    truncate_err, truncate_err_ratio = compute_truncate_err(model, adapter_weights, client_num, opt_params["model_name"], server_name)
+    truncate_err, truncate_err_ratio = compute_truncate_err(model, adapter_weights, client_num, opt_params["model_name"], opt_params["server_name"])
     server_optimizer.zero_grad()
 
     train_graphs.truncate_err.append(truncate_err)
