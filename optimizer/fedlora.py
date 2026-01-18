@@ -43,6 +43,8 @@ def compute_truncate_err(model, adapter_weights, client_num, model_name, server_
         """
         client_weights[server_adapter_name][client_id] = param
 
+    print()
+
     #compute truncate error layer by layer
     for server_adapter_name in client_weights:
         assert len(client_weights[server_adapter_name].keys()) == client_num
