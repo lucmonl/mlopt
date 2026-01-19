@@ -84,6 +84,13 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
         from optimizer.sam_adam import AdamS_v1
         optimizer = AdamS_v1(model.parameters(), alpha=kwargs["sam_alpha"], lr=lr, momentum=momentum, weight_decay=weight_decay)
         model_params = model_params | {"alpha":kwargs["sam_alpha"], "sam_rho": kwargs["sam_rho"]} 
+    elif opt_name == "muon":
+        from torch.optim import Muon
+        muon_params = []
+        for param in model.parameters():
+            if param.dim() == 2:
+                muon_params.append(param)
+        optimizer = Muon(muon_params, lr=lr, momentum=momentum, weight_decay=weight_decay)
     elif opt_name == "sophia":
         from optimizer.sophia import SophiaG
         optimizer = SophiaG(model.parameters(), lr=lr,betas=(momentum, 0.99),rho=kwargs["sophia_rho"], weight_decay=weight_decay)

@@ -258,6 +258,17 @@ def load_server_optimizer(model, lr, momentum, weight_decay, model_params, **kwa
     elif kwargs["server_opt_name"] == "adamw":
         from torch.optim import AdamW
         optimizer = AdamW(parameters.values(), lr=lr, betas=(momentum, 0.999), weight_decay=weight_decay)
+    elif kwargs["server_opt_name"] == "muon":
+        from torch.optim import Muon
+        muon_params = []
+        for param in parameters.values():
+            if param.dim() == 2:
+                muon_params.append(param)
+            else:
+                print(param.shape)
+                assert ValueError("Exist non-2d params")
+        print("Muon Parameters are all 2d tensors.")
+        optimizer = Muon(muon_params, lr=lr, momentum=momentum, weight_decay=weight_decay)
 
     if kwargs["scheduler_name"] == "cosine":
         lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=kwargs["epoch"], eta_min=kwargs["lr_min"])
