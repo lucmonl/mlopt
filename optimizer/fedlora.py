@@ -900,6 +900,122 @@ def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, dev
         elif output_layer_name in name:
             param.data = opt_params["server_params"][name]
 
+
+def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
+    client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
+    import copy
+    import math
+    from utilities import vector_to_grads, vector_to_grads_sq
+    from main import train
+
+    adapter_names = []
+    adapter_weights = {}
+    output_weights = {}
+    output_layer_name = opt_params["output_layer_name"]
+
+    model.set_adapter(opt_params["server_name"])
+    for name, param in model.named_parameters():
+        # select lora_A and lora_B
+        if param.requires_grad:
+            if output_layer_name and output_layer_name in name:
+                output_weights[name]= 0
+            else:
+                adapter_names.append(name)
+                adapter_weights[name] = torch.zeros_like(param)
+
+    client_opt_params = copy.deepcopy(opt_params)
+    client_opt_params["train_stats"] = False
+    for client_id in range(client_num):
+        # update client models
+        adapter_name = "client_{}".format(client_id)
+        model.set_adapter(adapter_name)
+        client_model = model #alias
+
+        client_model.train()
+        optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], opt_params["lr_decay"], opt_params["epochs_lr_decay"], False, model_params, opt_params)
+        #vector_to_parameters(old_params, client_model.parameters())
+        for epoch in range(client_epoch):
+            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
+            
+        for name, param in client_model.named_parameters():
+            if param.requires_grad:
+                #param_names.append(name)
+                server_adapter_name = name.replace("{}".format(adapter_name), opt_params["server_name"])
+                if output_layer_name and output_layer_name in name:
+                    output_weights[server_adapter_name] += param.data / client_num
+                else:
+                    if server_adapter_name in adapter_weights:
+                        row, col = param.data.shape
+                        adapter_weights[server_adapter_name][:row, :col] += param.data/client_num
+                    else:
+                        assert False
+    
+    
+    model.set_adapter(opt_params["server_name"])
+    #truncate_err, truncate_err_ratio = compute_truncate_err(model, adapter_weights, client_num, opt_params["model_name"], opt_params["server_name"])
+    server_optimizer.zero_grad()
+
+    #train_graphs.truncate_err.append(truncate_err)
+    #train_graphs.truncate_err_ratio.append(truncate_err_ratio)
+    #print("Truncation Error: ", train_graphs.truncate_err[-1])
+    #print("Truncation Error Ratio: ", train_graphs.truncate_err_ratio[-1])
+
+    if opt_params["train_stats"]:
+        grad_norm = 0
+
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            if output_layer_name and output_layer_name in name:
+                param.grad = param.data - output_weights[name]
+            elif name in adapter_weights:
+                param.grad = param.data - adapter_weights[name]
+            else:
+                assert False
+
+            if opt_params["train_stats"]:
+                grad_norm += torch.norm(param.grad).item()**2
+    if opt_params["train_stats"]:
+        train_graphs.grad_norm.append(grad_norm ** 0.5)
+        print("grad norm:", train_graphs.grad_norm[-1])
+    
+
+    server_optimizer.step()
+
+    
+    #### frlora merge step
+    """
+    model.add_weighted_adapter([opt_params["server_name"], "fr_save_init"], [1.0, -1.0], \
+                    adapter_name="fr_merge", combination_type= 'cat')
+
+    print("after add_weighted_adapter")
+    for name, param in model.named_parameters():
+        if "base_layer" in name:
+            print(name, param.norm().item())
+            break
+
+        if "fr_merge" in name:
+            print(name, param.norm().item())
+
+    model.merge_adapter(["fr_merge"])
+    """
+    model.merge_adapter([opt_params["server_name"]])
+    model.merge_adapter(["fr_save_neg_init"])
+
+    #synchronize_lora(model, opt_params["server_name"], truncate_last=True)
+    # reinitialize the client lora params
+    synchronize_lora(model, "fr_save_init", truncate_last=True)
+
+    #reset server adapter to fr_save_init -- prepare for the next round
+    from arch.lora import synchronize_lora_server
+    synchronize_lora_server(model, "fr_save_init", opt_params["server_name"], truncate_last=True)
+
+    if server_lr_scheduler is not None:
+        server_lr_scheduler.step()
+
+    for group in server_optimizer.param_groups:
+        print("server lr", group['lr'])
+    
+
 def add_noise(mat, noise, clip_quantile, sketch_size=-1):
     q95 = torch.quantile(mat.abs().reshape(-1), clip_quantile)
     print("clip threshold: ", q95)

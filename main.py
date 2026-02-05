@@ -394,6 +394,10 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         from optimizer.fedlora import federated_lora_fedex
         federated_lora_fedex(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
         return
+    elif opt_params["fedlora_avg"] == "fr":
+        from optimizer.fedlora import federated_frlora
+        federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
+        return
     elif opt_params["fedlora_avg"] == "flora":
         from optimizer.fedlora import federated_lora_flora
         model = federated_lora_flora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
@@ -1712,7 +1716,7 @@ if __name__ == "__main__":
     parser.add_argument("--sketch_size", type=int, default=-1, help="sketch size in communication")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
-    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het", "fedex", "flora", "flasc", "ffa", "sb"], default="avg", help="methods to average A and B matrix in federated lora")
+    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het", "fedex", "flora", "flasc", "ffa", "sb", "fr"], default="avg", help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
     parser.add_argument("--uba_mode", type=str, default='none', choices=["ada", "none"], help="ada means adaptive uba")
     parser.add_argument("--uba_weight", type=float, default=1.0, help="uba adaptive weight")
@@ -2484,7 +2488,8 @@ if __name__ == "__main__":
             model , output_layer_name, Lora_Config = add_adapters_hetero(opt_params["client_num"], model_name, model, lora_rank, lora_alpha, opt_params, lora_freeze_a=args.lora_freeze_a)
             model_params["hetero_rank"] = 1
         for name, param in model.named_parameters():
-            print(name, param.shape, param.requires_grad)
+            print(name, param.shape, param.requires_grad, param.data.norm())
+        #sys.exit()
         opt_params["output_layer_name"] = output_layer_name
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"Training {trainable_params} parameters ({100*trainable_params/total_params:.2f}% of original {total_params})")
