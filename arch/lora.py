@@ -17,10 +17,11 @@ def add_adapters_dataset(model_name, model, lora_rank, lora_alpha, server_name, 
         # add_adapters(model, lora_rank, lora_alpha, 'classifier', ['convolution'])
     elif model_name == 'gpt2':
         #output_layer_name = "score" if add_to_output_layer else None
+        output_layer_name = "score"
         output_layer_name = None
         model, Lora_config = add_adapters(model, lora_rank, lora_alpha, output_layer_name, ["c_attn", "c_proj", "c_fc"], server_name, \
              freeze_a=lora_freeze_a, adapter_name=adapter_name, init_lora_weights=init_lora_weights) #"score"
-        output_layer_name = 'score'
+        #output_layer_name = 'score'
     elif model_name == "google-bert/bert-base-cased":
         sys.exit()
         output_layer_name = "classifier" if add_to_output_layer else None
@@ -43,20 +44,70 @@ def add_adapters_dataset(model_name, model, lora_rank, lora_alpha, server_name, 
     return model, output_layer_name, Lora_config
 
 
-def synchronize_lora_fr(model, server_name, truncate_last):
+def synchronize_lora_fr_neg(model, server_name, truncate_last, output_layer_name):
     #synchronize
     adapter_weights = {}
     for name, param in model.named_parameters():
         if server_name in name:
-            adapter_weights[name] = param #store the server param
+            adapter_weights[name] = param.data.clone() #store the server param
             if len(param.data.shape) == 2:
                 row, col = param.data.shape
+                #print(name)
+                #r_axis = 1 if row < col else 0
+                #print(torch.norm(param.data, dim=r_axis))
+
+    for name, param in model.named_parameters():
+        if 'fr_save_neg_init' in name:
+            if output_layer_name and output_layer_name in name:
+                param.data = torch.zeros_like(param)
+                continue
+            import re
+            #server_adapter_name = re.sub('fr_save_init', server_name, name)
+            server_adapter_name = name.replace('fr_save_neg_init', server_name)
+            adapter_weight_full = adapter_weights[server_adapter_name].data.clone() #assign the same param to client models
+            if len(param.data.shape) == 2:  
+                row, col = param.data.shape
+                if truncate_last:
+                    if 'lora_A' in name:
+                        param.data = -1 * adapter_weight_full[:row, :col]
+                    elif 'lora_B' in name:
+                        param.data =  adapter_weight_full[:row, :col]
+                    elif output_layer_name and output_layer_name in name:
+                        param.data = torch.zeros_like(adapter_weight_full[:row, :col])
+                    else:
+                        assert False
+                else:
+                    if 'lora_A' in name:
+                        param.data = -1 * adapter_weight_full[-row:, -col:]
+                    elif 'lora_B' in name:
+                        param.data = adapter_weight_full[-row:, -col:]
+                    elif output_layer_name and output_layer_name in name:
+                        param.data = torch.zeros_like(adapter_weight_full[-row:, -col:])
+                    else:
+                        assert False
+                        #param.data = adapter_weight_full[-row:, -col:]
+            elif len(param.data.shape) == 1:
+                param.data = adapter_weight_full
+            else:
+                assert False
+
+def synchronize_lora_fr(model, server_name, truncate_last, output_layer_name):
+    #synchronize server_name adapter to fr_save_init adapters
+    adapter_weights = {}
+    for name, param in model.named_parameters():
+        if server_name in name:
+            adapter_weights[name] = param.data.clone() #store the server param
+            if len(param.data.shape) == 2:
+                row, col = param.data.shape
+                continue
                 #print(name)
                 #r_axis = 1 if row < col else 0
                 #print(torch.norm(param.data, dim=r_axis))
         
     for name, param in model.named_parameters():  
         if 'fr_save_init' in name:
+            if output_layer_name and output_layer_name in name:
+                param.data = torch.zeros_like(param)
             import re
             #server_adapter_name = re.sub('fr_save_init', server_name, name)
             server_adapter_name = name.replace('fr_save_init', server_name)
@@ -71,39 +122,13 @@ def synchronize_lora_fr(model, server_name, truncate_last):
                 param.data = adapter_weight_full
             else:
                 assert False
-        
-        if 'fr_save_neg_init' in name:
-            import re
-            #server_adapter_name = re.sub('fr_save_init', server_name, name)
-            server_adapter_name = name.replace('fr_save_neg_init', server_name)
-            adapter_weight_full = adapter_weights[server_adapter_name].data.clone() #assign the same param to client models
-            if len(param.data.shape) == 2:  
-                row, col = param.data.shape
-                if truncate_last:
-                    if 'lora_A' in name:
-                        param.data = -1 * adapter_weight_full[:row, :col]
-                    elif 'lora_B' in name:
-                        param.data =  adapter_weight_full[:row, :col]
-                    else:
-                        assert False
-                else:
-                    if 'lora_A' in name:
-                        param.data = -1 * adapter_weight_full[-row:, -col:]
-                    elif 'lora_B' in name:
-                        param.data = adapter_weight_full[-row:, -col:]
-                    else:
-                        assert False
-            elif len(param.data.shape) == 1:
-                param.data = adapter_weight_full
-            else:
-                assert False
 
-def synchronize_lora_server(model, fr_name, server_name, truncate_last):
+def synchronize_lora_server(model, fr_name, server_name, truncate_last, skip_output_layer_name=None):
     #synchronize
     adapter_weights = {}
     for name, param in model.named_parameters():
         if fr_name in name:
-            adapter_weights[name] = param #store the fr param
+            adapter_weights[name] = param.data.clone() #store the fr param
             if len(param.data.shape) == 2:
                 row, col = param.data.shape
                 #print(name)
@@ -112,6 +137,9 @@ def synchronize_lora_server(model, fr_name, server_name, truncate_last):
         
     for name, param in model.named_parameters():  
         if server_name in name:
+            if skip_output_layer_name and skip_output_layer_name in name:
+                # the output layer is not synchronized
+                continue
             import re
             #server_adapter_name = re.sub(server_name, fr_name, name)
             server_adapter_name = name.replace(server_name, fr_name)
@@ -120,10 +148,13 @@ def synchronize_lora_server(model, fr_name, server_name, truncate_last):
                 row, col = param.data.shape
                 if truncate_last:
                     param.data = adapter_weight_full[:row, :col]
+                    #param.data = torch.zeros_like(adapter_weight_full[:row, :col])
                 else:
                     param.data = adapter_weight_full[-row:, -col:]
+                    #param.data = torch.zeros_like(adapter_weight_full[-row:, -col:])
             elif len(param.data.shape) == 1:
                 param.data = adapter_weight_full
+                #param.data = torch.zeros_like(adapter_weight_full)
             else:
                 assert False
 
@@ -133,7 +164,7 @@ def synchronize_lora(model, server_name, truncate_last):
     truncate_err = 0
     for name, param in model.named_parameters():
         if server_name in name:
-            adapter_weights[name] = param #store the server param
+            adapter_weights[name] = param.data.clone() #store the server param
             if len(param.data.shape) == 2:
                 row, col = param.data.shape
                 #print(name)
@@ -206,24 +237,36 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
     
     if opt_params["fedlora_avg"] == "svd":
         truncate_last=False
-    elif opt_params["fedlora_avg"] in ["avg", "flora", "flasc", "fr"]:
+    elif opt_params["fedlora_avg"] in ["avg", "flora", "flasc", "fr", "muonlora_v1"]:
         truncate_last=True
     else:
         assert False
     synchronize_lora(model, server_name=opt_params["server_name"], truncate_last=truncate_last)
 
-    if opt_params["fedlora_avg"] == "fr":
+    if opt_params["fedlora_avg"] in ["fr", "muonlora_v1"]:
         # initializes fr_lora adapter
         model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
                                                                         lora_freeze_a=lora_freeze_a, adapter_name="fr_save_init", \
                                                                          init_lora_weights=True, server_name = opt_params["server_name"], \
                                                                         add_to_output_layer = False)
+        synchronize_lora_fr(model, server_name=opt_params["server_name"], truncate_last=truncate_last, output_layer_name=output_layer_name)
+    
+    if opt_params["fedlora_avg"] == "fr":
         # use the name fr_save_neg_init to avoid subsequent if conditions on  $"fr_save_init" in name$                                                    
         model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
                                                                         lora_freeze_a=lora_freeze_a, adapter_name="fr_save_neg_init", \
                                                                          init_lora_weights=True, server_name = opt_params["server_name"], \
                                                                         add_to_output_layer = False)
-        synchronize_lora_fr(model, server_name=opt_params["server_name"], truncate_last=truncate_last)
+        synchronize_lora_fr_neg(model, server_name=opt_params["server_name"], truncate_last=truncate_last, output_layer_name=output_layer_name)
+
+    if opt_params["fedlora_avg"] == "muonlora_v1":
+        # use the name fr_save_neg_init to avoid subsequent if conditions on  $"fr_save_init" in name$                                                    
+        model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
+                                                                        lora_freeze_a=lora_freeze_a, adapter_name="muon_update", \
+                                                                         init_lora_weights=True, server_name = opt_params["server_name"], \
+                                                                        add_to_output_layer = False)
+        #no need to initialize, will be reset at every step
+        #synchronize_lora_fr_neg(model, server_name=opt_params["server_name"], truncate_last=truncate_last)
 
     if Lora_config:
         model.set_adapter(opt_params["server_name"])

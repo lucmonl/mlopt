@@ -398,6 +398,10 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         from optimizer.fedlora import federated_frlora
         federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
         return
+    elif opt_params["fedlora_avg"] == "muonlora_v1":
+        from optimizer.fedlora import federated_muonlora
+        federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
+        return
     elif opt_params["fedlora_avg"] == "flora":
         from optimizer.fedlora import federated_lora_flora
         model = federated_lora_flora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
@@ -1716,7 +1720,7 @@ if __name__ == "__main__":
     parser.add_argument("--sketch_size", type=int, default=-1, help="sketch size in communication")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
-    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het", "fedex", "flora", "flasc", "ffa", "sb", "fr"], default="avg", help="methods to average A and B matrix in federated lora")
+    parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch", "sketch_v2", "svd_het", "fedex", "flora", "flasc", "ffa", "sb", "fr", "muonlora_v1"], default="avg", help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
     parser.add_argument("--uba_mode", type=str, default='none', choices=["ada", "none"], help="ada means adaptive uba")
     parser.add_argument("--uba_weight", type=float, default=1.0, help="uba adaptive weight")
