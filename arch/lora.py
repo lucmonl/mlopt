@@ -214,7 +214,7 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
     #lora_alpha = lora_rank
     if opt_params["fedlora_avg"] == "sb":
         opt_params["server_name"] = "default"
-    if opt_params["fedlora_avg"] == "fr":
+    if opt_params["fedlora_avg"] in ["fr", "muonlora_v1"]:
         init_lora_weights = "pissa"
     else:
         init_lora_weights = True

@@ -1022,16 +1022,23 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                 param.data = Q_grad
             """
     muon_update_num = 0
+    print("muon update")
     for name, param in model.named_parameters():
         if "muon_update" in name:
             param.data = muon_updates[name]
             muon_update_num += 1
+            print(name, param.data.norm().item())
 
     assert muon_update_num == len(muon_updates)
 
     #### muonlora merge step
     model.merge_adapter(["muon_update"])
-    model.merge_adapter(["fr_save_neg_init"])
+    #model.merge_adapter(["fr_save_neg_init"])
+
+    print("after merging")
+    for name, param in model.named_parameters():
+        if "base" in name or opt_params["server_name"] in name:
+            print(name, param.data.norm().item())
 
     #reset server adapter to fr_save_init -- prepare for the next round, skip the output layer
     from arch.lora import synchronize_lora_server
@@ -1194,6 +1201,11 @@ def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, devic
         elif name in output_weights:
             print(name, (param.data - output_weights[name]).norm().item())
     """
+
+    print("after merging")
+    for name, param in model.named_parameters():
+        if "base" in name or opt_params["server_name"] in name:
+            print(name, param.data.norm().item())
 
     #model.merge_adapter(["fr_save_init"])
 
