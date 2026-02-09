@@ -910,6 +910,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     adapter_names = []
     adapter_weights = {}
     output_weights = {}
+    original_params_data = {}
     output_layer_name = opt_params["output_layer_name"]
 
     model.set_adapter(opt_params["server_name"])
@@ -921,7 +922,8 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             else:
                 adapter_names.append(name)
                 adapter_weights[name] = torch.zeros_like(param)
-
+                original_params_data[name] = param.data.clone()
+                
     client_opt_params = copy.deepcopy(opt_params)
     client_opt_params["train_stats"] = False
     for client_id in range(client_num):
@@ -985,9 +987,32 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
 
     #server_optimizer.step()
     # compute the muon update directions
+    
+    
+    muon_updates = {}
     for name, param in model.named_parameters():
-        if "muon_update" in name:
-            grad_param_name = name.replace("muon_update", opt_params["server_name"])
+        if "muon_update" in name and 'lora_B' in name:
+            grad_param_name_B = name.replace("muon_update", opt_params["server_name"])
+            grad_param_name_A = grad_param_name_B.replace("lora_B", "lora_A")
+
+            A_param = original_params_data[grad_param_name_A].T #n*r
+            A_inv = torch.linalg.pinv(A_param) # r*n
+
+            #print("pinv error:", torch.norm(A_inv @ A_param - torch.eye(A_inv.shape[0]).to(A_inv)).item())
+            assert torch.norm(A_inv @ A_param - torch.eye(A_inv.shape[0]).to(A_inv)) < 1e-5
+
+            Q_A, R_A = torch.linalg.qr(params_grads[grad_param_name_A].T, mode='reduced') #n*r, r*r
+            Q_B, R_B = torch.linalg.qr(params_grads[grad_param_name_B], mode='reduced') #m*r, r*r
+
+            C = R_B @ A_inv @ Q_A #r * r
+            U, S, Vh = torch.linalg.svd(C, full_matrices=True)
+
+            muon_update_name_A = name.replace("lora_B", "lora_A")
+            muon_update_name_B = name
+            muon_updates[muon_update_name_A] = -1 * Vh @ Q_A.T
+            muon_updates[muon_update_name_B] = Q_B @ U
+
+            """
             if 'lora_B' in name:
                 Q_grad, _ = torch.qr(params_grads[grad_param_name])
                 param.data = Q_grad * -1 * server_lr
@@ -995,40 +1020,32 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                 Q_grad, _ = torch.qr(params_grads[grad_param_name].T)
                 Q_grad = Q_grad.T
                 param.data = Q_grad
-
-    #### frlora merge step
-    """
-    model.add_weighted_adapter([opt_params["server_name"], "fr_save_init"], [1.0, -1.0], \
-                    adapter_name="fr_merge", combination_type= 'cat')
-
-    print("after add_weighted_adapter")
+            """
+    muon_update_num = 0
     for name, param in model.named_parameters():
-        if "base_layer" in name:
-            print(name, param.norm().item())
-            break
+        if "muon_update" in name:
+            param.data = muon_updates[name]
+            muon_update_num += 1
 
-        if "fr_merge" in name:
-            print(name, param.norm().item())
+    assert muon_update_num == len(muon_updates)
 
-    model.merge_adapter(["fr_merge"])
-    """
-    #model.merge_adapter([opt_params["server_name"]])
-    #model.merge_adapter(["fr_save_neg_init"])
+    #### muonlora merge step
     model.merge_adapter(["muon_update"])
+    model.merge_adapter(["fr_save_neg_init"])
 
-    #synchronize_lora(model, opt_params["server_name"], truncate_last=True)
-    # reinitialize the client lora params with fr_save_init
-    synchronize_lora(model, "fr_save_init", truncate_last=True)
-
-    #reset server adapter to fr_save_init -- prepare for the next round
+    #reset server adapter to fr_save_init -- prepare for the next round, skip the output layer
     from arch.lora import synchronize_lora_server
-    synchronize_lora_server(model, "fr_save_init", opt_params["server_name"], truncate_last=True)
+    synchronize_lora_server(model, "fr_save_init", opt_params["server_name"], truncate_last=True, skip_output_layer_name=output_layer_name)
+    # reinitialize the client lora params with fr_save_init, must include the output layer
+    synchronize_lora(model, opt_params["server_name"], truncate_last=True)
 
     if server_lr_scheduler is not None:
         server_lr_scheduler.step()
 
     for group in server_optimizer.param_groups:
         print("server lr", group['lr'])
+        
+    model.set_adapter(opt_params["server_name"])
 
 
 def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
