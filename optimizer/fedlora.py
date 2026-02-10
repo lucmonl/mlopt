@@ -1047,21 +1047,36 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             
             #print("gradA norm:", params_grads[grad_param_name_A].norm().item())
             #print("gradA error: ", (recovered_grad.T @ original_params_data[grad_param_name_B] - params_grads[grad_param_name_A].T).norm().item())
+            muon_updates[muon_update_name_A] = (A_param.T -  server_lr * grad_A.T).to(param.dtype)
+            muon_updates[muon_update_name_B] = (B_param -  server_lr * grad_B).to(param.dtype)
+
+            
+            #server_adapter_name_B = name.replace("muon_update", opt_params["server_name"])
+            #server_adapter_name_A = server_adapter_name_B.replace("lora_B", "lora_A")
+
+            #muon_updates[muon_update_name_A] = adapter_weights[server_adapter_name_A]
+            #muon_updates[muon_update_name_B] = adapter_weights[server_adapter_name_B]
 
     #sys.exit()
     muon_update_num = 0
     #print("muon update")
+    
     for name, param in model.named_parameters():
         if "muon_update" in name:
             param.data = muon_updates[name]
+        #if opt_params["server_name"] in name:
+            #muon_name = name.replace(opt_params["server_name"], "muon_update")
+            #param.data = muon_updates[muon_name]
             muon_update_num += 1
-            print(name, param.data.norm().item())
+            #print(name, param.data.norm().item(),
+            #      (param.data - muon_updates[muon_name]).norm().item())
 
     assert muon_update_num == len(muon_updates)
-
+    
     #### muonlora merge step
     model.merge_adapter(["muon_update"])
-    #model.merge_adapter(["fr_save_neg_init"])
+    #model.merge_adapter([opt_params["server_name"]])
+    model.merge_adapter(["fr_save_neg_init"])
 
     print("after merging")
     for name, param in model.named_parameters():

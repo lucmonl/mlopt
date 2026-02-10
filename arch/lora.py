@@ -251,7 +251,7 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
                                                                         add_to_output_layer = False)
         synchronize_lora_fr(model, server_name=opt_params["server_name"], truncate_last=truncate_last, output_layer_name=output_layer_name)
     
-    if opt_params["fedlora_avg"] == "fr":
+    if opt_params["fedlora_avg"] in ["fr", "muonlora_v1"]:
         # use the name fr_save_neg_init to avoid subsequent if conditions on  $"fr_save_init" in name$                                                    
         model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
                                                                         lora_freeze_a=lora_freeze_a, adapter_name="fr_save_neg_init", \
