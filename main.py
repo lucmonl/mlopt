@@ -1483,7 +1483,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
 
         if opt_params["debug"] and batch_idx > 4:
             break
-        if opt_params["client_early_stop"] != -1 and batch_idx > opt_params["client_early_stop"]:
+        if opt_params["client_early_stop"] != -1 and batch_idx >= opt_params["client_early_stop"]:
             break
 
     if opt_params["opt_name"] == "gd":

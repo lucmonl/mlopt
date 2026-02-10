@@ -990,6 +990,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     
     
     muon_updates = {}
+    """
     for name, param in model.named_parameters():
         if "muon_update" in name and 'lora_B' in name:
             grad_param_name_B = name.replace("muon_update", opt_params["server_name"])
@@ -1010,19 +1011,46 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             muon_update_name_A = name.replace("lora_B", "lora_A")
             muon_update_name_B = name
             muon_updates[muon_update_name_A] = -1 * Vh @ Q_A.T
-            muon_updates[muon_update_name_B] = Q_B @ U
+            muon_updates[muon_update_name_B] = Q_B @ U @ torch.diag(S).to(U)
 
-            """
-            if 'lora_B' in name:
-                Q_grad, _ = torch.qr(params_grads[grad_param_name])
-                param.data = Q_grad * -1 * server_lr
-            elif 'lora_A' in name:
-                Q_grad, _ = torch.qr(params_grads[grad_param_name].T)
-                Q_grad = Q_grad.T
-                param.data = Q_grad
-            """
+            recovered_grad = -1 * muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]
+            print("gradB norm:", params_grads[grad_param_name_B].norm().item())
+            print("gradB error: ", (recovered_grad @ A_param - params_grads[grad_param_name_B]).norm().item())
+            B_param = original_params_data[grad_param_name_B]
+            print("gradA norm:", params_grads[grad_param_name_A].norm().item())
+            print("gradA error: ", (recovered_grad.T @ B_param - params_grads[grad_param_name_A].T).norm().item())
+    """
+
+    for name, param in model.named_parameters():
+        if "muon_update" in name and 'lora_B' in name:
+            grad_param_name_B = name.replace("muon_update", opt_params["server_name"])
+            grad_param_name_A = grad_param_name_B.replace("lora_B", "lora_A")
+            grad_B, grad_A = params_grads[grad_param_name_B].to(torch.float64), params_grads[grad_param_name_A].T.to(torch.float64)
+
+            A_param = original_params_data[grad_param_name_A].T.to(torch.float64) #n*r
+            B_param = original_params_data[grad_param_name_B].to(torch.float64) #m*r
+            
+            proj_G = B_param.T @ grad_B #r*r
+            proj_G_inv = torch.linalg.pinv(proj_G) #r*r
+
+            #print("pinv error:", torch.norm(A_inv @ A_param - torch.eye(A_inv.shape[0]).to(A_inv)).item())
+            assert torch.norm(proj_G_inv @ proj_G - torch.eye(proj_G_inv.shape[0]).to(proj_G_inv)) < 1e-5
+
+            muon_update_name_A = name.replace("lora_B", "lora_A")
+            muon_update_name_B = name
+            muon_updates[muon_update_name_A] = -1 * grad_A.T.to(param.dtype)
+            muon_updates[muon_update_name_B] = (grad_B @ proj_G_inv).to(param.dtype)
+
+            #recovered_grad = -1 * muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]
+            #print("gradB norm:", params_grads[grad_param_name_B].norm().item())
+            #print("gradB error: ", (recovered_grad @ original_params_data[grad_param_name_A].T - params_grads[grad_param_name_B]).norm().item())
+            
+            #print("gradA norm:", params_grads[grad_param_name_A].norm().item())
+            #print("gradA error: ", (recovered_grad.T @ original_params_data[grad_param_name_B] - params_grads[grad_param_name_A].T).norm().item())
+
+    #sys.exit()
     muon_update_num = 0
-    print("muon update")
+    #print("muon update")
     for name, param in model.named_parameters():
         if "muon_update" in name:
             param.data = muon_updates[name]

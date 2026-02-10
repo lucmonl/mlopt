@@ -10,8 +10,12 @@ def load_optimizer_param(opt_name, model, lr, momentum, weight_decay, lr_decay, 
     if opt_name == "federated":
         opt_name = kwargs["server_opt_name"]
         cls_lr = kwargs['cls_lr']
-        model_params = model_params | {"cls_lr": kwargs['cls_lr'], 'server_opt': kwargs['server_opt_name'], 'client_opt': kwargs['client_opt_name'], 'client_lr': kwargs['client_lr'], 'client_momentum': kwargs['client_momentum'],
-                                       "client_weight_decay": kwargs['client_weight_decay'], "client_num": kwargs['client_num'], 'client_epoch': kwargs['client_epoch'], 'sketch_size': kwargs['sketch_size']}
+        model_params = model_params | {"cls_lr": kwargs['cls_lr'], 'server_opt': kwargs['server_opt_name'],
+                                       'client_opt': kwargs['client_opt_name'], 'client_lr': kwargs['client_lr'],
+                                        'client_momentum': kwargs['client_momentum'],
+                                       "client_weight_decay": kwargs['client_weight_decay'], "client_num": kwargs['client_num'],
+                                        'client_epoch': kwargs['client_epoch'], 'client_round': kwargs['client_early_stop'],
+                                        'sketch_size': kwargs['sketch_size']}
     else:
         cls_lr = lr
 
