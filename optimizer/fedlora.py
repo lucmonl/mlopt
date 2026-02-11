@@ -982,7 +982,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     for group in server_optimizer.param_groups:
         server_lr = group['lr']
 
-    server_optimizer.step()
+    #server_optimizer.step()
     # compute the muon update directions
     muon_updates = {}
     updated_base_weights = {}
