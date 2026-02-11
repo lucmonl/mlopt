@@ -1782,6 +1782,8 @@ if __name__ == "__main__":
     opt_params["apply_lora"] = apply_lora
     lora_rank           = args.lora_rank
     lora_alpha          = args.lora_alpha
+    opt_params["lora_rank"] = lora_rank
+    opt_params["lora_alpha"] = lora_alpha
 
     # Optimization Criterion
     # loss_name = 'CrossEntropyLoss'

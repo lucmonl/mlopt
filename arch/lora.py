@@ -469,6 +469,24 @@ def get_weight_norm(weights):
         weight_norm += torch.norm(weights[name])**2
     print("weight norm: ", weight_norm.item())
     return weight_norm.item()
+
+
+def merge_to_base(model, adapter_name, lora_r, lora_alpha, model_name):
+    adapter_weights = {}
+    for name, param in model.named_parameters():
+        if adapter_name in name:
+            adapter_weights[name] = param.data.clone()
+
+    for name, param in model.named_parameters():
+        if 'base_layer' in name and 'weight' in name:
+            name_A = name.replace("base_layer", "lora_A.{}".format(adapter_name))
+            name_B = name.replace("base_layer", "lora_B.{}".format(adapter_name))
+            adapter_A, adapter_B = adapter_weights[name_A], adapter_weights[name_B]
+            if model_name in ["gpt2"]:
+                param.data += lora_alpha / lora_r * (adapter_weights[name_B] @ adapter_weights[name_A]).T
+            else:
+                raise NotImplementedError
+
 """
 def lora_reassign_weights(model, state_dict, r, lora_alpha, fan_in_fan_out=False, merge=True):
     is_merged = getattr(model, "is_merged", False)
