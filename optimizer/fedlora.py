@@ -1038,8 +1038,15 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
 
             muon_update_name_A = name.replace("lora_B", "lora_A")
             muon_update_name_B = name
-            muon_updates[muon_update_name_A] = -server_lr * grad_A.T.to(param.dtype)
-            muon_updates[muon_update_name_B] = (grad_B @ proj_G_inv).to(param.dtype)
+
+            if opt_params["fedlora_avg"] == 'muonlora_v1':
+                muon_updates[muon_update_name_A] = -server_lr * grad_A.T.to(param.dtype)
+                muon_updates[muon_update_name_B] = (grad_B @ proj_G_inv).to(param.dtype)
+            elif opt_params["fedlora_avg"] == 'muonlora_v2':
+                pseudo_grad = grad_B @ proj_G_inv @ grad_A.T
+                U, _, Vh = torch.linalg.svd(pseudo_grad, full_matrices=False)
+                muon_updates[muon_update_name_A] = -server_lr *  Vh.to(param.dtype)
+                muon_updates[muon_update_name_B] = U.to(param.dtype)
             
             #recovered_grad = -1 * muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]
             #print("gradB norm:", params_grads[grad_param_name_B].norm().item())
