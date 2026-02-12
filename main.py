@@ -1604,12 +1604,12 @@ def hook(self, input, output):
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "cifar100", "imagenet_tiny", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", 
                 "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds", "icl", "20newsgroups", "mathqa_gsm8k", "swag",
-                "spider"]
+                "spider", "fedllm_bench"]
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "res_conv_fixed_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2",
               "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", 
               "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1", 
               "google/vit-huge-patch14-224-in21k", "dino_vit_small", "dino_vit_base",
-                "dinov2_vit_base", "dinov2_vit_small", 
+                "dinov2_vit_base", "dinov2_vit_small", "meta-llama/Llama-3.1-8B-Instruct",
               "dinov2_vit_giant2", "vit_small", "vit_medium", "vit_base", "lin_attn", "mlp", "gpt2", "roberta-base", "bert-base-uncased", "deepseek-ai/deepseek-coder-1.3b-instruct"]
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
     LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
@@ -2014,6 +2014,13 @@ if __name__ == "__main__":
         else:
             from data.glue import load_glue
             model, train_loader, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_glue(model_name, batch_size, model_params, do_eval)
+    elif dataset_name == "fedllm_bench":
+        model_params = {"task_name": args.task_name, }
+        if opt_params["opt_name"] == "federated":
+            from data.fedllm_bench import load_fedllm_bench_federated
+            model, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_fedllm_bench_federated(model_name, args.task_name, batch_size, opt_params["client_num"], model_params, do_eval)
+        else:
+            raise NotImplementedError
     elif dataset_name == "swag":
         if opt_params["opt_name"] == "federated":
             from data.swag import load_swag_federated
