@@ -1,5 +1,6 @@
 import os
 import json
+import numpy as np
 from datasets import load_dataset, Dataset
 
 from arch.llama import get_llama_model_and_formats
@@ -10,8 +11,12 @@ from transformers import (
     AutoTokenizer,
     TrainingArguments,
     Trainer,
-    DataCollatorForLanguageModeling
+    DataCollatorForLanguageModeling,
+    DataCollatorWithPadding,
+    EvalPrediction,
+    DataCollatorForSeq2Seq
 )
+import evaluate
 
 def get_local_datasets(file_path):
     dataset = load_dataset("json", data_files=file_path)['train']
@@ -42,17 +47,23 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
     print("loading cached dataset: {data_dir}")
     client_datasets = get_fed_datasets(data_dir)
     print("Client Num", len(client_datasets))
-    assert client_num == len(client_datasets)
+    assert client_num+1 <= len(client_datasets)
     print("Sample: ")
     print(client_datasets[0][0])
 
     if 'llama' in model_name:
         model, tokenizer, formatting_prompts_func = get_llama_model_and_formats(model_name)
-    data_collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    else:
+        raise NotImplementedError
+    data_collator = DataCollatorForSeq2Seq(tokenizer, pad_to_multiple_of=8)
 
     tokenized_datasets = []
-    for client_dataset in client_datasets:
-        tokenized_dataset = client_dataset.map(formatting_prompts_func)
+    for client_dataset in client_datasets[1:client_num+1]:  #the last dataset is reserved for evaluation, for now TODO: replace it with standard benchmarks like Vicuna
+        tokenized_dataset = client_dataset.map(formatting_prompts_func,
+                                               fn_kwargs={
+                                                    "tokenizer": tokenizer, 
+                                                    "max_length": 1024
+                                                },)
         tokenized_datasets.append(tokenized_dataset)
 
     train_dataset = tokenized_datasets[0] # dummy dataset
@@ -60,22 +71,32 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
         max_train_samples = min(len(train_dataset), model_params["train_size"])
         train_dataset = train_dataset.select(range(max_train_samples))
 
-    analysis_size = max(batch_size, 128)
+    train_dataset = train_dataset.map(formatting_prompts_func,
+                                fn_kwargs={
+                                    "tokenizer": tokenizer, 
+                                    "max_length": 1024
+                                },)
+
+    analysis_size = min(max(batch_size, 128), len(train_dataset))
     analysis_dataset = train_dataset.select(range(analysis_size))
 
     if do_eval:
-        eval_dataset = analysis_dataset
+        eval_dataset = client_datasets[0]
     else:
-        eval_dataset = analysis_dataset
+        eval_dataset = client_datasets[0]
     #if data_args.max_eval_samples is not None:
+    eval_dataset = eval_dataset.map(formatting_prompts_func,
+                                    fn_kwargs={
+                                        "tokenizer": tokenizer, 
+                                        "max_length": 1024
+                                    },)
     if "train_size" in model_params:
         max_eval_samples = min(len(eval_dataset), model_params["train_size"])
         eval_dataset = eval_dataset.select(range(max_eval_samples))
-    analysis_eval_dataset = eval_dataset.select(range(analysis_size))
 
-    # Log a few random samples from the training set:
-    for index in random.sample(range(len(train_dataset)), 3):
-        logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
+    print("Number of samples in eval dataset: {}".format(len(eval_dataset)))
+    eval_analysis_size = min(max(batch_size, 128), len(eval_dataset))
+    analysis_eval_dataset = eval_dataset.select(range(eval_analysis_size))
 
     # Get the metric function
     """
@@ -91,7 +112,7 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
     # You can define your custom compute_metrics function. It takes an `EvalPrediction` object (a namedtuple with a
     # predictions and label_ids field) and has to return a dictionary string to float.
     def compute_metrics(p: EvalPrediction):
-        preds, labels = eval_preds
+        preds, labels = p
         
         # 1. Take the argmax to get the predicted token IDs
         # preds shape: (batch, seq_len, vocab_size) -> (batch, seq_len)
@@ -111,7 +132,7 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
         decoded_labels = [label.strip() for label in decoded_labels]
 
         # 5. Compute ROUGE
-        result = rouge_metric.compute(
+        result = metric.compute(
             predictions=decoded_preds, 
             references=decoded_labels, 
             use_stemmer=True

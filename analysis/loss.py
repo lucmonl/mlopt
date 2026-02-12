@@ -43,6 +43,13 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
                     dict_to_(input, device)
                     target = input["labels"].to(device)
                     output = model(**input)
+                elif type(input).__name__ == "BatchEncoding":
+                    target = input["labels"].to(device)
+                    output = model(input_ids=input["input_ids"], attention_mask=input["attention_mask"], labels=target)
+                else:
+                    print(type(input).__name__)
+                    print(input)
+                    assert False
 
                 loss, out = output.loss * output.logits.shape[0], output.logits
 
@@ -70,7 +77,7 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
         if compute_model_output:
             graphs.model_output.append(np.concatenate(model_output))
 
-        print("Mean Train Loss: {} \t Accuarcy: {}".format(graphs.loss[-1], graphs.accuracy[-1]))
+        print("Mean Train Loss: {} \t Accuarcy: {}".format(graphs.loss[-1], graphs.accuracy[-1]), flush=True)
     
     #validation step
     if no_val:
@@ -116,6 +123,13 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
                     dict_to_(input, device)
                     target = input["labels"].to(device)
                     output = model(**input)
+                elif type(input).__name__ == "BatchEncoding":
+                    target = input["labels"].to(device)
+                    output = model(input_ids=input["input_ids"], attention_mask=input["attention_mask"], labels=target)
+                else:
+                    print(type(input).__name__)
+                    print(input)
+                    assert False
                 physical_batch_size = output.logits.shape[0]
                 loss, out = output.loss * physical_batch_size, output.logits
                 
@@ -157,7 +171,7 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
             graphs.best_test_accuracy = graphs.test_accuracy[-1]
             save_best_model = True
         
-        print("Mean Test Loss: {} \t Accuarcy: {}".format(graphs.test_loss[-1], graphs.test_accuracy[-1]))
+        print("Mean Test Loss: {} \t Accuarcy: {}".format(graphs.test_loss[-1], graphs.test_accuracy[-1]), flush=True)
 
     enable_running_stats(model)
     return save_best_model
@@ -206,5 +220,5 @@ def compute_loss_hf(graphs, model, criterion_summed, loader_abridged, test_loade
     pbar.close()
     graphs.test_loss.append(loss_sum / len(test_loader.dataset))
     graphs.test_accuracy.append(accuracy_sum / len(test_loader.dataset))
-    print("Mean Test Loss: {} \t Accuarcy: {}".format(graphs.test_loss[-1], graphs.test_accuracy[-1]))
+    print("Mean Test Loss: {} \t Accuarcy: {}".format(graphs.test_loss[-1], graphs.test_accuracy[-1]), flush=True)
     enable_running_stats(model)

@@ -1221,7 +1221,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
     #old_params = parameters_to_vector(model.parameters())
     model.train()
     
-    pbar = tqdm(total=len(train_loader), position=0, leave=True)
+    pbar = tqdm(total=len(train_loader), position=0, leave=True, file=sys.stdout)
 
     # initialize training statistics
     accuracy = 0
@@ -1270,6 +1270,13 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 dict_to_(input, device)
                 target = input["labels"].to(device)
                 output = model(**input)
+            elif type(input).__name__ == "BatchEncoding":
+                target = input["labels"].to(device)
+                output = model(input_ids=input["input_ids"], attention_mask=input["attention_mask"], labels=target)
+            else:
+                print(type(input).__name__)
+                print(input)
+                assert False
             loss, out = output.loss, output.logits
             if opt_params["use_parallel"]:
                 loss = torch.mean(loss)
@@ -1605,14 +1612,18 @@ if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "cifar100", "imagenet_tiny", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", 
                 "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds", "icl", "20newsgroups", "mathqa_gsm8k", "swag",
                 "spider", "fedllm_bench"]
+    HF_MODELS = ["google/vit-base-patch16-224-in21k", "gpt2", "roberta-base", "akjindal53244/Arithmo-Mistral-7B", 
+                "mistralai/Mistral-7B-v0.1", "google/vit-huge-patch14-224-in21k", "deepseek-ai/deepseek-coder-1.3b-instruct",
+                "meta-llama/Llama-3.1-8B-Instruct"]
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "res_conv_fixed_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2",
               "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", 
-              "google-bert/bert-base-cased", "google/vit-base-patch16-224-in21k", "akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1", 
-              "google/vit-huge-patch14-224-in21k", "dino_vit_small", "dino_vit_base",
-                "dinov2_vit_base", "dinov2_vit_small", "meta-llama/Llama-3.1-8B-Instruct",
-              "dinov2_vit_giant2", "vit_small", "vit_medium", "vit_base", "lin_attn", "mlp", "gpt2", "roberta-base", "bert-base-uncased", "deepseek-ai/deepseek-coder-1.3b-instruct"]
+              "google-bert/bert-base-cased"
+              "dino_vit_small", "dino_vit_base",
+                "dinov2_vit_base", "dinov2_vit_small",
+              "dinov2_vit_giant2", "vit_small", "vit_medium", "vit_base", "lin_attn", "mlp", "bert-base-uncased",] + HF_MODELS
+              
     INIT_MODES = ["O(1)", "O(1/sqrt{m})"]
-    LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss']
+    LOSSES = ['MSELoss', 'CrossEntropyLoss', 'BCELoss', 'HF_CrossEntropy']
     OPTIMIZERS = ['gd', 'goldstein','sam', 'sam_on', 'sgd', 'dom_sgd', 'gn_dom_sgd', 'gn_bulk_sgd', 'bulk_sgd', 'norm-sgd','adam', 'amsgrad', 'amsgradw', 'adamw', 'federated',
                   'replay_sam', 'alternate_sam', 'alternate_sam_v2', 'alternate_sam_v3', 'look_sam', 'look_sam_v2', 'adahessian', 'sketch_adam', 'adams_v1', 
                   'sophia', 'sophus', 'lora_rite', 'lora_rite_v2']
@@ -1868,8 +1879,7 @@ if __name__ == "__main__":
     
     exp_avg, exp_avg_sq            = None, None
 
-    opt_params["hf_model"]         = args.dataset in ["glue"] or model_name in ["google/vit-base-patch16-224-in21k", "gpt2", "roberta-base", "akjindal53244/Arithmo-Mistral-7B", 
-                                                                                "mistralai/Mistral-7B-v0.1", "google/vit-huge-patch14-224-in21k", "deepseek-ai/deepseek-coder-1.3b-instruct"]
+    opt_params["hf_model"]         = args.dataset in ["glue"] or model_name in HF_MODELS
     opt_params["cub_data"]         = args.dataset in ["cub"]
     opt_params["wild_data"]        = args.dataset in ["wilds"]
     analysis_params["model_path"]  = None #placeholder
@@ -2456,6 +2466,9 @@ if __name__ == "__main__":
         
         criterion = BCE
         criterion_summed = BCE_sum
+    else:
+        criterion = None
+        criterion_summed = None
 
     opt_params["criterion"] = criterion
     opt_params["criterion_summed"] = criterion_summed

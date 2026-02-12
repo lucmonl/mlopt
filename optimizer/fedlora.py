@@ -1246,7 +1246,12 @@ def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, devic
     base_layer_param = base_layer_param + (adapter_B @ adapter_A).T
     print(torch.norm(base_layer_param).item())
     """
-    model.merge_adapter([opt_params["server_name"]])
+    #model.merge_adapter([opt_params["server_name"]])
+    merge_to_base(model,
+                adapter_name=opt_params["server_name"], 
+                lora_r=opt_params["lora_rank"], 
+                lora_alpha=opt_params["lora_alpha"], 
+                model_name=opt_params["model_name"])
     """
     for name, param in model.named_parameters():
         if "base_layer" in name:
@@ -1255,7 +1260,12 @@ def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, devic
             print("base_layer_param norm after merge server adapter: ", base_layer_param.norm())
             break 
     """
-    model.merge_adapter(["fr_save_neg_init"])
+    #model.merge_adapter(["fr_save_neg_init"])
+    merge_to_base(model,
+                adapter_name="fr_save_neg_init", 
+                lora_r=opt_params["lora_rank"], 
+                lora_alpha=opt_params["lora_alpha"], 
+                model_name=opt_params["model_name"])
     """
     print("comparing merged adapters and computed adapters")
     for name, param in model.named_parameters():
