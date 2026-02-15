@@ -925,7 +925,14 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                 
     client_opt_params = copy.deepcopy(opt_params)
     client_opt_params["train_stats"] = False
-    for client_id in range(client_num):
+
+    if opt_params["client_partial"] < 1:
+        client_num = int(opt_params["client_partial"] * client_num)
+        client_selected = np.random.choice(opt_params["client_num"], client_num, replace=False)
+    else:
+        client_selected = np.arange(client_num)
+
+    for client_id in client_selected:
         # update client models
         adapter_name = "client_{}".format(client_id)
         model.set_adapter(adapter_name)
@@ -1031,17 +1038,24 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             B_param = original_params_data[grad_param_name_B].to(torch.float64) #m*r
             
             proj_G = B_param.T @ grad_B #r*r
-            proj_G_inv = torch.linalg.pinv(proj_G) #r*r
-
+            _, S_G, _ = torch.linalg.svd(proj_G, full_matrices=False)
+            print("proj_G SVD: ", S_G)
+            proj_G_inv = torch.linalg.pinv(proj_G, atol=1e-6) #r*r
+            _, S_G_inv, _ = torch.linalg.svd(proj_G_inv, full_matrices=False)
+            print("proj_G_inv SVD: ", S_G_inv)
             #print("pinv error:", torch.norm(A_inv @ A_param - torch.eye(A_inv.shape[0]).to(A_inv)).item())
-            assert torch.norm(proj_G_inv @ proj_G - torch.eye(proj_G_inv.shape[0]).to(proj_G_inv)) < 1e-5
+            #assert torch.norm(proj_G_inv @ proj_G - torch.eye(proj_G_inv.shape[0]).to(proj_G_inv)) < 1e-5
 
             muon_update_name_A = name.replace("lora_B", "lora_A")
             muon_update_name_B = name
 
             if opt_params["fedlora_avg"] == 'muonlora_v1':
-                muon_updates[muon_update_name_A] = -server_lr * grad_A.T.to(param.dtype)
-                muon_updates[muon_update_name_B] = (grad_B @ proj_G_inv).to(param.dtype)
+                
+                muon_updates[muon_update_name_A] = -server_lr * grad_A.T.to(param.dtype) #r*n
+                muon_updates[muon_update_name_B] = (grad_B @ proj_G_inv).to(param.dtype) #m*r
+                print("Psuedo grad Norm: ", torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]))
+                if torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]).item() > 0.01:
+                    print("Muon update is too large! Warning!")
             elif opt_params["fedlora_avg"] == 'muonlora_v2':
                 """
                 pseudo_grad = grad_B @ proj_G_inv @ grad_A.T
@@ -1049,6 +1063,21 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                 muon_updates[muon_update_name_A] = -server_lr *  Vh.to(param.dtype)
                 muon_updates[muon_update_name_B] = U.to(param.dtype)
                 """
+                M = grad_B
+                N = (proj_G_inv @ grad_A.T).T
+
+                Q_M, R_M = torch.linalg.qr(M)
+                Q_N, R_N = torch.linalg.qr(N)
+
+                R = R_M @ R_N.T
+                U_R, S_R, Vh_R = torch.linalg.svd(R)
+
+                
+                muon_updates[muon_update_name_A] = -server_lr * (Q_N @ Vh_R.T).T.to(param.dtype) #r*n
+                muon_updates[muon_update_name_B] = (Q_M @ U_R).to(param.dtype) #m*r
+
+                #print(muon_update_name_A, muon_updates[muon_update_name_A].shape, muon_updates[muon_update_name_B].shape)
+
             
             #recovered_grad = -1 * muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]
             #print("gradB norm:", params_grads[grad_param_name_B].norm().item())

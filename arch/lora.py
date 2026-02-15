@@ -487,6 +487,7 @@ def merge_to_base(model, adapter_name, lora_r, lora_alpha, model_name):
             name_B = name.replace("base_layer", "lora_B.{}".format(adapter_name))
             adapter_A, adapter_B = adapter_weights[name_A], adapter_weights[name_B]
             if model_name in ["gpt2"]:
+                #print(name_A)
                 param.data += lora_alpha / lora_r * (adapter_weights[name_B] @ adapter_weights[name_A]).T
             elif model_name in ["meta-llama/Llama-3.1-8B-Instruct"]:
                 param.data += lora_alpha / lora_r * (adapter_weights[name_B] @ adapter_weights[name_A])
