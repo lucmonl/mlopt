@@ -1,7 +1,7 @@
 import os
 import json
 import numpy as np
-from datasets import load_dataset, Dataset
+from datasets import load_dataset, Dataset, concatenate_datasets
 
 from arch.llama import get_llama_model_and_formats
 
@@ -33,7 +33,23 @@ def get_fed_datasets(file_path):
     
     return local_datasets
 
+def recombine_datasets_evenly(datasets_list, M):
+    N = len(datasets_list)
+    assert M < N, "M must be smaller than N"
 
+    group_size = N // M
+    remainder = N % M
+
+    new_datasets = []
+    idx = 0
+
+    for i in range(M):
+        size = group_size + (1 if i < remainder else 0)
+        group = datasets_list[idx : idx + size]
+        new_datasets.append(concatenate_datasets(group))
+        idx += size
+
+    return new_datasets
 
 def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, model_params, do_eval):
     DATASETS_FOLDER = os.environ["DATA_HOME"]
@@ -58,7 +74,7 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
     data_collator = DataCollatorForSeq2Seq(tokenizer, pad_to_multiple_of=8)
 
     tokenized_datasets = []
-    for client_dataset in client_datasets[1:client_num+1]:  #the last dataset is reserved for evaluation, for now TODO: replace it with standard benchmarks like Vicuna
+    for client_dataset in client_datasets:  #the last dataset is reserved for evaluation, for now TODO: replace it with standard benchmarks like Vicuna
         tokenized_dataset = client_dataset.map(formatting_prompts_func,
                                                fn_kwargs={
                                                     "tokenizer": tokenizer, 
@@ -80,16 +96,20 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
     analysis_size = min(max(batch_size, 128), len(train_dataset))
     analysis_dataset = train_dataset.select(range(analysis_size))
 
+    tokenized_datasets = recombine_datasets_evenly(tokenized_datasets, client_num+1) #last one for eval_dataset
     if do_eval:
-        eval_dataset = client_datasets[0]
+        eval_dataset = tokenized_datasets[-1]
     else:
-        eval_dataset = client_datasets[0]
+        eval_dataset = tokenized_datasets[-1]
+    tokenized_datasets = tokenized_datasets[:-1]
     #if data_args.max_eval_samples is not None:
+    """
     eval_dataset = eval_dataset.map(formatting_prompts_func,
                                     fn_kwargs={
                                         "tokenizer": tokenizer, 
                                         "max_length": 1024
                                     },)
+    """
     if "train_size" in model_params:
         max_eval_samples = min(len(eval_dataset), model_params["train_size"])
         eval_dataset = eval_dataset.select(range(max_eval_samples))
@@ -152,7 +172,7 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
     """
     
     # Initialize our Trainer
-    training_args=TrainingArguments(output_dir="output/", per_device_train_batch_size=batch_size, per_device_eval_batch_size=batch_size)
+    #training_args=TrainingArguments(output_dir="output/", per_device_train_batch_size=batch_size, per_device_eval_batch_size=batch_size)
 
     training_args = TrainingArguments(
         output_dir="output/",
@@ -185,6 +205,7 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
     val_loader = test_loader # val/test already been split
 
     client_loaders = []
+    assert len(tokenized_datasets) == client_num
     for i in range(client_num):
         client_train = tokenized_datasets[i]
         trainer = Trainer(

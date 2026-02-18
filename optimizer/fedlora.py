@@ -1040,7 +1040,13 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             proj_G = B_param.T @ grad_B #r*r
             _, S_G, _ = torch.linalg.svd(proj_G, full_matrices=False)
             print("proj_G SVD: ", S_G)
-            proj_G_inv = torch.linalg.pinv(proj_G, atol=1e-6) #r*r
+            #proj_G_inv = torch.linalg.pinv(proj_G, atol=1e-6) #r*r
+            if opt_params["fedlora_avg"] in ['muonlora_v1']:
+                proj_G_inv = torch.linalg.pinv(proj_G, rtol=1e-3) #r*r
+            elif opt_params["fedlora_avg"] in ['muonlora_v2', 'muonlora_v3']:
+                proj_G_inv = torch.linalg.pinv(proj_G) #r*r
+            else:
+                raise NotImplementedError(f"Choose how to inverse the matrix for {opt_params['fedlora_avg']}")
             _, S_G_inv, _ = torch.linalg.svd(proj_G_inv, full_matrices=False)
             print("proj_G_inv SVD: ", S_G_inv)
             #print("pinv error:", torch.norm(A_inv @ A_param - torch.eye(A_inv.shape[0]).to(A_inv)).item())
@@ -1049,11 +1055,11 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             muon_update_name_A = name.replace("lora_B", "lora_A")
             muon_update_name_B = name
 
-            if opt_params["fedlora_avg"] == 'muonlora_v1':
+            if opt_params["fedlora_avg"] in ['muonlora_v1', 'muonlora_v3']:
                 
                 muon_updates[muon_update_name_A] = -server_lr * grad_A.T.to(param.dtype) #r*n
                 muon_updates[muon_update_name_B] = (grad_B @ proj_G_inv).to(param.dtype) #m*r
-                print("Psuedo grad Norm: ", torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]))
+                print("Pseudo grad Norm: ", torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]))
                 if torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]).item() > 0.01:
                     print("Muon update is too large! Warning!")
             elif opt_params["fedlora_avg"] == 'muonlora_v2':
