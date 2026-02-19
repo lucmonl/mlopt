@@ -976,6 +976,13 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             elif name in adapter_weights:
                 param.grad = param.data - adapter_weights[name]
                 params_grads[name] = param.grad.clone()
+                """
+                print("param original norm: ", param.data.norm().item(), param.data.dtype)
+                print("param original norm 2: ", original_params_data[name].norm().item(), original_params_data[name].data.dtype)
+                print("adapter_weights norm: ", adapter_weights[name].norm().item(), adapter_weights[name].data.dtype)
+                print("adapter diff norm: ", param.grad.norm().item())
+                print("adapter diff norm 2: ", (param.data - adapter_weights[name]).norm().item())
+                """
             else:
                 assert False
 
@@ -1081,6 +1088,9 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                 
                 muon_updates[muon_update_name_A] = -server_lr * (Q_N @ Vh_R.T).T.to(param.dtype) #r*n
                 muon_updates[muon_update_name_B] = (Q_M @ U_R).to(param.dtype) #m*r
+                print("Pseudo grad Norm: ", torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]))
+                if torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]).item() > 0.01:
+                    print("Muon update is too large! Warning!")
 
                 #print(muon_update_name_A, muon_updates[muon_update_name_A].shape, muon_updates[muon_update_name_B].shape)
 
@@ -1167,10 +1177,13 @@ def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, devic
     adapter_weights = {}
     output_weights = {}
     output_layer_name = opt_params["output_layer_name"]
+    base_original_param = {}
 
     model.set_adapter(opt_params["server_name"])
     for name, param in model.named_parameters():
         # select lora_A and lora_B
+        if 'base_layer' in name and 'weight' in name:
+            base_original_param[name] = param.data.clone()
         if param.requires_grad:
             if output_layer_name and output_layer_name in name:
                 output_weights[name]= 0
@@ -1315,8 +1328,11 @@ def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, devic
 
     print("after merging")
     for name, param in model.named_parameters():
-        if "base" in name or opt_params["server_name"] in name:
-            print(name, param.data.norm().item())
+        if "base" in name and 'weight' in name:
+            pseudo_grad_norm = (param.data - base_original_param[name]).norm().item()
+            print(name, pseudo_grad_norm)
+            if pseudo_grad_norm > 0.01:
+                print("Base layer update is too large! Warning!")
 
     #model.merge_adapter(["fr_save_init"])
 

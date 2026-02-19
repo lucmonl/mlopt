@@ -112,8 +112,11 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
     """
     if "train_size" in model_params:
         max_eval_samples = min(len(eval_dataset), model_params["train_size"])
+        max_eval_samples = min(max_eval_samples, 128)
         eval_dataset = eval_dataset.select(range(max_eval_samples))
 
+    max_eval_samples = min(len(eval_dataset), 128)
+    eval_dataset = eval_dataset.select(range(max_eval_samples))
     print("Number of samples in eval dataset: {}".format(len(eval_dataset)))
     eval_analysis_size = min(max(batch_size, 128), len(eval_dataset))
     analysis_eval_dataset = eval_dataset.select(range(eval_analysis_size))
@@ -219,7 +222,22 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
         )
 
         client_loaders.append(trainer.get_train_dataloader())
-
+    """
+    print("first time sample")
+    for batch_idx, item in enumerate(client_loaders[0]):
+        if batch_idx > 0:
+            continue
+        else:
+            print(item["labels"])
+        
+    
+    print("second time sample")
+    for batch_idx, item in enumerate(client_loaders[0]):
+        if batch_idx > 0:
+            continue
+        else:
+            print(item["labels"])
+    """
     training_args=TrainingArguments(output_dir="output/", per_device_train_batch_size=analysis_size, per_device_eval_batch_size=analysis_size)
     trainer = Trainer(
         model=model,
@@ -234,6 +252,8 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
     analysis_test_loader = trainer.get_eval_dataloader()
     transform_to_one_hot = False
     C = None
+
+    print("Number of samples in test_dataset: ", len(test_loader.dataset))
 
     return model, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
 

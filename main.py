@@ -1229,6 +1229,10 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
     track_train_stats = {}
 
     for batch_idx, input in enumerate(train_loader, start=0):
+        if opt_params["client_early_stop"] != -1 and batch_idx > opt_params["client_early_stop"]:
+            # let the loader iterate to the end and next epoch you can get a fresh batch! important to put in the beginning!
+            continue
+
         if opt_params["wild_data"]:
             data, target, metadata = input
             data, target = data.to(device), target.to(device)
@@ -1277,6 +1281,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 print(type(input).__name__)
                 print(input)
                 assert False
+            print("target", target)
             loss, out = output.loss, output.logits
             if opt_params["use_parallel"]:
                 loss = torch.mean(loss)
@@ -1489,8 +1494,6 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             optimizer.zero_grad()
 
         if opt_params["debug"] and batch_idx > 4:
-            break
-        if opt_params["client_early_stop"] != -1 and batch_idx >= opt_params["client_early_stop"]:
             break
 
     if opt_params["opt_name"] == "gd":
