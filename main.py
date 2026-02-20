@@ -1281,7 +1281,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 print(type(input).__name__)
                 print(input)
                 assert False
-            print("target", target)
+            #print("target", target)
             loss, out = output.loss, output.logits
             if opt_params["use_parallel"]:
                 loss = torch.mean(loss)
@@ -1636,6 +1636,7 @@ if __name__ == "__main__":
     parser.add_argument("--debug", type=bool, default=False, help="only run first 20 batches per epoch if set to True")
     parser.add_argument("--dataset",  type=str, choices=DATASETS, help="which dataset to train")
     parser.add_argument("--model",  type=str, choices=MODELS, help="which model to train")
+    parser.add_argument("--init",  type=bool, default=False, help="whether to re-initialize the model weights")
     parser.add_argument("--pretrain", type=str, default="none", help="use pretrained model")
     parser.add_argument("--pretrain_epoch", type=int, default=-1, help="the epoch number for pretrained model")
     parser.add_argument("--pretrain_aug", type=str, default="none", choices=["none", "sam", "clip", "sbb"], help="augmentation used in pretrained model.")
@@ -2034,9 +2035,10 @@ if __name__ == "__main__":
         model_params = {"task_name": args.task_name, }
         if opt_params["opt_name"] == "federated":
             from data.fedllm_bench import load_fedllm_bench_federated
-            model, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_fedllm_bench_federated(model_name, args.task_name, batch_size, opt_params["client_num"], model_params, do_eval)
+            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_fedllm_bench_federated(model_name, args.task_name, batch_size, opt_params["client_num"], model_params, do_eval, init_weights)
         else:
             raise NotImplementedError
+        opt_params["tokenizer"] = tokenizer
     elif dataset_name == "swag":
         if opt_params["opt_name"] == "federated":
             from data.swag import load_swag_federated

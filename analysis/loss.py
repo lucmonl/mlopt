@@ -132,7 +132,13 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
                     assert False
                 physical_batch_size = output.logits.shape[0]
                 loss, out = output.loss * physical_batch_size, output.logits
-                
+                if batch_idx == 1 and "tokenizer" in opt_params:
+                    tokenizer = opt_params["tokenizer"]
+                    print("Input: ")
+                    print(tokenizer.decode(input["input_ids"][0]))
+                    print("Output:")
+                    output_ids = torch.argmax(output.logits, dim=-1).tolist()
+                    print(tokenizer.decode(output_ids[0]))
 
             if compute_acc:
                 if out.dim() > 1:

@@ -51,7 +51,7 @@ def recombine_datasets_evenly(datasets_list, M):
 
     return new_datasets
 
-def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, model_params, do_eval):
+def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, model_params, do_eval, init_weights):
     DATASETS_FOLDER = os.environ["DATA_HOME"]
 
     data_dir = DATASETS_FOLDER + f"FedLLM-Bench-Data/Fed-{task_name}/"
@@ -71,6 +71,11 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
         model, tokenizer, formatting_prompts_func = get_llama_model_and_formats(model_name)
     else:
         raise NotImplementedError
+    
+    if init_weights:
+        model_params = model_params | {"init": "weights"}
+        model.init_weights()
+
     data_collator = DataCollatorForSeq2Seq(tokenizer, pad_to_multiple_of=8)
 
     tokenized_datasets = []
@@ -255,5 +260,5 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
 
     print("Number of samples in test_dataset: ", len(test_loader.dataset))
 
-    return model, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
+    return model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
 

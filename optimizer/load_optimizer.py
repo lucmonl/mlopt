@@ -35,7 +35,7 @@ def load_optimizer_param(opt_name, model, lr, momentum, weight_decay, lr_decay, 
         model_params = model_params | {"scheduler": "cosine", "lr_min": kwargs["lr_min"]} 
     elif kwargs["scheduler_name"] == "multistep":
         lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=epochs_lr_decay, gamma=lr_decay)
-        model_params = model_params | {"scheduler": "cosine", "lr_decay": lr_decay}
+        model_params = model_params | {"scheduler": "multistep", "lr_decay": lr_decay}
     else:
         lr_scheduler = None
     return optimizer, lr_scheduler, model_params

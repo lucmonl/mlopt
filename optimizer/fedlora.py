@@ -954,6 +954,8 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                     if server_adapter_name in adapter_weights:
                         row, col = param.data.shape
                         adapter_weights[server_adapter_name][:row, :col] += param.data/client_num
+                        #print("client norm change: ", param.data.norm().item(), original_params_data[server_adapter_name].norm().item(),
+                        #      (original_params_data[server_adapter_name]-param).norm().item())
                     else:
                         assert False
     model.set_adapter(opt_params["server_name"])
