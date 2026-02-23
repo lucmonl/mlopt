@@ -8,6 +8,8 @@ data/camelyon17_v1.0
 notebook/data
 *.ipynb
 notebook/
+sbatch
+results
 #results/**/*.ckpt
 #results/**/*.json
 #results/**/*.pt
