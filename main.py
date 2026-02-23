@@ -1783,6 +1783,7 @@ if __name__ == "__main__":
 
     # model parameters
     model_name          = args.model #"2-mlp-sim-bn"#"weight_norm_torch" #"weight_norm" #"resnet18"
+    init_weights        = args.init
     opt_params["model_name"] = model_name
     width               = args.width #2048#512 #, 1024
     depth               = args.depth

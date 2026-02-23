@@ -481,11 +481,13 @@ def merge_to_base(model, adapter_name, lora_r, lora_alpha, model_name):
         if adapter_name in name:
             adapter_weights[name] = param.data.clone()
 
+    print("in merge_to_base, tracking update difference:")
     for name, param in model.named_parameters():
         if 'base_layer' in name and 'weight' in name:
             name_A = name.replace("base_layer", "lora_A.{}".format(adapter_name))
             name_B = name.replace("base_layer", "lora_B.{}".format(adapter_name))
             adapter_A, adapter_B = adapter_weights[name_A], adapter_weights[name_B]
+            original_param_data = param.data.clone()
             if model_name in ["gpt2"]:
                 #print(name_A)
                 param.data += lora_alpha / lora_r * (adapter_weights[name_B] @ adapter_weights[name_A]).T
@@ -493,6 +495,8 @@ def merge_to_base(model, adapter_name, lora_r, lora_alpha, model_name):
                 param.data += lora_alpha / lora_r * (adapter_weights[name_B] @ adapter_weights[name_A])
             else:
                 raise NotImplementedError
+            print(name, original_param_data.norm().item(), param.data.norm().item(), (param.data - original_param_data).norm().item())
+            
 
 """
 def lora_reassign_weights(model, state_dict, r, lora_alpha, fan_in_fan_out=False, merge=True):

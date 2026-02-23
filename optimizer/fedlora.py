@@ -971,6 +971,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
         grad_norm = 0
 
     params_grads = {}
+    print("adapter diff norm")
     for name, param in model.named_parameters():
         if param.requires_grad:
             if output_layer_name and output_layer_name in name:
@@ -978,6 +979,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             elif name in adapter_weights:
                 param.grad = param.data - adapter_weights[name]
                 params_grads[name] = param.grad.clone()
+                print(name, param.grad.norm().item())
                 """
                 print("param original norm: ", param.data.norm().item(), param.data.dtype)
                 print("param original norm 2: ", original_params_data[name].norm().item(), original_params_data[name].data.dtype)
@@ -1240,6 +1242,7 @@ def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, devic
     if opt_params["train_stats"]:
         grad_norm = 0
 
+    #print("Gradient Norm: ")
     for name, param in model.named_parameters():
         if param.requires_grad:
             if output_layer_name and output_layer_name in name:
@@ -1248,14 +1251,13 @@ def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, devic
                 param.grad = param.data - adapter_weights[name]
             else:
                 assert False
-
+            #print(name, param.grad.dtype, param.grad.norm())
             if opt_params["train_stats"]:
                 grad_norm += torch.norm(param.grad).item()**2
     if opt_params["train_stats"]:
         train_graphs.grad_norm.append(grad_norm ** 0.5)
         print("grad norm:", train_graphs.grad_norm[-1])
     
-
     server_optimizer.step()
 
     
@@ -1332,7 +1334,7 @@ def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, devic
     for name, param in model.named_parameters():
         if "base" in name and 'weight' in name:
             pseudo_grad_norm = (param.data - base_original_param[name]).norm().item()
-            print(name, pseudo_grad_norm)
+            print(name, type(pseudo_grad_norm), pseudo_grad_norm)
             if pseudo_grad_norm > 0.01:
                 print("Base layer update is too large! Warning!")
 

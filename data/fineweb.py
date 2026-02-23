@@ -2,6 +2,7 @@ import os
 import json
 import numpy as np
 from datasets import load_dataset, Dataset, concatenate_datasets
+from trl import SFTTrainer, SFTConfig
 
 from arch.llama import get_llama_model_and_formats
 
@@ -51,21 +52,19 @@ def recombine_datasets_evenly(datasets_list, M):
 
     return new_datasets
 
-def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, model_params, do_eval, init_weights):
+def load_fineweb_federated(model_name, task_name, batch_size, client_num, model_params, do_eval, init_weights):
     DATASETS_FOLDER = os.environ["DATA_HOME"]
 
-    data_dir = DATASETS_FOLDER + f"FedLLM-Bench-Data/Fed-{task_name}/"
-    
-    if task_name == "ChatbotIT":
-        data_dir += "chatbotIT_237c_6k.json.json"
-    else:
-        raise NotImplementedError
-    print("loading cached dataset: {data_dir}")
-    client_datasets = get_fed_datasets(data_dir)
-    print("Client Num", len(client_datasets))
-    assert client_num+1 <= len(client_datasets)
-    print("Sample: ")
-    print(client_datasets[0][0])
+    if task_name == "10B":
+        local_dir = "fineweb10B"
+        remote_name = "sample-10BT"
+    elif task_name == "100B":
+        local_dir = "fineweb100B"
+        remote_name = "sample-100BT"
+
+    dataset = load_dataset("HuggingFaceFW/fineweb", name=remote_name, split="train")
+    print("Number of Samples in the dataset: ", len(dataset))
+
 
     if 'llama' in model_name:
         model, tokenizer, formatting_prompts_func = get_llama_model_and_formats(model_name)
@@ -79,7 +78,7 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
         #model.init_weights()
         model.apply(model._init_weights)
 
-
+    """
     data_collator = DataCollatorForSeq2Seq(tokenizer, pad_to_multiple_of=8)
 
     tokenized_datasets = []
@@ -112,13 +111,7 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
         eval_dataset = tokenized_datasets[-1]
     tokenized_datasets = tokenized_datasets[:-1]
     #if data_args.max_eval_samples is not None:
-    """
-    eval_dataset = eval_dataset.map(formatting_prompts_func,
-                                    fn_kwargs={
-                                        "tokenizer": tokenizer, 
-                                        "max_length": 1024
-                                    },)
-    """
+
     if "train_size" in model_params:
         max_eval_samples = min(len(eval_dataset), model_params["train_size"])
         max_eval_samples = min(max_eval_samples, 128)
@@ -129,48 +122,7 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
     print("Number of samples in eval dataset: {}".format(len(eval_dataset)))
     eval_analysis_size = min(max(batch_size, 128), len(eval_dataset))
     analysis_eval_dataset = eval_dataset.select(range(eval_analysis_size))
-
-    # Get the metric function
     """
-    if model_params["task_name"] is not None:
-        metric = evaluate.load("glue", model_params["task_name"], cache_dir=DATASETS_FOLDER)
-    elif is_regression:
-        metric = evaluate.load("mse", cache_dir=DATASETS_FOLDER)
-    else:
-        metric = evaluate.load("accuracy", cache_dir=DATASETS_FOLDER)
-    """
-    metric = evaluate.load("rouge")
-
-    # You can define your custom compute_metrics function. It takes an `EvalPrediction` object (a namedtuple with a
-    # predictions and label_ids field) and has to return a dictionary string to float.
-    def compute_metrics(p: EvalPrediction):
-        preds, labels = p
-        
-        # 1. Take the argmax to get the predicted token IDs
-        # preds shape: (batch, seq_len, vocab_size) -> (batch, seq_len)
-        if isinstance(preds, tuple):
-            preds = preds[0]
-        decoded_preds = np.argmax(preds, axis=-1)
-
-        # 2. Replace -100 in labels (we don't want to decode prompt/padding)
-        labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
-
-        # 3. Decode back to text
-        decoded_preds = tokenizer.batch_decode(decoded_preds, skip_special_tokens=True)
-        decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
-
-        # 4. Clean up strings (ROUGE expects newline separation for summaries/instructions)
-        decoded_preds = [pred.strip() for pred in decoded_preds]
-        decoded_labels = [label.strip() for label in decoded_labels]
-
-        # 5. Compute ROUGE
-        result = metric.compute(
-            predictions=decoded_preds, 
-            references=decoded_labels, 
-            use_stemmer=True
-        )
-        
-        return {k: round(v, 4) for k, v in result.items()}
 
     # Data collator will default to DataCollatorWithPadding when the tokenizer is passed to Trainer, so we change it if
     # we already did the padding.
@@ -185,7 +137,7 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
     
     # Initialize our Trainer
     #training_args=TrainingArguments(output_dir="output/", per_device_train_batch_size=batch_size, per_device_eval_batch_size=batch_size)
-
+    """
     training_args = TrainingArguments(
         output_dir="output/",
         per_device_train_batch_size=batch_size, # Kept low to avoid OOM in full precision
@@ -200,15 +152,34 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
         optim="adamw_torch_fused",     # Fused optimizer is faster
         gradient_checkpointing=True    # CRITICAL: Saves VRAM by recomputing activations
     )
+    """
 
-    trainer = Trainer(
+    # train/val split
+    dataset = dataset.shuffle(seed=42)
+    eval_dataset = dataset.select(range(256))
+    train_dataset = dataset.select(range(256, len(dataset)))
+    analysis_dataset = train_dataset.select(range(256))
+    analysis_eval_dataset = eval_dataset
+
+
+    sft_config = SFTConfig(
+        output_dir="output/",
+        max_seq_length=1024,      # Context window size
+        packing=True,             # THE MAGIC SWITCH
+        dataset_text_field="text",
+        per_device_train_batch_size=batch_size,
+        learning_rate=2e-4,
+        max_steps=100,
+        save_steps=50,
+        bf16=True,
+    )
+
+    trainer = SFTTrainer(
         model=model,
-        args=training_args,
-        train_dataset=train_dataset, # if training_args.do_train else None,
-        eval_dataset=eval_dataset, # if training_args.do_eval else None,
-        compute_metrics=compute_metrics,
-        tokenizer=tokenizer,
-        data_collator=data_collator,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
+        args=sft_config,
+        # No need for a custom collator; SFTTrainer handles it when packing=True
     )
 
     data_params = {"compute_acc": False}
@@ -217,20 +188,17 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
     val_loader = test_loader # val/test already been split
 
     client_loaders = []
-    assert len(tokenized_datasets) == client_num
     for i in range(client_num):
-        client_train = tokenized_datasets[i]
-        trainer = Trainer(
-            model=model,
-            args=training_args,
-            train_dataset=client_train, # if training_args.do_train else None,
-            eval_dataset=eval_dataset, # if training_args.do_eval else None,
-            compute_metrics=compute_metrics,
-            tokenizer=tokenizer,
-            data_collator=data_collator,
-        )
+        client_loaders.append(train_loader)
 
-        client_loaders.append(trainer.get_train_dataloader())
+    trainer = SFTTrainer(
+        model=model,
+        train_dataset=analysis_dataset,
+        eval_dataset=analysis_eval_dataset,
+        args=sft_config,
+        # No need for a custom collator; SFTTrainer handles it when packing=True
+    )
+
     """
     print("first time sample")
     for batch_idx, item in enumerate(client_loaders[0]):
@@ -247,16 +215,6 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
         else:
             print(item["labels"])
     """
-    training_args=TrainingArguments(output_dir="output/", per_device_train_batch_size=analysis_size, per_device_eval_batch_size=analysis_size)
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=analysis_dataset, # if training_args.do_train else None,
-        eval_dataset=analysis_eval_dataset, # if training_args.do_eval else None,
-        compute_metrics=compute_metrics,
-        tokenizer=tokenizer,
-        data_collator=data_collator,
-    )
     analysis_loader = trainer.get_train_dataloader()
     analysis_test_loader = trainer.get_eval_dataloader()
     transform_to_one_hot = False

@@ -94,6 +94,7 @@ def get_llama_model_and_formats(model_name):
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         torch_dtype=torch.bfloat16,
+        #torch_dtype=torch.float16,
         device_map="auto",
         attn_implementation="sdpa"
     )
