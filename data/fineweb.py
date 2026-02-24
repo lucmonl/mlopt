@@ -78,82 +78,6 @@ def load_fineweb_federated(model_name, task_name, batch_size, client_num, model_
         #model.init_weights()
         model.apply(model._init_weights)
 
-    """
-    data_collator = DataCollatorForSeq2Seq(tokenizer, pad_to_multiple_of=8)
-
-    tokenized_datasets = []
-    for client_dataset in client_datasets:  #the last dataset is reserved for evaluation, for now TODO: replace it with standard benchmarks like Vicuna
-        tokenized_dataset = client_dataset.map(formatting_prompts_func,
-                                               fn_kwargs={
-                                                    "tokenizer": tokenizer, 
-                                                    "max_length": 1024
-                                                },)
-        tokenized_datasets.append(tokenized_dataset)
-
-    train_dataset = tokenized_datasets[0] # dummy dataset
-    if "train_size" in model_params:
-        max_train_samples = min(len(train_dataset), model_params["train_size"])
-        train_dataset = train_dataset.select(range(max_train_samples))
-
-    train_dataset = train_dataset.map(formatting_prompts_func,
-                                fn_kwargs={
-                                    "tokenizer": tokenizer, 
-                                    "max_length": 1024
-                                },)
-
-    analysis_size = min(max(batch_size, 128), len(train_dataset))
-    analysis_dataset = train_dataset.select(range(analysis_size))
-
-    tokenized_datasets = recombine_datasets_evenly(tokenized_datasets, client_num+1) #last one for eval_dataset
-    if do_eval:
-        eval_dataset = tokenized_datasets[-1]
-    else:
-        eval_dataset = tokenized_datasets[-1]
-    tokenized_datasets = tokenized_datasets[:-1]
-    #if data_args.max_eval_samples is not None:
-
-    if "train_size" in model_params:
-        max_eval_samples = min(len(eval_dataset), model_params["train_size"])
-        max_eval_samples = min(max_eval_samples, 128)
-        eval_dataset = eval_dataset.select(range(max_eval_samples))
-
-    max_eval_samples = min(len(eval_dataset), 128)
-    eval_dataset = eval_dataset.select(range(max_eval_samples))
-    print("Number of samples in eval dataset: {}".format(len(eval_dataset)))
-    eval_analysis_size = min(max(batch_size, 128), len(eval_dataset))
-    analysis_eval_dataset = eval_dataset.select(range(eval_analysis_size))
-    """
-
-    # Data collator will default to DataCollatorWithPadding when the tokenizer is passed to Trainer, so we change it if
-    # we already did the padding.
-    """
-    if data_args.pad_to_max_length:
-        data_collator = default_data_collator
-    elif training_args.fp16:
-        data_collator = DataCollatorWithPadding(tokenizer, pad_to_multiple_of=8)
-    else:
-        data_collator = None
-    """
-    
-    # Initialize our Trainer
-    #training_args=TrainingArguments(output_dir="output/", per_device_train_batch_size=batch_size, per_device_eval_batch_size=batch_size)
-    """
-    training_args = TrainingArguments(
-        output_dir="output/",
-        per_device_train_batch_size=batch_size, # Kept low to avoid OOM in full precision
-        gradient_accumulation_steps=1, # Increase this to simulate larger batch size
-        learning_rate=2e-5,            # Lower LR for full fine-tuning, dummy
-        weight_decay=0.01,
-        logging_steps=1,
-        max_steps=100,
-        bf16=True,                     # Required for Llama 3.1 stability
-        save_strategy="steps",
-        save_steps=50,
-        optim="adamw_torch_fused",     # Fused optimizer is faster
-        gradient_checkpointing=True    # CRITICAL: Saves VRAM by recomputing activations
-    )
-    """
-
     # train/val split
     dataset = dataset.shuffle(seed=42)
     eval_dataset = dataset.select(range(256))
@@ -164,7 +88,7 @@ def load_fineweb_federated(model_name, task_name, batch_size, client_num, model_
 
     sft_config = SFTConfig(
         output_dir="output/",
-        max_seq_length=1024,      # Context window size
+        max_length=1024,      # Context window size
         packing=True,             # THE MAGIC SWITCH
         dataset_text_field="text",
         per_device_train_batch_size=batch_size,
@@ -199,6 +123,16 @@ def load_fineweb_federated(model_name, task_name, batch_size, client_num, model_
         # No need for a custom collator; SFTTrainer handles it when packing=True
     )
 
+    print("first time sample")
+    data_iter = iter(client_loaders[0])
+    item = next(data_iter)
+    print(item)
+
+    print("second time sample")
+    data_iter = iter(client_loaders[0])
+    item = next(data_iter)
+    print(item)
+    sys.exit()
     """
     print("first time sample")
     for batch_idx, item in enumerate(client_loaders[0]):

@@ -1228,7 +1228,13 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
     loss = torch.FloatTensor([0])
     track_train_stats = {}
 
+    data_iter = iter(train_loader)
+    batch_idx = -1
     for batch_idx, input in enumerate(train_loader, start=0):
+    #while True:
+    #    batch_idx += 1
+    #    input = next(data_iter)
+
         if opt_params["client_early_stop"] != -1 and batch_idx > opt_params["client_early_stop"]:
             # let the loader iterate to the end and next epoch you can get a fresh batch! important to put in the beginning!
             continue
@@ -1614,7 +1620,7 @@ def hook(self, input, output):
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "cifar100", "imagenet_tiny", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", 
                 "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds", "icl", "20newsgroups", "mathqa_gsm8k", "swag",
-                "spider", "fedllm_bench"]
+                "spider", "fedllm_bench", "fineweb"]
     HF_MODELS = ["google/vit-base-patch16-224-in21k", "gpt2", "roberta-base", "akjindal53244/Arithmo-Mistral-7B", 
                 "mistralai/Mistral-7B-v0.1", "google/vit-huge-patch14-224-in21k", "deepseek-ai/deepseek-coder-1.3b-instruct",
                 "meta-llama/Llama-3.1-8B-Instruct"]
@@ -2037,6 +2043,14 @@ if __name__ == "__main__":
         if opt_params["opt_name"] == "federated":
             from data.fedllm_bench import load_fedllm_bench_federated
             model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_fedllm_bench_federated(model_name, args.task_name, batch_size, opt_params["client_num"], model_params, do_eval, init_weights)
+        else:
+            raise NotImplementedError
+        opt_params["tokenizer"] = tokenizer
+    elif dataset_name == "fineweb":
+        model_params = {"task_name": args.task_name, }
+        if opt_params["opt_name"] == "federated":
+            from data.fineweb import load_fineweb_federated
+            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_fineweb_federated(model_name, args.task_name, batch_size, opt_params["client_num"], model_params, do_eval, init_weights)
         else:
             raise NotImplementedError
         opt_params["tokenizer"] = tokenizer

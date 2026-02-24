@@ -9,6 +9,7 @@ from transformers import (
     Trainer,
     DataCollatorWithPadding
 )
+import os
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
 prompt_format = """<|begin_of_text|><|start_header_id|>user<|end_header_id|>
@@ -69,9 +70,9 @@ def get_llama_model_and_formats(model_name):
     load_in_4bit = True # Use 4bit quantization to reduce memory usage
 
     model_id = "meta-llama/Llama-3.1-8B-Instruct"
-
+    model_dir = os.environ["MODEL_HOME"]
     # 1. Load Tokenizer & Quantization Config
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer = AutoTokenizer.from_pretrained(model_id, cache_dir=model_dir)
     tokenizer.pad_token = tokenizer.eos_token
     #tokenizer.padding_side = "right" 
     """
@@ -96,7 +97,8 @@ def get_llama_model_and_formats(model_name):
         torch_dtype=torch.bfloat16,
         #torch_dtype=torch.float16,
         device_map="auto",
-        attn_implementation="sdpa"
+        #attn_implementation="sdpa"
+        attn_implementation="flash_attention_3"
     )
 
     return model, tokenizer, format_and_mask_instruction
