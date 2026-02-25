@@ -1,7 +1,7 @@
 import os
 import json
 import numpy as np
-from datasets import load_dataset, Dataset, concatenate_datasets
+from datasets import load_dataset, Dataset, concatenate_datasets, load_from_disk
 from trl import SFTTrainer, SFTConfig
 
 from arch.llama import get_llama_model_and_formats
@@ -62,7 +62,10 @@ def load_fineweb_federated(model_name, task_name, batch_size, client_num, model_
         local_dir = "fineweb100B"
         remote_name = "sample-100BT"
 
-    dataset = load_dataset("HuggingFaceFW/fineweb", name=remote_name, split="train")
+    #dataset = load_dataset("HuggingFaceFW/fineweb", name=remote_name, split="train")
+    DATA_FOLDER = os.environ["DATA_HOME"]
+    PROCESSED_DATA_DIR = DATA_FOLDER + f"fineweb{task_name}/{model_name}/"
+    dataset = load_from_disk(PROCESSED_DATA_DIR + "fineweb_dedup_eos.jsonl")
     print("Number of Samples in the dataset: ", len(dataset))
 
 
@@ -85,12 +88,20 @@ def load_fineweb_federated(model_name, task_name, batch_size, client_num, model_
     analysis_dataset = train_dataset.select(range(256))
     analysis_eval_dataset = eval_dataset
 
+    """
+    train_dataset = train_dataset.select(range(20))
+    eval_dataset = eval_dataset.select(range(20))
+    analysis_dataset= analysis_dataset.select(range(20))
+    analysis_eval_dataset = analysis_eval_dataset.select(range(20))
+    """
+
 
     sft_config = SFTConfig(
         output_dir="output/",
-        max_length=1024,      # Context window size
-        packing=True,             # THE MAGIC SWITCH
-        dataset_text_field="text",
+        max_length=None,      # Context window size
+        packing=False,
+        #packing=True,             # THE MAGIC SWITCH
+        dataset_text_field=None,  # IMPORTANT
         per_device_train_batch_size=batch_size,
         learning_rate=2e-4,
         max_steps=100,
@@ -103,6 +114,7 @@ def load_fineweb_federated(model_name, task_name, batch_size, client_num, model_
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         args=sft_config,
+        #add_eos_token=False,      # IMPORTANT
         # No need for a custom collator; SFTTrainer handles it when packing=True
     )
 
@@ -111,9 +123,13 @@ def load_fineweb_federated(model_name, task_name, batch_size, client_num, model_
     test_loader = trainer.get_eval_dataloader()
     val_loader = test_loader # val/test already been split
 
-    client_loaders = []
-    for i in range(client_num):
-        client_loaders.append(train_loader)
+    #train_iter init
+    train_iter = iter(train_loader)
+
+    #client_loaders = []
+    #for i in range(client_num):
+    #    client_loaders.append(train_iter)
+    client_loaders = [train_iter, train_loader]
 
     trainer = SFTTrainer(
         model=model,
@@ -122,17 +138,17 @@ def load_fineweb_federated(model_name, task_name, batch_size, client_num, model_
         args=sft_config,
         # No need for a custom collator; SFTTrainer handles it when packing=True
     )
-
+    """
     print("first time sample")
-    data_iter = iter(client_loaders[0])
+    data_iter = client_loaders[0]
     item = next(data_iter)
     print(item)
 
     print("second time sample")
-    data_iter = iter(client_loaders[0])
+    data_iter = client_loaders[1]
     item = next(data_iter)
     print(item)
-    sys.exit()
+    """
     """
     print("first time sample")
     for batch_idx, item in enumerate(client_loaders[0]):

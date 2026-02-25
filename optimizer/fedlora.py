@@ -941,8 +941,15 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
         client_model.train()
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], opt_params["lr_decay"], opt_params["epochs_lr_decay"], False, model_params, opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
+        
         for epoch in range(client_epoch):
-            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
+            try:
+                assert iter(train_loaders[0]) == train_loaders[0]
+                train(client_model, loss_name, criterion, device, train_loaders[0], optimizer, lr_scheduler, server_epoch, client_opt_params)
+            except StopIteration:
+                # reinitialize iterator
+                print("\nData Iterator is reloaded")
+                train_loaders[0] = iter(train_loaders[1])
             
         for name, param in client_model.named_parameters():
             if param.requires_grad:
@@ -1214,8 +1221,14 @@ def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, devic
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], opt_params["lr_decay"], opt_params["epochs_lr_decay"], False, model_params, opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
-            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
-            
+            try:
+                assert iter(train_loaders[0]) == train_loaders[0]
+                train(client_model, loss_name, criterion, device, train_loaders[0], optimizer, lr_scheduler, server_epoch, client_opt_params)
+            except StopIteration:
+                # reinitialize iterator
+                print("\nData Iterator is reloaded")
+                train_loaders[0] = iter(train_loaders[1])
+
         for name, param in client_model.named_parameters():
             if param.requires_grad:
                 #param_names.append(name)

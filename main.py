@@ -1221,23 +1221,43 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
     #old_params = parameters_to_vector(model.parameters())
     model.train()
     
-    pbar = tqdm(total=len(train_loader), position=0, leave=True, file=sys.stdout)
+    
 
     # initialize training statistics
     accuracy = 0
     loss = torch.FloatTensor([0])
     track_train_stats = {}
 
-    data_iter = iter(train_loader)
+    
     batch_idx = -1
-    for batch_idx, input in enumerate(train_loader, start=0):
-    #while True:
-    #    batch_idx += 1
-    #    input = next(data_iter)
 
+    input_is_train_loader = None
+    if iter(train_loader) is train_loader:
+        input_is_train_loader = False
+        data_iter = train_loader
+        len_train_loader = 1
+        pbar = tqdm(total=len_train_loader, position=0, leave=True, file=sys.stdout)
+    else:
+        input_is_train_loader = True
+        data_iter = iter(train_loader)
+        len_train_loader = len(train_loader)
+        pbar = tqdm(total=len_train_loader, position=0, leave=True, file=sys.stdout)
+
+    #for batch_idx, input in enumerate(train_loader, start=0):
+    while True:
+        batch_idx += 1
+        try:
+            input = next(data_iter)
+        except StopIteration:
+            if input_is_train_loader:
+                break
+            else:
+                raise StopIteration
+            
         if opt_params["client_early_stop"] != -1 and batch_idx > opt_params["client_early_stop"]:
             # let the loader iterate to the end and next epoch you can get a fresh batch! important to put in the beginning!
-            continue
+            #continue
+            break
 
         if opt_params["wild_data"]:
             data, target, metadata = input
@@ -1477,8 +1497,8 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             'Batch Accuracy: {:.6f}'.format(
                 epoch,
                 batch_idx,
-                len(train_loader),
-                100. * batch_idx / len(train_loader),
+                len_train_loader,
+                100. * batch_idx / len_train_loader,
                 loss.item(),
                 accuracy))
         
