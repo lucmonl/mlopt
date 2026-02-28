@@ -64,12 +64,12 @@ def format_and_mask_instruction(example, tokenizer, max_length=2048):
     }
 
 
-def get_llama_model_and_formats(model_name):
+def get_llama_model_and_formats(model_name, dtype, model_params):
     max_seq_length = 2048 
-    dtype = None # None for auto detection
+    #dtype = None # None for auto detection
     load_in_4bit = True # Use 4bit quantization to reduce memory usage
 
-    model_id = "meta-llama/Llama-3.1-8B-Instruct"
+    model_id = model_name
     # 1. Load Tokenizer & Quantization Config
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
@@ -90,10 +90,20 @@ def get_llama_model_and_formats(model_name):
         torch_dtype=torch.bfloat16
     )
     """
+    if dtype in ["default", "bf16"]:
+        torch_dtype = torch.bfloat16
+    elif dtype == "fp16":
+        torch_dtype = torch.float16
+        model_params["dtype"] = dtype
+    elif dtype == "fp32":
+        torch_dtype = torch.float32
+        model_params["dtype"] = dtype
+    else:
+        raise NotImplementedError
 
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
-        torch_dtype=torch.bfloat16,
+        torch_dtype=torch_dtype,
         #torch_dtype=torch.float16,
         device_map="auto",
         attn_implementation="sdpa"

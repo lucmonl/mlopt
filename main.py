@@ -1678,6 +1678,7 @@ if __name__ == "__main__":
     parser.add_argument("--basis_var", type=float, default=5, help="variance for initialization")
     parser.add_argument("--wn_scale", type=float, default=10, help="scaling coef for weight_norm model")
     parser.add_argument("--activation",  type=str, default="none", choices=["cube", "tanh", "relu", "dual_leaky_relu", "none"], help="Activation function for user-specified model")
+    parser.add_argument("--dtype", type=str, default="default", choices=["default", "bf16", "fp16", "fp32"], help="model param dtype")
 
     #parser.add_argument("--vit_patch_size", type=int, default=8, help="patch size for ViT")
     parser.add_argument("--vit_patch_size", type=int, default=8, help="patch size for ViT")
@@ -1817,6 +1818,7 @@ if __name__ == "__main__":
     wn_basis_var        = args.basis_var
     wn_scale            = args.wn_scale
     width_factor        = args.width_factor
+    opt_params["dtype"] = args.dtype
 
     vit_patch_size      = args.vit_patch_size
     #vit_head_num        = args.vit_head_num
@@ -2062,7 +2064,7 @@ if __name__ == "__main__":
         model_params = {"task_name": args.task_name, }
         if opt_params["opt_name"] == "federated":
             from data.fedllm_bench import load_fedllm_bench_federated
-            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_fedllm_bench_federated(model_name, args.task_name, batch_size, opt_params["client_num"], model_params, do_eval, init_weights)
+            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_fedllm_bench_federated(model_name, args.task_name, batch_size, opt_params["client_num"], model_params, do_eval, opt_params["dtype"], init_weights)
         else:
             raise NotImplementedError
         opt_params["tokenizer"] = tokenizer
@@ -2070,7 +2072,7 @@ if __name__ == "__main__":
         model_params = {"task_name": args.task_name, }
         if opt_params["opt_name"] == "federated":
             from data.fineweb import load_fineweb_federated
-            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_fineweb_federated(model_name, args.task_name, batch_size, opt_params["client_num"], model_params, do_eval, init_weights)
+            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_fineweb_federated(model_name, args.task_name, batch_size, opt_params["client_num"], model_params, opt_params["dtype"], init_weights)
         else:
             raise NotImplementedError
         opt_params["tokenizer"] = tokenizer

@@ -51,7 +51,7 @@ def recombine_datasets_evenly(datasets_list, M):
 
     return new_datasets
 
-def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, model_params, do_eval, init_weights):
+def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, model_params, do_eval, dtype, init_weights):
     DATASETS_FOLDER = os.environ["DATA_HOME"]
 
     data_dir = DATASETS_FOLDER + f"FedLLM-Bench-Data/Fed-{task_name}/"
@@ -68,7 +68,7 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
     print(client_datasets[0][0])
 
     if 'llama' in model_name:
-        model, tokenizer, formatting_prompts_func = get_llama_model_and_formats(model_name)
+        model, tokenizer, formatting_prompts_func = get_llama_model_and_formats(model_name, dtype, model_params)
     else:
         raise NotImplementedError
     
@@ -186,6 +186,12 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
     # Initialize our Trainer
     #training_args=TrainingArguments(output_dir="output/", per_device_train_batch_size=batch_size, per_device_eval_batch_size=batch_size)
 
+
+    if dtype in ["default", "bf16"]:
+        use_bf16 = True
+    else:
+        use_bf16 = False
+
     training_args = TrainingArguments(
         output_dir="output/",
         per_device_train_batch_size=batch_size, # Kept low to avoid OOM in full precision
@@ -194,7 +200,7 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
         weight_decay=0.01,
         logging_steps=1,
         max_steps=100,
-        bf16=True,                     # Required for Llama 3.1 stability
+        bf16=use_bf16,                     # Required for Llama 3.1 stability
         save_strategy="steps",
         save_steps=50,
         optim="adamw_torch_fused",     # Fused optimizer is faster

@@ -52,7 +52,7 @@ def recombine_datasets_evenly(datasets_list, M):
 
     return new_datasets
 
-def load_fineweb_federated(model_name, task_name, batch_size, client_num, model_params, do_eval, init_weights):
+def load_fineweb_federated(model_name, task_name, batch_size, client_num, model_params, dtype, init_weights):
     DATASETS_FOLDER = os.environ["DATA_HOME"]
 
     if task_name == "10B":
@@ -68,9 +68,8 @@ def load_fineweb_federated(model_name, task_name, batch_size, client_num, model_
     dataset = load_from_disk(PROCESSED_DATA_DIR + "fineweb_dedup_eos.jsonl")
     print("Number of Samples in the dataset: ", len(dataset))
 
-
     if 'llama' in model_name:
-        model, tokenizer, formatting_prompts_func = get_llama_model_and_formats(model_name)
+        model, tokenizer, formatting_prompts_func = get_llama_model_and_formats(model_name, dtype, model_params)
     else:
         raise NotImplementedError
     
@@ -95,6 +94,10 @@ def load_fineweb_federated(model_name, task_name, batch_size, client_num, model_
     analysis_eval_dataset = analysis_eval_dataset.select(range(20))
     """
 
+    if dtype in ["default", "bf16"]:
+        use_bf16 = True
+    else:
+        use_bf16 = False
 
     sft_config = SFTConfig(
         output_dir="output/",
@@ -106,7 +109,7 @@ def load_fineweb_federated(model_name, task_name, batch_size, client_num, model_
         learning_rate=2e-4,
         max_steps=100,
         save_steps=50,
-        bf16=True,
+        bf16=use_bf16,
     )
 
     trainer = SFTTrainer(
