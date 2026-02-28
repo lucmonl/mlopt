@@ -10,6 +10,8 @@ notebook/data
 notebook/
 sbatch
 results
+output/
+output
 #results/**/*.ckpt
 #results/**/*.json
 #results/**/*.pt
