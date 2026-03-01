@@ -1243,14 +1243,19 @@ def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, devic
                 #param_names.append(name)
                 server_adapter_name = name.replace("{}".format(adapter_name), opt_params["server_name"])
                 if output_layer_name and output_layer_name in name:
-                    output_weights[server_adapter_name] += param.data / client_num
+                    output_weights[server_adapter_name] += param.data #/ client_num
                 else:
                     if server_adapter_name in adapter_weights:
                         row, col = param.data.shape
-                        adapter_weights[server_adapter_name][:row, :col] += param.data/client_num
+                        adapter_weights[server_adapter_name][:row, :col] += param.data #/client_num
                     else:
                         assert False
     
+    for server_adapter_name in output_weights:
+        output_weights[server_adapter_name] = output_weights[server_adapter_name] / client_num
+
+    for server_adapter_name in adapter_weights:
+        adapter_weights[server_adapter_name] = adapter_weights[server_adapter_name] / client_num
     
     model.set_adapter(opt_params["server_name"])
     #truncate_err, truncate_err_ratio = compute_truncate_err(model, adapter_weights, client_num, opt_params["model_name"], opt_params["server_name"])
