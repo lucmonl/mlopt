@@ -900,12 +900,25 @@ def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, dev
         elif output_layer_name in name:
             param.data = opt_params["server_params"][name]
 
-
+def get_muonlora_hparams(fedlora_avg_name):
+    if fedlora_avg_name == 'muonlora_v1':
+        use_model_grad, use_rtol_inv, use_norm_grad = False, True, False
+    elif fedlora_avg_name == 'muonlora_v2':
+        use_model_grad, use_rtol_inv, use_norm_grad = False, False, True
+    elif fedlora_avg_name == 'muonlora_v3':
+        use_model_grad, use_rtol_inv, use_norm_grad = False, False, False
+    elif fedlora_avg_name == 'muonlora_v4':
+        use_model_grad, use_rtol_inv, use_norm_grad = True, False, True
+    else:
+        raise NotImplementedError
+    return use_model_grad, use_rtol_inv, use_norm_grad
 
 def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
     import copy
     from main import train
+
+    use_model_grad, use_rtol_inv, use_norm_grad = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
 
     adapter_names = []
     adapter_weights = {}
@@ -945,7 +958,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
         for epoch in range(client_epoch):
             try:
                 assert iter(train_loaders[0]) == train_loaders[0]
-                train(client_model, loss_name, criterion, device, train_loaders[0], optimizer, lr_scheduler, server_epoch, client_opt_params)
+                _, model_grad = train(client_model, loss_name, criterion, device, train_loaders[0], optimizer, lr_scheduler, server_epoch, client_opt_params)
             except StopIteration:
                 # reinitialize iterator
                 print("\nData Iterator is reloaded")
@@ -956,11 +969,19 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                 #param_names.append(name)
                 server_adapter_name = name.replace("{}".format(adapter_name), opt_params["server_name"])
                 if output_layer_name and output_layer_name in name:
-                    output_weights[server_adapter_name] += param.data #/ client_num
+                    if use_model_grad:
+                        output_weights[server_adapter_name] += model_grad[name]
+                    else:
+                        output_weights[server_adapter_name] += param.data #/ client_num
+                    
                 else:
                     if server_adapter_name in adapter_weights:
                         row, col = param.data.shape
-                        adapter_weights[server_adapter_name][:row, :col] += param.data #/client_num
+                        #
+                        if use_model_grad:
+                            adapter_weights[server_adapter_name][:row, :col] += model_grad[name]
+                        else:
+                            adapter_weights[server_adapter_name][:row, :col] += param.data #/client_num
                         #print("client norm change: ", param.data.norm().item(), original_params_data[server_adapter_name].norm().item(),
                         #      (original_params_data[server_adapter_name]-param).norm().item())
                     else:
@@ -991,9 +1012,15 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     for name, param in model.named_parameters():
         if param.requires_grad:
             if output_layer_name and output_layer_name in name:
-                param.grad = param.data - output_weights[name]
+                if use_model_grad:
+                    param.grad = output_weights[name]
+                else:
+                    param.grad = param.data - output_weights[name]
             elif name in adapter_weights:
-                param.grad = param.data - adapter_weights[name]
+                if use_model_grad:
+                    param.grad = adapter_weights[name]
+                else:
+                    param.grad = param.data - adapter_weights[name]
                 params_grads[name] = param.grad.clone()
                 print(name, param.grad.norm().item())
                 """
@@ -1068,12 +1095,18 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             _, S_G, _ = torch.linalg.svd(proj_G, full_matrices=False)
             print("proj_G SVD: ", S_G)
             #proj_G_inv = torch.linalg.pinv(proj_G, atol=1e-6) #r*r
+            """
             if opt_params["fedlora_avg"] in ['muonlora_v1']:
                 proj_G_inv = torch.linalg.pinv(proj_G, rtol=1e-3) #r*r
             elif opt_params["fedlora_avg"] in ['muonlora_v2', 'muonlora_v3']:
                 proj_G_inv = torch.linalg.pinv(proj_G) #r*r
             else:
                 raise NotImplementedError(f"Choose how to inverse the matrix for {opt_params['fedlora_avg']}")
+            """
+            if use_rtol_inv:
+                proj_G_inv = torch.linalg.pinv(proj_G, rtol=1e-3)
+            else:
+                proj_G_inv = torch.linalg.pinv(proj_G)
             _, S_G_inv, _ = torch.linalg.svd(proj_G_inv, full_matrices=False)
             print("proj_G_inv SVD: ", S_G_inv)
             #print("pinv error:", torch.norm(A_inv @ A_param - torch.eye(A_inv.shape[0]).to(A_inv)).item())
@@ -1082,14 +1115,9 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             muon_update_name_A = name.replace("lora_B", "lora_A")
             muon_update_name_B = name
 
-            if opt_params["fedlora_avg"] in ['muonlora_v1', 'muonlora_v3']:
-                
-                muon_updates[muon_update_name_A] = -server_lr * grad_A.T.to(param.dtype) #r*n
-                muon_updates[muon_update_name_B] = (grad_B @ proj_G_inv).to(param.dtype) #m*r
-                print("Pseudo grad Norm: ", torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]))
-                if torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]).item() > 0.01:
-                    print("Muon update is too large! Warning!")
-            elif opt_params["fedlora_avg"] == 'muonlora_v2':
+            #if opt_params["fedlora_avg"] in ['muonlora_v1', 'muonlora_v3']:
+            #elif opt_params["fedlora_avg"] == 'muonlora_v2':
+            if use_norm_grad: 
                 """
                 pseudo_grad = grad_B @ proj_G_inv @ grad_A.T
                 U, _, Vh = torch.linalg.svd(pseudo_grad, full_matrices=False)
@@ -1113,7 +1141,12 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                     print("Muon update is too large! Warning!")
 
                 #print(muon_update_name_A, muon_updates[muon_update_name_A].shape, muon_updates[muon_update_name_B].shape)
-
+            else:
+                muon_updates[muon_update_name_A] = -server_lr * grad_A.T.to(param.dtype) #r*n
+                muon_updates[muon_update_name_B] = (grad_B @ proj_G_inv).to(param.dtype) #m*r
+                print("Pseudo grad Norm: ", torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]))
+                if torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]).item() > 0.01:
+                    print("Muon update is too large! Warning!")
             
             #recovered_grad = -1 * muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]
             #print("gradB norm:", params_grads[grad_param_name_B].norm().item())

@@ -73,12 +73,20 @@ def load_fineweb_federated(model_name, task_name, batch_size, client_num, model_
     else:
         raise NotImplementedError
     
+    originial_param = {}
+    for name, param in model.named_parameters():
+        originial_param[name] = param.data.clone()
+
     if init_weights:
         print("Model weights are re-initialized.")
         #model_params = model_params | {"init": "weights"}
         model_params["init"] = "weights"
         #model.init_weights()
         model.apply(model._init_weights)
+
+    print("Reinit difference: ")
+    for name, param in model.named_parameters():
+        print(name, (param.data - originial_param[name]).norm().item())
 
     # train/val split
     dataset = dataset.shuffle(seed=42)

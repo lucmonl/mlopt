@@ -12,6 +12,7 @@ sbatch
 results
 output/
 output
+.vscode/
 #results/**/*.ckpt
 #results/**/*.json
 #results/**/*.pt

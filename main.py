@@ -398,7 +398,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         from optimizer.fedlora import federated_frlora
         federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
         return
-    elif opt_params["fedlora_avg"] in ["muonlora_v1", "muonlora_v2", "muonlora_v3"]:
+    elif opt_params["fedlora_avg"].startswith('muonlora_v'): # in ["muonlora_v1", "muonlora_v2", "muonlora_v3", "muonlora_v4"]:
         from optimizer.fedlora import federated_muonlora
         federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
         return
@@ -1221,12 +1221,11 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
     #old_params = parameters_to_vector(model.parameters())
     model.train()
     
-    
-
     # initialize training statistics
     accuracy = 0
     loss = torch.FloatTensor([0])
     track_train_stats = {}
+    model_grad = {}
 
     
     batch_idx = -1
@@ -1479,6 +1478,9 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             #for name, param in model.named_parameters():
             #    print(name, torch.norm(param).item(), torch.norm(param.grad).item() if param.grad is not None else None)
             optimizer.step()
+            for name, param in model.named_parameters():
+                if param.requires_grad:
+                    model_grad[name] = param.grad.clone()
 
             #print("after step") 
             #for name, param in model.named_parameters():
@@ -1554,7 +1556,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
         train_graphs.grad_norm.append(track_train_stats["grad_norm"])
         #return torch.norm(old_params - parameters_to_vector(model.parameters())).item()
     """
-    return model
+    return model, model_grad
 
 def analysis(graphs, analysis_list, model, model_name, criterion_summed, device, num_classes, compute_acc, train_loader, test_loader, analysis_loader, analysis_test_loader, opt_params, analysis_params):    
     if 'loss' in analysis_list:
@@ -1764,7 +1766,8 @@ if __name__ == "__main__":
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
     parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch",
                                                             "sketch_v2", "svd_het", "fedex", "flora", "flasc", "ffa",
-                                                             "sb", "fr", "muonlora_v1", "muonlora_v2", "muonlora_v3"], default="avg", 
+                                                             "sb", "fr", "muonlora_v1", "muonlora_v2", "muonlora_v3",
+                                                             "muonlora_v4"], default="avg", 
                                                              help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
     parser.add_argument("--uba_mode", type=str, default='none', choices=["ada", "none"], help="ada means adaptive uba")
@@ -2669,7 +2672,7 @@ if __name__ == "__main__":
                     model_update = federated_train(model, loss_name, criterion, device, client_loaders, optimizer, lr_scheduler, opt_params["client_lr"], opt_params, epoch)
                     eval_model = model
             else:
-                eval_model = train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params)
+                eval_model, _ = train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params)
                 #lr_scheduler.step()
             
             if epoch in epoch_list:
