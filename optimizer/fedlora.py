@@ -957,12 +957,15 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
         
         for epoch in range(client_epoch):
             try:
+                train_graphs.loader_iter += 1
                 assert iter(train_loaders[0]) == train_loaders[0]
                 _, model_grad = train(client_model, loss_name, criterion, device, train_loaders[0], optimizer, lr_scheduler, server_epoch, client_opt_params)
             except StopIteration:
                 # reinitialize iterator
                 print("\nData Iterator is reloaded")
+                train_graphs.loader_iter += 1
                 train_loaders[0] = iter(train_loaders[1])
+                _, model_grad = train(client_model, loss_name, criterion, device, train_loaders[0], optimizer, lr_scheduler, server_epoch, client_opt_params)
             
         for name, param in client_model.named_parameters():
             if param.requires_grad:

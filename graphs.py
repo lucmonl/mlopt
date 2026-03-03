@@ -1,5 +1,6 @@
 class graphs:
     def __init__(self):
+        self.loader_iter  = 0
         self.log_epochs   = []
         self.accuracy     = []
         self.loss         = []

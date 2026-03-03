@@ -2585,6 +2585,8 @@ if __name__ == "__main__":
     else:
         print("number of parameters:", len(parameters_to_vector(model.parameters())))
 
+    #intialize train_graphs
+    train_graphs = graphs()
     if os.path.exists(args.pretrain):
         print("loading from local checkpoint ", args.pretrain)
         from utilities import short_hash
@@ -2596,17 +2598,32 @@ if __name__ == "__main__":
             if name in tensors:
                 print("Matched")
                 print(name, (param - tensors[name]).norm().item())
-        print("my checkpoint tensor:")
-        for name in tensors:
-            print(name, tensors[name].norm().item())
-        print("after load_state_dict")
         model.load_state_dict(tensors, strict=False)
-        for name, param in model.named_parameters():
-            print(name, (param - model_weights[name]).norm().item())
         model_params = {"pretrain": short_hash(args.pretrain)}
         del tensors
+
+        if isinstance(client_loaders, list):
+            # also reset the train_loader's iterator
+            # total_steps = last train_graph's log_epochs[-1] * client_num * analysis_interval
+            with open(args.pretrain+"/train_graphs.pk", "rb") as f:
+                    train_graphs_last = pickle.load(f)
+                    trained_epoch = train_graphs_last.log_epochs[-1]
+
+            if hasattr(train_graphs_last, "loader_iter"):
+                train_graphs.loader_iter = train_graphs_last.loader_iter
+                print(f"Detected loader_iter in checkpoint's train_graphs: {train_graphs.loader_iter}")
+            else:
+                train_graphs.loader_iter = trained_epoch * opt_params["client_num"] * analysis_interval
+                print(f"WARNING: loader_iter not detected in checkpoint's train_graphs. Recompute iter step: {train_graphs.loader_iter}")
+
+            for _ in range(train_graphs.loader_iter):
+                try:
+                    _ = next(client_loaders[0])
+                except StopIteration:
+                    # reinitialize iterator
+                    client_loaders[0] = iter(client_loaders[1])
     else:
-        pass          
+        pass
 
     optimizer, lr_scheduler, model_params= load_optimizer(opt_params["opt_name"], model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, model_params, opt_params)
 
@@ -2616,7 +2633,6 @@ if __name__ == "__main__":
                 param.requires_grad =True
 
     if not no_train:
-        train_graphs = graphs()
         test_loader = val_loader
 
         if opt_name == "federated":
