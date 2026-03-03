@@ -11,6 +11,7 @@ from torch.optim.optimizer import Optimizer
 from torch.utils.data import Dataset, DataLoader
 import os
 import sys
+import hashlib
 from device_variable import device
 
 # the default value for "physical batch size", which is the largest batch size that we try to put on the GPU
@@ -1130,3 +1131,6 @@ def get_sgd_optimizer_momentum(optimizer):
         for p in group['params']:
             state = optimizer.state[p]
             print(p, torch.norm(state["momentum_buffer"]))
+
+def short_hash(s: str, n=8):
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()[:n]

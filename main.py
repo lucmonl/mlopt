@@ -2585,6 +2585,29 @@ if __name__ == "__main__":
     else:
         print("number of parameters:", len(parameters_to_vector(model.parameters())))
 
+    if os.path.exists(args.pretrain):
+        print("loading from local checkpoint ", args.pretrain)
+        from utilities import short_hash
+        with open(args.pretrain+"/model.ckpt", "rb") as f:
+            tensors = torch.load(f)
+        model_weights = {}
+        for name, param in model.named_parameters():
+            model_weights[name] = param.data.clone()
+            if name in tensors:
+                print("Matched")
+                print(name, (param - tensors[name]).norm().item())
+        print("my checkpoint tensor:")
+        for name in tensors:
+            print(name, tensors[name].norm().item())
+        print("after load_state_dict")
+        model.load_state_dict(tensors, strict=False)
+        for name, param in model.named_parameters():
+            print(name, (param - model_weights[name]).norm().item())
+        model_params = {"pretrain": short_hash(args.pretrain)}
+        del tensors
+    else:
+        pass          
+
     optimizer, lr_scheduler, model_params= load_optimizer(opt_params["opt_name"], model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, True, model_params, opt_params)
 
     if apply_lora and opt_params["compute_base_grad"]:
@@ -2603,7 +2626,6 @@ if __name__ == "__main__":
                 from arch.lora import load_server_optimizer
                 # apply server optimizer to original weight matrices
                 optimizer, lr_scheduler, opt_params["server_params"] = load_server_optimizer(model, lr, momentum, weight_decay, model_params, **opt_params)
-                    
 
         load_from_epoch = 0
         if not run_from_scratch:
