@@ -1222,12 +1222,25 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
 
     model.set_adapter(opt_params["server_name"])
 
+
+def get_fr_hparams(fedlora_avg_name):
+    if fedlora_avg_name == "fr":
+        use_model_grad = False
+    elif fedlora_avg_name == "fr_v2":
+        use_model_grad = True
+    else:
+        raise NotImplementedError
+    return use_model_grad
+
 def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
     import copy
     import math
     from utilities import vector_to_grads, vector_to_grads_sq
     from main import train
+
+    use_model_grad = get_fr_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
+
 
     adapter_names = []
     adapter_weights = {}
@@ -1266,24 +1279,32 @@ def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, devic
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], opt_params["lr_decay"], opt_params["epochs_lr_decay"], False, model_params, opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
+            train_graphs.loader_iter += 1
             try:
                 assert iter(train_loaders[0]) == train_loaders[0]
-                train(client_model, loss_name, criterion, device, train_loaders[0], optimizer, lr_scheduler, server_epoch, client_opt_params)
+                _, model_grad = train(client_model, loss_name, criterion, device, train_loaders[0], optimizer, lr_scheduler, server_epoch, client_opt_params)
             except StopIteration:
                 # reinitialize iterator
                 print("\nData Iterator is reloaded")
                 train_loaders[0] = iter(train_loaders[1])
+                _, model_grad = train(client_model, loss_name, criterion, device, train_loaders[0], optimizer, lr_scheduler, server_epoch, client_opt_params)
 
         for name, param in client_model.named_parameters():
             if param.requires_grad:
                 #param_names.append(name)
                 server_adapter_name = name.replace("{}".format(adapter_name), opt_params["server_name"])
                 if output_layer_name and output_layer_name in name:
-                    output_weights[server_adapter_name] += param.data #/ client_num
+                    if use_model_grad:
+                        output_weights[server_adapter_name] += model_grad[name]
+                    else:
+                        output_weights[server_adapter_name] += param.data #/ client_num
                 else:
                     if server_adapter_name in adapter_weights:
                         row, col = param.data.shape
-                        adapter_weights[server_adapter_name][:row, :col] += param.data #/client_num
+                        if use_model_grad:
+                            adapter_weights[server_adapter_name][:row, :col] += model_grad[name]
+                        else:
+                            adapter_weights[server_adapter_name][:row, :col] += param.data #/client_num
                     else:
                         assert False
     
@@ -1309,9 +1330,15 @@ def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, devic
     for name, param in model.named_parameters():
         if param.requires_grad:
             if output_layer_name and output_layer_name in name:
-                param.grad = param.data - output_weights[name]
+                if use_model_grad:
+                    param.grad = output_weights[name]
+                else:
+                    param.grad = param.data - output_weights[name]
             elif name in adapter_weights:
-                param.grad = param.data - adapter_weights[name]
+                if use_model_grad:
+                    param.grad = adapter_weights[name]
+                else:
+                    param.grad = param.data - adapter_weights[name]
             else:
                 assert False
             #print(name, param.grad.dtype, param.grad.norm())

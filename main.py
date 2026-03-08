@@ -394,7 +394,7 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
         from optimizer.fedlora import federated_lora_fedex
         federated_lora_fedex(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
         return
-    elif opt_params["fedlora_avg"] == "fr":
+    elif opt_params["fedlora_avg"] in ["fr", "fr_v2"]:
         from optimizer.fedlora import federated_frlora
         federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
         return
@@ -1766,7 +1766,7 @@ if __name__ == "__main__":
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
     parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch",
                                                             "sketch_v2", "svd_het", "fedex", "flora", "flasc", "ffa",
-                                                             "sb", "fr", "muonlora_v1", "muonlora_v2", "muonlora_v3",
+                                                             "sb", "fr", "fr_v2", "muonlora_v1", "muonlora_v2", "muonlora_v3",
                                                              "muonlora_v4"], default="avg", 
                                                              help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
