@@ -1,9 +1,12 @@
 import os
+import sys
 import json
 import numpy as np
-from datasets import load_dataset, Dataset, concatenate_datasets
+import argparse
+from datasets import load_dataset, Dataset, concatenate_datasets, load_from_disk
 
-from arch.llama import get_llama_model_and_formats
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from arch.llama import get_llama_model_and_formats, format_and_mask_instruction
 
 import random
 from transformers import (
@@ -17,6 +20,7 @@ from transformers import (
     DataCollatorForSeq2Seq
 )
 import evaluate
+from tqdm import tqdm
 
 def get_local_datasets(file_path):
     dataset = load_dataset("json", data_files=file_path)['train']
@@ -51,21 +55,14 @@ def recombine_datasets_evenly(datasets_list, M):
 
     return new_datasets
 
-def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, model_params, do_eval, dtype, init_weights):
-    DATASETS_FOLDER = os.environ["DATA_HOME"]
+def load_oasst2_federated(model_name, task_name, batch_size, client_num, model_params, dtype, init_weights):
+    DATA_FOLDER = os.environ["DATA_HOME"]
+    SAVE_DIR = DATA_FOLDER + f"tokenized_oasst2/{model_name}/"
+    os.makedirs(SAVE_DIR, exist_ok=True)
 
-    data_dir = DATASETS_FOLDER + f"FedLLM-Bench-Data/Fed-{task_name}/"
-    
-    if task_name == "ChatbotIT":
-        data_dir += "chatbotIT_237c_6k.json.json"
-    else:
-        raise NotImplementedError
-    print("loading cached dataset: {data_dir}")
-    client_datasets = get_fed_datasets(data_dir)
-    print("Client Num", len(client_datasets))
-    assert client_num+1 <= len(client_datasets)
-    print("Sample: ")
-    print(client_datasets[0][0])
+    # load the tokenized datasets
+    train_dataset = load_from_disk(SAVE_DIR + f"tokenized_oasst2_train_{task_name}.jsonl")
+    eval_dataset = load_from_disk(SAVE_DIR + f"tokenized_oasst2_validation_{task_name}.jsonl")
 
     if 'llama' in model_name:
         model, tokenizer, formatting_prompts_func = get_llama_model_and_formats(model_name, dtype, model_params)
@@ -82,43 +79,14 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
 
     data_collator = DataCollatorForSeq2Seq(tokenizer, pad_to_multiple_of=8)
 
-    tokenized_datasets = []
-    for client_dataset in client_datasets:  #the last dataset is reserved for evaluation, for now TODO: replace it with standard benchmarks like Vicuna
-        tokenized_dataset = client_dataset.map(formatting_prompts_func,
-                                               fn_kwargs={
-                                                    "tokenizer": tokenizer, 
-                                                    "max_length": 1024
-                                                },)
-        tokenized_datasets.append(tokenized_dataset)
-
-    train_dataset = tokenized_datasets[0] # dummy dataset
+    #train_dataset = tokenized_datasets[0] # dummy dataset
     if "train_size" in model_params:
         max_train_samples = min(len(train_dataset), model_params["train_size"])
         train_dataset = train_dataset.select(range(max_train_samples))
 
-    train_dataset = train_dataset.map(formatting_prompts_func,
-                                fn_kwargs={
-                                    "tokenizer": tokenizer, 
-                                    "max_length": 1024
-                                },)
-
     analysis_size = min(max(batch_size, 128), len(train_dataset))
     analysis_dataset = train_dataset.select(range(analysis_size))
 
-    tokenized_datasets = recombine_datasets_evenly(tokenized_datasets, client_num+1) #last one for eval_dataset
-    if do_eval:
-        eval_dataset = tokenized_datasets[-1]
-    else:
-        eval_dataset = tokenized_datasets[-1]
-    tokenized_datasets = tokenized_datasets[:-1]
-    #if data_args.max_eval_samples is not None:
-    """
-    eval_dataset = eval_dataset.map(formatting_prompts_func,
-                                    fn_kwargs={
-                                        "tokenizer": tokenizer, 
-                                        "max_length": 1024
-                                    },)
-    """
     if "train_size" in model_params:
         max_eval_samples = min(len(eval_dataset), model_params["train_size"])
         max_eval_samples = min(max_eval_samples, 128)
@@ -126,19 +94,12 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
 
     max_eval_samples = min(len(eval_dataset), 128)
     eval_dataset = eval_dataset.select(range(max_eval_samples))
+    print("Number of samples in train dataset: {}".format(len(train_dataset)))
     print("Number of samples in eval dataset: {}".format(len(eval_dataset)))
     eval_analysis_size = min(max(batch_size, 128), len(eval_dataset))
     analysis_eval_dataset = eval_dataset.select(range(eval_analysis_size))
 
     # Get the metric function
-    """
-    if model_params["task_name"] is not None:
-        metric = evaluate.load("glue", model_params["task_name"], cache_dir=DATASETS_FOLDER)
-    elif is_regression:
-        metric = evaluate.load("mse", cache_dir=DATASETS_FOLDER)
-    else:
-        metric = evaluate.load("accuracy", cache_dir=DATASETS_FOLDER)
-    """
     metric = evaluate.load("rouge")
 
     # You can define your custom compute_metrics function. It takes an `EvalPrediction` object (a namedtuple with a
@@ -171,21 +132,6 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
         )
         
         return {k: round(v, 4) for k, v in result.items()}
-
-    # Data collator will default to DataCollatorWithPadding when the tokenizer is passed to Trainer, so we change it if
-    # we already did the padding.
-    """
-    if data_args.pad_to_max_length:
-        data_collator = default_data_collator
-    elif training_args.fp16:
-        data_collator = DataCollatorWithPadding(tokenizer, pad_to_multiple_of=8)
-    else:
-        data_collator = None
-    """
-    
-    # Initialize our Trainer
-    #training_args=TrainingArguments(output_dir="output/", per_device_train_batch_size=batch_size, per_device_eval_batch_size=batch_size)
-
 
     if dtype in ["default", "bf16"]:
         use_bf16 = True
@@ -228,41 +174,7 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
     #for i in range(client_num):
     #    client_loaders.append(train_iter)
     client_loaders = [train_iter, train_loader]
-
-    """
-    client_loaders = []
-    assert len(tokenized_datasets) == client_num
-    for i in range(client_num):
-        client_train = tokenized_datasets[i]
-        trainer = Trainer(
-            model=model,
-            args=training_args,
-            train_dataset=client_train, # if training_args.do_train else None,
-            eval_dataset=eval_dataset, # if training_args.do_eval else None,
-            compute_metrics=compute_metrics,
-            tokenizer=tokenizer,
-            data_collator=data_collator,
-        )
-
-        client_loaders.append(trainer.get_train_dataloader())
-    """
-    """
-    print("first time sample")
-    for batch_idx, item in enumerate(client_loaders[0]):
-        if batch_idx > 0:
-            continue
-        else:
-            print(item["labels"])
-        
-    
-    print("second time sample")
-    for batch_idx, item in enumerate(client_loaders[0]):
-        if batch_idx > 0:
-            continue
-        else:
-            print(item["labels"])
-    """
-    training_args=TrainingArguments(output_dir="output/", per_device_train_batch_size=analysis_size, per_device_eval_batch_size=analysis_size)
+    training_args=TrainingArguments(output_dir="output/", per_device_train_batch_size=batch_size, per_device_eval_batch_size=batch_size)
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -276,8 +188,82 @@ def load_fedllm_bench_federated(model_name, task_name, batch_size, client_num, m
     analysis_test_loader = trainer.get_eval_dataloader()
     transform_to_one_hot = False
     C = None
-
-    print("Number of samples in test_dataset: ", len(test_loader.dataset))
-
     return model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
 
+
+
+def preprocess_oasst2(model_id, split="train", lang_filter="en"):
+    from datasets import load_dataset
+    from collections import defaultdict
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import os
+    from transformers import AutoTokenizer, AutoModelForCausalLM
+    from dataclasses import dataclass
+
+    HF_HOME = os.environ["HF_HOME"]
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+    ds = load_dataset("OpenAssistant/oasst2")
+
+    # dict: creativity → list of (prompt, response)
+    train_ds = ds[split]
+    train_ds = train_ds.filter(lambda m: m["lang"] == lang_filter)
+
+    # Build a lookup table
+    #multi_attribute_dict = {}
+    chat_list = []
+    id2msg = {m["message_id"]: m for m in train_ds}
+
+
+    for msg in tqdm(train_ds):
+        # Only consider assistant responses
+        if msg["role"] != "assistant":
+            continue
+
+        if 'labels' not in msg or msg.get("labels") is None:
+            continue
+        
+        # must have a parent user message
+        parent_id = msg["parent_id"]
+        if parent_id is None:
+            continue
+        
+        parent = id2msg.get(parent_id)
+        if parent is None or parent["role"] != "prompter":
+            continue
+        """
+        chat = [
+            {"role": "user", "content": parent.get('text')},
+            {"role": "assistant", "content": msg.get('text')}
+        ]
+        """
+        chat = {"instruction": parent.get('text'), "response": msg.get('text')}
+        chat_list.append(chat)
+        #creativity_list.append(creativity)
+
+    #dataset = Dataset.from_dict({"chat": chat_list})
+    #dataset = dataset.map(lambda x: {"formatted_chat": tokenizer.apply_chat_template(x["chat"], tokenize=False, add_generation_prompt=True)})
+    #dataset = dataset.map(lambda x: {"formatted_chat": tokenizer.apply_chat_template(x["chat"], tokenize=False, add_generation_prompt=True)})
+    dataset = Dataset.from_list(chat_list)
+    tokenized_dataset = dataset.map(format_and_mask_instruction,
+                                    fn_kwargs={
+                                        "tokenizer": tokenizer, 
+                                        "max_length": 2048
+                                    },)
+    
+    DATA_FOLDER = os.environ["DATA_HOME"]
+    SAVE_DIR = DATA_FOLDER + f"tokenized_oasst2/{model_id}/"
+    os.makedirs(SAVE_DIR, exist_ok=True)
+    print(f"saving {len(tokenized_dataset)} samples to {SAVE_DIR}")
+    tokenized_dataset.save_to_disk(SAVE_DIR + f"tokenized_oasst2_{split}_{lang_filter}.jsonl")
+
+
+if __name__ == "__main__":
+    # Call the main function when the script is run directly
+    #preprocess_oasst2('meta-llama/Llama-3.2-3B')
+    parser = argparse.ArgumentParser(description="A simple script using argparse.")
+    parser.add_argument("--split", type=str, help="Include a greeting.")
+    
+    args = parser.parse_args()
+    preprocess_oasst2('meta-llama/Llama-3.2-3B', args.split)

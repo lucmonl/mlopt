@@ -41,7 +41,7 @@ def add_adapters_dataset(model_name, model, lora_rank, lora_alpha, server_name, 
         model, Lora_config = add_adapters(model, lora_rank, lora_alpha, None, ["q_proj", "v_proj"], server_name, \
             freeze_a=lora_freeze_a, task_type="CAUSAL_LM", adapter_name=adapter_name, init_lora_weights=init_lora_weights)
         output_layer_name = None   
-    elif model_name in ["meta-llama/Llama-3.1-8B-Instruct"]:
+    elif model_name in ["meta-llama/Llama-3.1-8B-Instruct", "meta-llama/Llama-3.1-8B", "meta-llama/Llama-3.2-3B"]:
         output_layer_name = None 
         model, Lora_config = add_adapters(model, lora_rank, lora_alpha, output_layer_name, ["q_proj", "v_proj", "k_proj", "o_proj"], server_name, \
             freeze_a=lora_freeze_a, task_type="CAUSAL_LM", adapter_name=adapter_name, init_lora_weights=init_lora_weights)
@@ -491,7 +491,7 @@ def merge_to_base(model, adapter_name, lora_r, lora_alpha, model_name):
             if model_name in ["gpt2"]:
                 #print(name_A)
                 param.data += lora_alpha / lora_r * (adapter_weights[name_B] @ adapter_weights[name_A]).T
-            elif model_name in ["meta-llama/Llama-3.1-8B-Instruct"]:
+            elif model_name in ["meta-llama/Llama-3.1-8B-Instruct", "meta-llama/Llama-3.1-8B", "meta-llama/Llama-3.2-3B"]:
                 param.data += lora_alpha / lora_r * (adapter_weights[name_B] @ adapter_weights[name_A])
             else:
                 raise NotImplementedError
