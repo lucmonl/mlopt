@@ -902,23 +902,27 @@ def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, dev
 
 def get_muonlora_hparams(fedlora_avg_name):
     if fedlora_avg_name == 'muonlora_v1':
-        use_model_grad, use_rtol_inv, use_norm_grad = False, True, False
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = False, True, False, False
     elif fedlora_avg_name == 'muonlora_v2':
-        use_model_grad, use_rtol_inv, use_norm_grad = False, False, True
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = False, False, True, False
     elif fedlora_avg_name == 'muonlora_v3':
-        use_model_grad, use_rtol_inv, use_norm_grad = False, False, False
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = False, False, False, False
     elif fedlora_avg_name == 'muonlora_v4':
-        use_model_grad, use_rtol_inv, use_norm_grad = True, False, True
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = True, False, True, False
+    elif fedlora_avg_name == 'muonlora_v5':
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = True, False, False, True
+    elif fedlora_avg_name == 'muonlora_v6':
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = True, True, False, True
     else:
         raise NotImplementedError
-    return use_model_grad, use_rtol_inv, use_norm_grad
+    return use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum
 
 def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
     import copy
     from main import train
 
-    use_model_grad, use_rtol_inv, use_norm_grad = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
+    use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
 
     adapter_names = []
     adapter_weights = {}
@@ -1088,6 +1092,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             grad_param_name_A = grad_param_name_B.replace("lora_B", "lora_A")
             muon_update_name_A = name.replace("lora_B", "lora_A")
             muon_update_name_B = name
+            base_name = muon_update_name_B.replace("lora_B.muon_update", "base_layer")
             
             grad_B, grad_A = params_grads[grad_param_name_B].to(torch.float64), params_grads[grad_param_name_A].T.to(torch.float64)
 
@@ -1145,11 +1150,16 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
 
                 #print(muon_update_name_A, muon_updates[muon_update_name_A].shape, muon_updates[muon_update_name_B].shape)
             else:
-                muon_updates[muon_update_name_A] = -server_lr * grad_A.T.to(param.dtype) #r*n
-                muon_updates[muon_update_name_B] = (grad_B @ proj_G_inv).to(param.dtype) #m*r
-                print("Pseudo grad Norm: ", torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]))
-                if torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]).item() > 0.01:
-                    print("Muon update is too large! Warning!")
+                if apply_momentum:
+                    muon_updates[muon_update_name_B], muon_updates[muon_update_name_A] = muon_momentum(grad_B @ proj_G_inv, grad_A, server_lr, opt_params, base_name, param.dtype)
+                else:
+                    muon_updates[muon_update_name_A] = -server_lr * grad_A.T.to(param.dtype) #r*n
+                    muon_updates[muon_update_name_B] = (grad_B @ proj_G_inv).to(param.dtype) #m*r
+                    print("Pseudo grad Norm: ", torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]))
+                    if torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]).item() > 0.01:
+                        print("Muon update is too large! Warning!")
+
+                
             
             #recovered_grad = -1 * muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]
             #print("gradB norm:", params_grads[grad_param_name_B].norm().item())
@@ -1221,6 +1231,62 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
         print("server lr", group['lr'])
 
     model.set_adapter(opt_params["server_name"])
+
+def colNorm(matrix):
+    Q, _ = torch.qr(matrix)
+    return Q
+
+def muon_momentum(G_L, G_R, lr, opt_params, base_name, dtype):
+    # G = G_L @ G_R.T
+    # P_t = M
+    print("running muon_momentum")
+    beta = opt_params["server_momentum"]
+    assert beta > 0 and beta < 1
+
+    if "muon_states" not in opt_params:
+        opt_params["muon_states"] = {}
+    if base_name not in opt_params["muon_states"]:
+        opt_params["muon_states"][base_name] = {}
+    base_states = opt_params["muon_states"][base_name]
+    if "U" not in base_states:
+        # This is the first epoch
+        M = G_L
+        N = G_R
+
+        Q_M, R_M = torch.linalg.qr(M)
+        Q_N, R_N = torch.linalg.qr(N)
+
+        R = R_M @ R_N.T
+        U_R, S_R, Vh_R = torch.linalg.svd(R)
+        update_R = (Q_N @ Vh_R.T).T #r*n
+        update_L = (Q_M @ U_R) #m*r
+
+        base_states["U"] = update_L
+        base_states["V_t"] = update_R.T #n*r
+        base_states["P"] = G_L @ (G_R.T @ base_states["V_t"]) #m*r
+        #opt_params["U"] = colNorm(opt_params["P"])
+        base_states["W"] = G_R @ (G_L.T @ base_states["U"]) #n*r
+        #opt_params["V_t"] = colNorm(opt_params["W"]) #n*r
+        #return -lr * update_L, update_R
+        return -lr * base_states["U"].to(dtype), base_states["V_t"].T.to(dtype)
+    else:
+        #opt_params["P"] = opt_params["P"] @ ((opt_params["V_t-1"]).T @ (opt_params["V_t"])) #m*r
+        #opt_params["P"] -= beta * opt_params["U"] @ opt_params["W"] @ opt_params["V_t"]
+        #print(base_states["P"].shape, G_L.shape, G_R.T.shape, base_states["V_t"].shape)
+        base_states["P"] += G_L @ (G_R.T @ base_states["V_t"])
+        new_U = colNorm(base_states["P"]) #m*r
+        
+        #W = M.T @ U
+        base_states["W"] = beta * base_states["W"] @ (base_states["U"].T @ new_U) + G_R @ (G_L.T @ new_U)  #n*r
+        base_states["U"] = new_U
+
+        #update P and W
+        new_V = colNorm(base_states["W"]) #n*r
+        base_states["P"] = base_states["P"] @ (base_states["V_t"].T @ new_V) - (1-beta) * base_states["U"] @ (base_states["W"].T @ new_V) #m*r
+        base_states["V_t"] = new_V
+
+        print(base_name, base_states["P"].norm(), base_states["W"].norm(), base_states["U"].norm(), base_states["V_t"].norm())
+        return -lr * base_states["U"].to(dtype), base_states["V_t"].T.to(dtype)
 
 
 def get_fr_hparams(fedlora_avg_name):
