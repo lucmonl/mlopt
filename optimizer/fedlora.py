@@ -1241,7 +1241,7 @@ def muon_momentum(G_L, G_R, lr, opt_params, base_name, dtype):
     # P_t = M
     print("running muon_momentum")
     beta = opt_params["server_momentum"]
-    assert beta > 0 and beta < 1
+    assert beta >= 0 and beta < 1
 
     if "muon_states" not in opt_params:
         opt_params["muon_states"] = {}
@@ -1270,6 +1270,46 @@ def muon_momentum(G_L, G_R, lr, opt_params, base_name, dtype):
         #return -lr * update_L, update_R
         return -lr * base_states["U"].to(dtype), base_states["V_t"].T.to(dtype)
     else:
+        base_states["P"] += G_L @ (G_R.T @ base_states["V_t"])
+        new_U = colNorm(base_states["P"]) #m*r
+        
+        #W = M.T @ U
+        base_states["W"] = beta * base_states["W"] @ (base_states["U"].T @ new_U) + G_R @ (G_L.T @ new_U)  #n*r
+        print("U.TU: ", (base_states["U"].T @ new_U).norm().item())
+        base_states["U"] = new_U
+
+        #update P and W
+        #new_V = colNorm(base_states["W"]) #n*r
+        new_V = base_states["W"] / (torch.norm(base_states["W"], dim=0) + 1e-5)
+        base_states["P"] = beta * base_states["P"] @ (base_states["V_t"].T @ new_V)
+        print("V.TV: ", (base_states["V_t"].T @ new_V).norm().item())
+        print("U.T G_L: ", (new_U.T @ G_L).norm().item(), G_L.norm().item())
+        print("G_R.T V: ", (G_R.T @ new_V).norm().item(), G_R.norm().item())
+        #print("U.T G V: ", (new_U.T @ G_L @ G_R.T @ new_V).norm.item())
+        base_states["V_t"] = new_V
+        return -lr * base_states["U"].to(dtype), base_states["V_t"].T.to(dtype)
+    """
+    else:
+        base_states["P"] += G_L @ (G_R.T @ base_states["V_t"])
+        new_U = colNorm(base_states["P"]) #m*r
+        
+        #W = M.T @ U
+        base_states["W"] = beta * base_states["W"] @ (base_states["U"].T @ new_U) + G_R @ (G_L.T @ new_U)  #n*r
+        print("U.TU: ", (base_states["U"].T @ new_U).norm().item())
+        base_states["U"] = new_U
+
+        #update P and W
+        new_V = colNorm(base_states["W"]) #n*r
+        base_states["P"] = beta * base_states["P"] @ (base_states["V_t"].T @ new_V)
+        print("V.TV: ", (base_states["V_t"].T @ new_V).norm().item())
+        print("U.T G_L: ", (new_U.T @ G_L).norm().item(), G_L.norm().item())
+        print("G_R V: ", (G_R.T @ new_V).norm().item(), G_R.norm().item())
+        #print("U.T G V: ", (new_U.T @ G_L @ G_R.T @ new_V).norm.item())
+        base_states["V_t"] = new_V
+        return -lr * base_states["U"].to(dtype), base_states["V_t"].T.to(dtype)
+    """
+    """
+    else:
         #opt_params["P"] = opt_params["P"] @ ((opt_params["V_t-1"]).T @ (opt_params["V_t"])) #m*r
         #opt_params["P"] -= beta * opt_params["U"] @ opt_params["W"] @ opt_params["V_t"]
         #print(base_states["P"].shape, G_L.shape, G_R.T.shape, base_states["V_t"].shape)
@@ -1287,7 +1327,7 @@ def muon_momentum(G_L, G_R, lr, opt_params, base_name, dtype):
 
         print(base_name, base_states["P"].norm(), base_states["W"].norm(), base_states["U"].norm(), base_states["V_t"].norm())
         return -lr * base_states["U"].to(dtype), base_states["V_t"].T.to(dtype)
-
+    """
 
 def get_fr_hparams(fedlora_avg_name):
     if fedlora_avg_name == "fr":
