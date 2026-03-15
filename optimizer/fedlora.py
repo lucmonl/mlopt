@@ -913,6 +913,10 @@ def get_muonlora_hparams(fedlora_avg_name):
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = True, False, False, True
     elif fedlora_avg_name == 'muonlora_v6':
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = True, True, False, True
+    elif fedlora_avg_name == 'muonlora_v7':
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = True, False, False, True
+    elif fedlora_avg_name == 'muonlora_v8':
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = True, True, False, True
     else:
         raise NotImplementedError
     return use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum
@@ -1151,7 +1155,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                 #print(muon_update_name_A, muon_updates[muon_update_name_A].shape, muon_updates[muon_update_name_B].shape)
             else:
                 if apply_momentum:
-                    muon_updates[muon_update_name_B], muon_updates[muon_update_name_A] = muon_momentum(grad_B @ proj_G_inv, grad_A, server_lr, opt_params, base_name, param.dtype)
+                    muon_updates[muon_update_name_B], muon_updates[muon_update_name_A] = muon_momentum(grad_B @ proj_G_inv, grad_A, server_lr, opt_params, base_name, use_rtol_inv, param.dtype)
                 else:
                     muon_updates[muon_update_name_A] = -server_lr * grad_A.T.to(param.dtype) #r*n
                     muon_updates[muon_update_name_B] = (grad_B @ proj_G_inv).to(param.dtype) #m*r
@@ -1232,11 +1236,38 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
 
     model.set_adapter(opt_params["server_name"])
 
-def colNorm(matrix):
+def Orth(matrix):
     Q, _ = torch.qr(matrix)
     return Q
 
-def muon_momentum(G_L, G_R, lr, opt_params, base_name, dtype):
+def two_side_linear(A, B , C, D, use_rtol_inv):
+    #solve for the linear system
+    #G A = C
+    #G.T B = D
+    # G = C (C.T @ B)^{-1} D.T
+    if use_rtol_inv:
+        proj_G_inv = torch.linalg.pinv(B.T @ C, rtol=1e-3)
+    else:
+        proj_G_inv = torch.linalg.pinv(B.T @ C)
+
+    M = C
+    N = (proj_G_inv @ D.T).T
+
+    Q_M, R_M = torch.linalg.qr(M)
+    Q_N, R_N = torch.linalg.qr(N)
+
+    R = R_M @ R_N.T
+    U_R, S_R, Vh_R = torch.linalg.svd(R)
+
+    
+    #muon_updates[muon_update_name_A] = -server_lr * (Q_N @ Vh_R.T).T.to(param.dtype) #r*n
+    #muon_updates[muon_update_name_B] = (Q_M @ U_R).to(param.dtype) #m*r
+
+
+    return Q_M @ U_R, (Q_N @ Vh_R.T) #m*r, n*r
+
+
+def muon_momentum(G_L, G_R, lr, opt_params, base_name, use_rtol_inv, dtype):
     # G = G_L @ G_R.T
     # P_t = M
     print("running muon_momentum")
@@ -1263,35 +1294,64 @@ def muon_momentum(G_L, G_R, lr, opt_params, base_name, dtype):
 
         base_states["U"] = update_L
         base_states["V_t"] = update_R.T #n*r
-        base_states["P"] = G_L @ (G_R.T @ base_states["V_t"]) #m*r
-        #opt_params["U"] = colNorm(opt_params["P"])
-        base_states["W"] = G_R @ (G_L.T @ base_states["U"]) #n*r
-        #opt_params["V_t"] = colNorm(opt_params["W"]) #n*r
+        base_states["P"] = beta * G_L @ (G_R.T @ base_states["V_t"]) #m*r
+        #opt_params["U"] = Orth(opt_params["P"])
+        base_states["W"] = beta * G_R @ (G_L.T @ base_states["U"]) #n*r
+        #opt_params["V_t"] = Orth(opt_params["W"]) #n*r
         #return -lr * update_L, update_R
         return -lr * base_states["U"].to(dtype), base_states["V_t"].T.to(dtype)
-    else:
-        base_states["P"] += G_L @ (G_R.T @ base_states["V_t"])
-        new_U = colNorm(base_states["P"]) #m*r
+    elif opt_params["fedlora_avg"] in ["muonlora_v5", "muonlora_v6"]:
+        print(base_name)
+        base_states["P"] += (1-beta) * G_L @ (G_R.T @ base_states["V_t"])
+        new_U = Orth(base_states["P"]) #m*r
         
         #W = M.T @ U
-        base_states["W"] = beta * base_states["W"] @ (base_states["U"].T @ new_U) + G_R @ (G_L.T @ new_U)  #n*r
-        print("U.TU: ", (base_states["U"].T @ new_U).norm().item())
+        base_states["W"] = beta * base_states["W"] @ (base_states["U"].T @ new_U) + (1-beta) * G_R @ (G_L.T @ new_U)  #n*r
+        print("U.TU: ", base_states["P"].norm().item(), (base_states["U"].T @ new_U).norm().item())
         base_states["U"] = new_U
 
         #update P and W
-        #new_V = colNorm(base_states["W"]) #n*r
-        new_V = base_states["W"] / (torch.norm(base_states["W"], dim=0) + 1e-5)
+        #new_V = Orth(base_states["W"]) #n*r
+        print("W col norm:", torch.norm(base_states["W"], dim=0))
+        new_V = base_states["W"] / (torch.norm(base_states["W"], dim=0) + 1e-8)
+        print("new_V col norm:", torch.norm(new_V, dim=0))
         base_states["P"] = beta * base_states["P"] @ (base_states["V_t"].T @ new_V)
-        print("V.TV: ", (base_states["V_t"].T @ new_V).norm().item())
+        print("V.TV: ", base_states["V_t"].norm().item(), new_V.norm().item(), (base_states["V_t"].T @ new_V).norm().item())
         print("U.T G_L: ", (new_U.T @ G_L).norm().item(), G_L.norm().item())
         print("G_R.T V: ", (G_R.T @ new_V).norm().item(), G_R.norm().item())
         #print("U.T G V: ", (new_U.T @ G_L @ G_R.T @ new_V).norm.item())
         base_states["V_t"] = new_V
         return -lr * base_states["U"].to(dtype), base_states["V_t"].T.to(dtype)
+    elif opt_params["fedlora_avg"] in ["muonlora_v7", "muonlora_v8"]:
+        print(base_name)
+        base_states["P"] += G_L @ (G_R.T @ base_states["V_t"])
+        new_U = Orth(base_states["P"]) #m*r
+        
+        #W = M.T @ U
+        base_states["W"] = beta * base_states["W"] @ (base_states["U"].T @ new_U) + G_R @ (G_L.T @ new_U)  #n*r
+        print("U.TU: ", base_states["P"].norm().item(), (base_states["U"].T @ new_U).norm().item())
+        if base_states["P"].norm().item() > 100:
+            print("WARNING: accumulated P is too large.")
+        base_states["U"] = new_U
+
+        update_L, update_R = two_side_linear(base_states["V_t"], new_U, base_states["P"], base_states["W"], use_rtol_inv)
+
+        #update P and W
+        new_V = Orth(base_states["W"]) #n*r
+        #print("W col norm:", torch.norm(base_states["W"], dim=0))
+        #new_V = base_states["W"] / (torch.norm(base_states["W"], dim=0) + 1e-8)
+        #print("new_V col norm:", torch.norm(new_V, dim=0))
+        base_states["P"] = beta * base_states["P"] @ (base_states["V_t"].T @ new_V)
+        print("V.TV: ", base_states["V_t"].norm().item(), new_V.norm().item(), (base_states["V_t"].T @ new_V).norm().item())
+        print("U.T G_L: ", (new_U.T @ G_L).norm().item(), G_L.norm().item())
+        print("G_R.T V: ", (G_R.T @ new_V).norm().item(), G_R.norm().item())
+        #print("U.T G V: ", (new_U.T @ G_L @ G_R.T @ new_V).norm.item())
+        base_states["V_t"] = new_V
+        return -lr * update_L.to(dtype), update_R.T.to(dtype)
     """
     else:
         base_states["P"] += G_L @ (G_R.T @ base_states["V_t"])
-        new_U = colNorm(base_states["P"]) #m*r
+        new_U = Orth(base_states["P"]) #m*r
         
         #W = M.T @ U
         base_states["W"] = beta * base_states["W"] @ (base_states["U"].T @ new_U) + G_R @ (G_L.T @ new_U)  #n*r
@@ -1299,7 +1359,7 @@ def muon_momentum(G_L, G_R, lr, opt_params, base_name, dtype):
         base_states["U"] = new_U
 
         #update P and W
-        new_V = colNorm(base_states["W"]) #n*r
+        new_V = Orth(base_states["W"]) #n*r
         base_states["P"] = beta * base_states["P"] @ (base_states["V_t"].T @ new_V)
         print("V.TV: ", (base_states["V_t"].T @ new_V).norm().item())
         print("U.T G_L: ", (new_U.T @ G_L).norm().item(), G_L.norm().item())
@@ -1314,14 +1374,14 @@ def muon_momentum(G_L, G_R, lr, opt_params, base_name, dtype):
         #opt_params["P"] -= beta * opt_params["U"] @ opt_params["W"] @ opt_params["V_t"]
         #print(base_states["P"].shape, G_L.shape, G_R.T.shape, base_states["V_t"].shape)
         base_states["P"] += G_L @ (G_R.T @ base_states["V_t"])
-        new_U = colNorm(base_states["P"]) #m*r
+        new_U = Orth(base_states["P"]) #m*r
         
         #W = M.T @ U
         base_states["W"] = beta * base_states["W"] @ (base_states["U"].T @ new_U) + G_R @ (G_L.T @ new_U)  #n*r
         base_states["U"] = new_U
 
         #update P and W
-        new_V = colNorm(base_states["W"]) #n*r
+        new_V = Orth(base_states["W"]) #n*r
         base_states["P"] = base_states["P"] @ (base_states["V_t"].T @ new_V) - (1-beta) * base_states["U"] @ (base_states["W"].T @ new_V) #m*r
         base_states["V_t"] = new_V
 
