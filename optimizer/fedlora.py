@@ -902,31 +902,34 @@ def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, dev
 
 def get_muonlora_hparams(fedlora_avg_name):
     if fedlora_avg_name == 'muonlora_v1':
-        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = False, True, False, False
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = False, True, False, False, True
     elif fedlora_avg_name == 'muonlora_v2':
-        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = False, False, True, False
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = False, False, True, False, True
     elif fedlora_avg_name == 'muonlora_v3':
-        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = False, False, False, False
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = False, False, False, False, True
     elif fedlora_avg_name == 'muonlora_v4':
-        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = True, False, True, False
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, False, True
     elif fedlora_avg_name == 'muonlora_v5':
-        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = True, False, False, True
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, False, True, True
     elif fedlora_avg_name == 'muonlora_v6':
-        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = True, True, False, True
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, True, False, True, True
     elif fedlora_avg_name == 'muonlora_v7':
-        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = True, False, False, True
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, False, True, True
     elif fedlora_avg_name == 'muonlora_v8':
-        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = True, True, False, True
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, True, False, True, True
+    elif fedlora_avg_name == 'muonlora_v9':
+        """directly adding momentum to the lora adapters."""
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, True, True
     else:
         raise NotImplementedError
-    return use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum
+    return use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor
 
 def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
     import copy
     from main import train
 
-    use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
+    use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
 
     adapter_names = []
     adapter_weights = {}
@@ -1032,7 +1035,16 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                     param.grad = adapter_weights[name]
                 else:
                     param.grad = param.data - adapter_weights[name]
-                params_grads[name] = param.grad.clone()
+                if moment_on_factor:
+                    if "momentum" not in opt_params:
+                        opt_params["momentum"] = {}
+                    if name in opt_params["momentum"]:
+                        params_grads[name] = opt_params["server_momentum"] * opt_params["momentum"][name] + param.grad  
+                    else:
+                        params_grads[name] = param.grad.clone()
+                    opt_params["momentum"][name] = params_grads[name].clone()
+                else:
+                    params_grads[name] = param.grad.clone()
                 print(name, param.grad.norm().item())
                 """
                 print("param original norm: ", param.data.norm().item(), param.data.dtype)
