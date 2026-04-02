@@ -840,6 +840,11 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
     print(f"Peak allocated memory: {peak_allocated:.2f} GB")
     print(f"Peak reserved memory: {peak_reserved:.2f} GB")
 
+    if opt_params["server_opt_name"] == "dion":
+        from optimizer.dion import dion
+        dion(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
+        return
+
     if opt_params["server_opt_name"] in ["cocktailsgd", "cocktailsgd2"]:
         from optimizer.cocktailsgd import federated_cocktail_train
         federated_cocktail_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, epochs_lr_decay, lr_decay, model_params, opt_params, server_epoch)
@@ -1477,7 +1482,11 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             #print("in train") 
             #for name, param in model.named_parameters():
             #    print(name, torch.norm(param).item(), torch.norm(param.grad).item() if param.grad is not None else None)
-            optimizer.step()
+            if "local_update_ON" in opt_params and opt_params["local_update_ON"] == False:
+                print("local update is off. skipping optimizer.step()...")
+                pass
+            else:
+                optimizer.step()
             for name, param in model.named_parameters():
                 if param.requires_grad:
                     model_grad[name] = param.grad.clone()
@@ -1753,7 +1762,7 @@ if __name__ == "__main__":
     parser.add_argument("--zero_out_selfattn", type=int, default=0, help="if 0 preserves self attention, if 1 zero out self attention")
 
     #federated learning hyperparameters
-    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd", "onebit", "onebit_v2", "cdadam", "cocktailsgd", "cocktailsgd2", "marina", "cams", "paq", "adam_ctsk", "amsgrad_ctsk", "muon"], help="optimizer of server")
+    parser.add_argument("--server_opt_name", type=str, default="adam", choices=OPTIMIZERS + ["clip_sgd", "fetchsgd", "onebit", "onebit_v2", "cdadam", "cocktailsgd", "cocktailsgd2", "marina", "cams", "paq", "adam_ctsk", "amsgrad_ctsk", "muon", "dion"], help="optimizer of server")
     parser.add_argument("--client_num", type=int, default=1, help="number of clients")
     parser.add_argument("--client_partial", type=float, default=1.9, help="partial participation of clients")
     parser.add_argument("--client_opt_name", type=str, default="sgd", choices=["sgd", "adam", "adamw"], help="optimizer of clients")
