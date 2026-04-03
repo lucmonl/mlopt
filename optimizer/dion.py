@@ -99,11 +99,11 @@ def dion_update_0d(G, M, V, beta=0.05):
 # Simulated-distributed Dion optimizer (mirrors federated_lora_avg structure)
 # ──────────────────────────────────────────────────────────────────────────────
  
-def federated_dion(
+def dion(
     model,
     loss_name,
     criterion,
-    lora_rank,
+    dion_rank,
     train_graphs,
     device,
     train_loaders,
@@ -135,8 +135,7 @@ def federated_dion(
  
     # ── 1. Collect server parameter names (same logic as federated_lora_avg) ──
     param_grads = {}
- 
-    model.set_adapter(opt_params["server_name"])
+
     for name, param in model.named_parameters():
         if param.requires_grad:
             param_grads[name] = torch.zeros_like(param)
@@ -155,8 +154,9 @@ def federated_dion(
     for name, param in model.named_parameters():
         if param.requires_grad:
             if name not in model._dion_state:
+                print(name, param.data.shape)
                 I, J = param.data.shape
-                R    = min(lora_rank, min(I, J))
+                R    = min(dion_rank, min(I, J))
                 model._dion_state[name] = {
                     "M": torch.zeros(I, J, device=device),
                     "V": torch.nn.functional.normalize(
@@ -190,17 +190,25 @@ def federated_dion(
         assert client_opt_params["local_update_ON"] == False
         assert client_epoch == 1, "client_epoch must be 1 for dion"
         for epoch in range(client_epoch):
-            _, model_grad = train(
-                client_model,
-                loss_name,
-                criterion,
-                device,
-                train_loaders[client_id],
-                optimizer,
-                lr_scheduler,
-                server_epoch,
-                client_opt_params,
-            )
+            try:
+                train_graphs.loader_iter += 1
+                assert iter(train_loaders[0]) == train_loaders[0]
+                _, model_grad = train(client_model, 
+                                    loss_name, 
+                                    criterion, 
+                                    device, 
+                                    train_loaders[0], 
+                                    optimizer, 
+                                    lr_scheduler, 
+                                    server_epoch, 
+                                    client_opt_params)
+            except StopIteration:
+                # reinitialize iterator
+                print("\nData Iterator is reloaded")
+                train_graphs.loader_iter += 1
+                train_loaders[0] = iter(train_loaders[1])
+                _, model_grad = train(client_model, loss_name, criterion, device, train_loaders[0], optimizer, lr_scheduler, server_epoch, client_opt_params)
+            
  
         # accumulate client parameters → simulate AllReduce / FedAvg
         for name, param in client_model.named_parameters():
@@ -236,7 +244,7 @@ def federated_dion(
             O_scaled, M_new, V_new = dion_update_0d(G, state["M"], state["V"], beta)
             state["M"] = M_new
             state["V"] = V_new
-            param.grad = O_scaled
+            param.grad = O_scaled.to(param.dtype)
         else:
             # ── Plain SGD pseudo-gradient for 1-D params (bias, layer norm) ───
             print("plain sgd pseudo-gradient for 1-D param", name)

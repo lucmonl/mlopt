@@ -842,7 +842,7 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
 
     if opt_params["server_opt_name"] == "dion":
         from optimizer.dion import dion
-        dion(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
+        dion(model, loss_name, criterion, opt_params["dion_rank"], train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
         return
 
     if opt_params["server_opt_name"] in ["cocktailsgd", "cocktailsgd2"]:
@@ -1787,6 +1787,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_ef", type=int, default=False, help="use error feedback (currently only in lora)")
     parser.add_argument("--client_early_stop", type=int, default=-1, help="the number of minibatch for each client iteration, -1 for complete training")
     parser.add_argument("--marina_prob", type=float, default=-1.0, help="the probability of transmitting full gradient")
+    parser.add_argument("--dion_rank", type=int, default=-1, help="the rank of dion for projection")
 
     parser.add_argument("--privacy_clip", type=float, default=-1.0, help="clip for prrivacy")
     parser.add_argument("--privacy_noise", type=float, default=0.0, help="clip for prrivacy")
@@ -1923,6 +1924,7 @@ if __name__ == "__main__":
     opt_params["use_ef"]           = args.use_ef
     opt_params["client_early_stop"]= args.client_early_stop
     opt_params["marina_prob"]      = args.marina_prob
+    opt_params["dion_rank"]        = args.dion_rank
     opt_params["privacy_clip"]     = args.privacy_clip
     opt_params["privacy_noise"]    = args.privacy_noise
     
