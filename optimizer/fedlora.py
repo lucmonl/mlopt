@@ -930,6 +930,10 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     from main import train
 
     use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
+    if use_model_grad:
+        opt_params["local_update_ON"] = False
+    else:
+        opt_params["local_update_ON"] = True
 
     adapter_names = []
     adapter_weights = {}
@@ -956,10 +960,12 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     else:
         client_selected = np.arange(client_num)
 
+    training_time_accumulated = 0
     for client_id in client_selected:
         # update client models
         adapter_name = "client_{}".format(client_id)
-        model.set_adapter(adapter_name)
+        if opt_params["local_update_ON"]:
+            model.set_adapter(adapter_name)
         client_model = model #alias
 
         client_model.train()
@@ -970,7 +976,12 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             try:
                 train_graphs.loader_iter += 1
                 assert iter(train_loaders[0]) == train_loaders[0]
+                import time
+                start_time = time.time()
                 _, model_grad = train(client_model, loss_name, criterion, device, train_loaders[0], optimizer, lr_scheduler, server_epoch, client_opt_params)
+                end_time = time.time()
+                training_time_accumulated += end_time - start_time
+                print(f"Time taken for client {client_id}: {end_time - start_time} seconds")
             except StopIteration:
                 # reinitialize iterator
                 print("\nData Iterator is reloaded")
@@ -1001,6 +1012,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                     else:
                         assert False
 
+    print(f"Total training time: {training_time_accumulated} seconds")
     # average step is after the summation -- to provide more precisions
     for server_adapter_name in output_weights:
         output_weights[server_adapter_name] = output_weights[server_adapter_name] / client_num
@@ -1008,8 +1020,8 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     for server_adapter_name in adapter_weights:
         adapter_weights[server_adapter_name] = adapter_weights[server_adapter_name] / client_num
 
-
-    model.set_adapter(opt_params["server_name"])
+    if opt_params["local_update_ON"]:
+        model.set_adapter(opt_params["server_name"])
     #truncate_err, truncate_err_ratio = compute_truncate_err(model, adapter_weights, client_num, opt_params["model_name"], opt_params["server_name"])
     server_optimizer.zero_grad()
 
@@ -1056,11 +1068,11 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             else:
                 assert False
 
-            if opt_params["train_stats"]:
-                grad_norm += torch.norm(param.grad).item()**2
-    if opt_params["train_stats"]:
-        train_graphs.grad_norm.append(grad_norm ** 0.5)
-        print("grad norm:", train_graphs.grad_norm[-1])
+            #if opt_params["train_stats"]:
+            #    grad_norm += torch.norm(param.grad).item()**2
+    #if opt_params["train_stats"]:
+    #    train_graphs.grad_norm.append(grad_norm ** 0.5)
+    #    print("grad norm:", train_graphs.grad_norm[-1])
     
     server_lr = 0
     for group in server_optimizer.param_groups:
@@ -1234,11 +1246,12 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     """
     #reset server adapter to fr_save_init -- prepare for the next round, skip the output layer
 
-    from arch.lora import synchronize_lora_server
-    synchronize_lora_server(model, "fr_save_init", opt_params["server_name"], truncate_last=True, skip_output_layer_name=output_layer_name)
+    if opt_params["local_update_ON"]:
+        from arch.lora import synchronize_lora_server
+        synchronize_lora_server(model, "fr_save_init", opt_params["server_name"], truncate_last=True, skip_output_layer_name=output_layer_name)
 
-    # reinitialize the client lora params with fr_save_init, must include the output layer
-    synchronize_lora(model, opt_params["server_name"], truncate_last=True)
+        # reinitialize the client lora params with fr_save_init, must include the output layer
+        synchronize_lora(model, opt_params["server_name"], truncate_last=True)
 
     if server_lr_scheduler is not None:
         server_lr_scheduler.step()
@@ -1246,7 +1259,8 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     for group in server_optimizer.param_groups:
         print("server lr", group['lr'])
 
-    model.set_adapter(opt_params["server_name"])
+    if opt_params["local_update_ON"]:
+        model.set_adapter(opt_params["server_name"])
 
 def Orth(matrix):
     Q, _ = torch.qr(matrix)

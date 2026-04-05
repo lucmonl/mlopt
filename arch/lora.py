@@ -231,14 +231,20 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
         find_and_initialize(model, Lora_config, lora_rank, model_name)
         return model, output_layer_name, Lora_config
     
-
-    for i in range(client_num):
-        client_id = "client_{}".format(i)
-        model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
-                                                                        lora_freeze_a=lora_freeze_a, adapter_name=client_id, \
-                                                                         init_lora_weights=True, server_name = opt_params["server_name"], \
-                                                                         add_to_output_layer = False) #don't do pissa again
-    
+    use_model_grad = True
+    from optimizer.fedlora import get_muonlora_hparams
+    if opt_params["fedlora_avg"].startswith("muonlora_v"):
+        use_model_grad = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])[0]
+        
+    if not use_model_grad:
+        # add distinct adapters for each client
+        for i in range(client_num):
+            client_id = "client_{}".format(i)
+            model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
+                                                                            lora_freeze_a=lora_freeze_a, adapter_name=client_id, \
+                                                                            init_lora_weights=True, server_name = opt_params["server_name"], \
+                                                                            add_to_output_layer = False) #don't do pissa again
+        
     if opt_params["fedlora_avg"] == "svd":
         truncate_last=False
     elif opt_params["fedlora_avg"] in ["avg", "flora", "flasc", "fr", "fr_v2"] or opt_params["fedlora_avg"].startswith("muonlora_v"): #, "muonlora_v1", "muonlora_v2", "muonlora_v3", "muonlora_v4", "muonlora_v5", "muonlora_v6", "muonlora_v7", "muonlora_v8"]:

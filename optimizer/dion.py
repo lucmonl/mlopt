@@ -189,10 +189,13 @@ def dion(
         # no optimizer.step() in train!
         assert client_opt_params["local_update_ON"] == False
         assert client_epoch == 1, "client_epoch must be 1 for dion"
+        training_time_accumulated = 0
+        import time
         for epoch in range(client_epoch):
             try:
                 train_graphs.loader_iter += 1
                 assert iter(train_loaders[0]) == train_loaders[0]
+                start_time = time.time()
                 _, model_grad = train(client_model, 
                                     loss_name, 
                                     criterion, 
@@ -202,6 +205,9 @@ def dion(
                                     lr_scheduler, 
                                     server_epoch, 
                                     client_opt_params)
+                end_time = time.time()
+                training_time_accumulated += end_time - start_time
+                print(f"Time taken for client {client_id}: {end_time - start_time} seconds")
             except StopIteration:
                 # reinitialize iterator
                 print("\nData Iterator is reloaded")
@@ -209,7 +215,7 @@ def dion(
                 train_loaders[0] = iter(train_loaders[1])
                 _, model_grad = train(client_model, loss_name, criterion, device, train_loaders[0], optimizer, lr_scheduler, server_epoch, client_opt_params)
             
- 
+        print(f"Total training time: {training_time_accumulated} seconds")
         # accumulate client parameters → simulate AllReduce / FedAvg
         for name, param in client_model.named_parameters():
             if param.requires_grad:
