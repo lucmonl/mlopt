@@ -1320,7 +1320,11 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             if opt_params["opt_name"] == "adahessian":
                 loss.backward(create_graph=True)
             else:
+                import time
+                start_time = time.time()
                 loss.backward()
+                end_time = time.time()
+                print(f"Time taken for backward pass: {end_time - start_time} seconds")
 
             if opt_params["compute_acc"]:
                 if out.dim() > 1:
@@ -1716,6 +1720,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, help="batch size in training, also the number of samples in analysis dataset")
     parser.add_argument("--label_smoothing", type=float, default=0.0, help="label_smoothing param")
     parser.add_argument("--log_interval", type=int, default=200, help="do analysis every $ of epochs")
+    parser.add_argument("--save_ckpt", action='store_true', help="save checkpoints as separate files at log_interval")
     parser.add_argument("--train_stats", type=bool, default=False, help="track stats along training process. Behavior depends on the specific training algorithm.")
 
     
@@ -1853,6 +1858,7 @@ if __name__ == "__main__":
     opt_params["opt_name"]          = opt_name
     analysis_list       = args.analysis if args.analysis else [] # ['loss', 'eigs'] #['loss','eigs','nc',''weight_norm']
     analysis_interval   = args.log_interval
+    save_ckpt           = args.save_ckpt
     tiny_analysis  = 'gn_eigs' in analysis_list # avoid endless running time in computing gauss newton matrix
 
     # Optimization hyperparameters
