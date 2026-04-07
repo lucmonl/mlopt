@@ -2605,6 +2605,8 @@ if __name__ == "__main__":
                 model_params = model_params | {"fedlora_uba": opt_params["fedlora_uba"]}
             if opt_params["fedlora_avg"] == "flasc":
                 model_params = model_params | {"dl_density": args.dl_density, "ul_density": args.ul_density}
+            if opt_params["muonlora_switch_interval"] != -1:
+                model_params = model_params | {"muonlora_switch_interval": args.muonlora_switch_interval}
         
         if 'fedlora_uba' in model_params and opt_params["uba_mode"] != "none":
             model_params["uba_mode"] = opt_params["uba_mode"]
