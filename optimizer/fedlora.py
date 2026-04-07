@@ -1120,8 +1120,8 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
         if (server_epoch - 1) % opt_params["muonlora_switch_interval"]== 0:
             if "update_B" in opt_params:
                 # switch update parameter
-                print("Switching update to {}...".format("B" if opt_params["update_B"] else "A"))
                 opt_params["update_B"] = not opt_params["update_B"]
+                print("Switching update to {}...".format("B" if opt_params["update_B"] else "A"))
             else:
                 #lazy initialize update_B
                 print("Init update on B...")
