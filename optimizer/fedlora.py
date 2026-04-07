@@ -920,6 +920,9 @@ def get_muonlora_hparams(fedlora_avg_name):
     elif fedlora_avg_name == 'muonlora_v9':
         """directly adding momentum to the lora adapters."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, True, True
+    elif fedlora_avg_name == 'muonlora_v10':
+        """split muon update: fuse singular-vector-aligned part into server adapter, keep residual as muon update; alternates A/B sides across epochs."""
+        use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, False, True
     else:
         raise NotImplementedError
     return use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor
@@ -1082,6 +1085,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     # compute the muon update directions
     muon_updates = {}
     updated_base_weights = {}
+    server_param_updates = {}  # for muonlora_v10: stores updated server adapter params after fusion
     """
     for name, param in model.named_parameters():
         if "muon_update" in name and 'lora_B' in name:
@@ -1112,6 +1116,14 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             print("gradA norm:", params_grads[grad_param_name_A].norm().item())
             print("gradA error: ", (recovered_grad.T @ B_param - params_grads[grad_param_name_A].T).norm().item())
     """
+    if opt_params["fedlora_avg"] == 'muonlora_v10':
+        if (server_epoch - 1) % opt_params["muonlora_switch_interval"]== 0:
+            if "update_B" in opt_params:
+                # switch update parameter
+                opt_params["update_B"] = not opt_params["update_B"]
+            else:
+                #lazy initialize update_B
+                opt_params["update_B"] = True
 
     for name, param in model.named_parameters():
         if "muon_update" in name and 'lora_B' in name:
@@ -1170,12 +1182,71 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                 U_R, S_R, Vh_R = torch.linalg.svd(R)
 
                 
-                muon_updates[muon_update_name_A] = -server_lr * (Q_N @ Vh_R.T).T.to(param.dtype) #r*n
+                muon_updates[muon_update_name_A] = (Q_N @ Vh_R.T).T.to(param.dtype) #r*n
                 muon_updates[muon_update_name_B] = (Q_M @ U_R).to(param.dtype) #m*r
+                
+                """
                 print("Pseudo grad Norm: ", torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]))
                 if torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]).item() > 0.01:
                     print("Muon update is too large! Warning!")
+                """
+                if opt_params["fedlora_avg"] == 'muonlora_v10':
+                    if (server_epoch - 1) % opt_params["muonlora_switch_interval"]== 0:
+                        # re-do SVD
+                        A_server = original_params_data[grad_param_name_A].to(torch.float64)  # (r, n)
+                        B_server = original_params_data[grad_param_name_B].to(torch.float64)  # (m, r)
+                        W_server = B_server @ A_server  # (m, n)
+                        U_svd, S_svd, Vh_svd = torch.linalg.svd(W_server, full_matrices=False)
+                        # U_svd: (m, r)  S_svd: (r,)  Vh_svd: (r, n)
 
+                        U_svd_t = U_svd.to(param.dtype)
+                        Vh_svd_t = Vh_svd.to(param.dtype)
+                        S_diag = torch.diag(S_svd.to(param.dtype))
+
+                        if opt_params["update_B"]:
+                            original_params_data[grad_param_name_B] = U_svd_t @ S_diag
+                            original_params_data[grad_param_name_A] = Vh_svd_t
+                            server_param_updates[grad_param_name_A] = original_params_data[grad_param_name_A]
+                        else:
+                            original_params_data[grad_param_name_B] = U_svd_t
+                            original_params_data[grad_param_name_A] = S_diag @ Vh_svd_t
+                            server_param_updates[grad_param_name_B] = original_params_data[grad_param_name_B]
+
+                    if opt_params["update_B"]:
+                        # update is on B
+                        muon_updates[muon_update_name_B] *= -server_lr
+                    else:
+                        muon_updates[muon_update_name_A] *= -server_lr
+                    # Split the update into a server-adapter-fused part and a residual muon update.
+                    # Full update = V @ U  where V = muon_updates[B] (m×r), U = muon_updates[A] (r×n)
+                    # SVD of current server adapter weight W = B_server @ A_server = U_svd diag(S) Vh_svd
+                    # Alternating fusion:
+                    #   A-side (even epoch): fuse V @ Vh_svd into server adapter (lossless via row-space preservation)
+                    #     A_server_new = Vh_svd,  B_server_new = U_svd @ diag(S) + V
+                    #     residual muon_updates[A] = U - Vh_svd,  muon_updates[B] = V  (unchanged)
+                    #   B-side (odd epoch): fuse U_svd @ U into server adapter (symmetric)
+                    #     B_server_new = U_svd,  A_server_new = diag(S) @ Vh_svd + U
+                    #     residual muon_updates[B] = V - U_svd,  muon_updates[A] = U  (unchanged)
+                    V = muon_updates[muon_update_name_A]  # (r, n)
+                    U = muon_updates[muon_update_name_B]  # (m, r)
+
+                    #if server_epoch % 2 == 0:
+                    if opt_params["update_B"]:
+                        # B-side fusion: fuse U into B, keep A=Vh_svd fixed
+                        # B_server_new @ A_server_new = (U_svd @ S + U) @ Vh_svd = W + U @ Vh_svd
+                        server_param_updates[grad_param_name_B] = original_params_data[grad_param_name_B] + U
+                        muon_updates[muon_update_name_A] = V - original_params_data[grad_param_name_A]
+                        # muon_updates[muon_update_name_B] = U (unchanged)
+                    else:
+                        # A-side fusion: fuse V into A, keep B=U_svd fixed
+                        # B_server_new @ A_server_new = U_svd @ (S @ Vh_svd + V) = W + U_svd @ V
+                        server_param_updates[grad_param_name_A] = original_params_data[grad_param_name_A] + V
+                        muon_updates[muon_update_name_B] = U - original_params_data[grad_param_name_B]
+                        # muon_updates[muon_update_name_A] = U  (unchanged)
+                        #print(f"v10 B-side fusion: ||fused||={torch.norm(U_svd_t @ V_mu).item():.4f}, ||residual||={torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]).item():.4f}")
+                else:
+                    #scale either side is ok
+                    muon_updates[muon_update_name_A] *= -server_lr
                 #print(muon_update_name_A, muon_updates[muon_update_name_A].shape, muon_updates[muon_update_name_B].shape)
             else:
                 if apply_momentum:
@@ -1210,9 +1281,15 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             #muon_updates[muon_update_name_B] = adapter_weights[server_adapter_name_B]
 
     #sys.exit()
+    # muonlora_v10: apply fused updates to server adapter params before merging muon_update
+    if server_param_updates:
+        for name, param in model.named_parameters():
+            if name in server_param_updates:
+                param.data = server_param_updates[name]
+
     muon_update_num = 0
     #print("muon update")
-    
+
     for name, param in model.named_parameters():
         if "muon_update" in name:
             param.data = muon_updates[name]
