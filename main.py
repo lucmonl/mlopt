@@ -1720,7 +1720,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, help="batch size in training, also the number of samples in analysis dataset")
     parser.add_argument("--label_smoothing", type=float, default=0.0, help="label_smoothing param")
     parser.add_argument("--log_interval", type=int, default=200, help="do analysis every $ of epochs")
-    parser.add_argument("--save_ckpt", action='store_true', help="save checkpoints as separate files at log_interval")
+    parser.add_argument("--save_interval", type=int, default=200, help="save every $ of epochs")
     parser.add_argument("--train_stats", type=bool, default=False, help="track stats along training process. Behavior depends on the specific training algorithm.")
 
     
@@ -1858,7 +1858,7 @@ if __name__ == "__main__":
     opt_params["opt_name"]          = opt_name
     analysis_list       = args.analysis if args.analysis else [] # ['loss', 'eigs'] #['loss','eigs','nc',''weight_norm']
     analysis_interval   = args.log_interval
-    save_ckpt           = args.save_ckpt
+    save_interval       = args.save_interval
     tiny_analysis  = 'gn_eigs' in analysis_list # avoid endless running time in computing gauss newton matrix
 
     # Optimization hyperparameters
@@ -2673,6 +2673,7 @@ if __name__ == "__main__":
         if not run_from_scratch:
             load_from_epoch = continue_training(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
         epoch_list = np.arange(load_from_epoch+1, epochs+1, analysis_interval).tolist()
+        save_epoch_list = np.arange(load_from_epoch+1, epochs+1, save_interval).tolist()
         if load_from_epoch != 0:
             from utilities import optimizer_to
             print("loading from trained epoch {}".format(load_from_epoch))
@@ -2769,19 +2770,20 @@ if __name__ == "__main__":
                 torch.save(optimizer.state_dict(), f"{directory}/optimizer.ckpt")
                 if hasattr(optimizer, "base_optimizer"):
                     torch.save(optimizer.base_optimizer.state_dict(), f"{directory}/base_optimizer.ckpt")
-                if store_model_checkpoint:
-                    if model_name in ["akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1"]:
-                        #torch.save(model.state_dict(), f"{directory}/model.ckpt")
-                        from transformers import Trainer, TrainingArguments
-                        from utilities import safe_save_model_for_hf_trainer
-                        os.makedirs(f"{directory}/checkpoint_{epoch}", exist_ok=True)
-                        analysis_params["model_path"] = f"{directory}/checkpoint_{epoch}"
-                        trainer = Trainer(model=model, tokenizer=tokenizer)
-                        safe_save_model_for_hf_trainer(trainer=trainer, output_dir=analysis_params["model_path"])
-                    else:
-                        # a normal model
-                        os.makedirs(f"{directory}/checkpoint_{epoch}")
-                        torch.save(model.state_dict(), f"{directory}/checkpoint_{epoch}/model.ckpt") 
+                
+            if store_model_checkpoint and epoch in save_epoch_list:
+                if model_name in ["akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1"]:
+                    #torch.save(model.state_dict(), f"{directory}/model.ckpt")
+                    from transformers import Trainer, TrainingArguments
+                    from utilities import safe_save_model_for_hf_trainer
+                    os.makedirs(f"{directory}/checkpoint_{epoch}", exist_ok=True)
+                    analysis_params["model_path"] = f"{directory}/checkpoint_{epoch}"
+                    trainer = Trainer(model=model, tokenizer=tokenizer)
+                    safe_save_model_for_hf_trainer(trainer=trainer, output_dir=analysis_params["model_path"])
+                else:
+                    # a normal model
+                    os.makedirs(f"{directory}/checkpoint_{epoch}")
+                    torch.save(model.state_dict(), f"{directory}/checkpoint_{epoch}/model.ckpt") 
                     
 
     if do_eval:

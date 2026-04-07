@@ -9,9 +9,13 @@ import copy
 
 # 1. Define your local paths
 base_model_path = "meta-llama/Llama-3.2-3B"  # or "meta-llama/Llama-2-7b-hf"
-lora_adapter_path = "/u/lucmon/mlopt/results/oasst2/HF_CrossEntropy/federated/meta-llama/Llama-3.2-3B/task_name_en/lora_rank_16/lora_alpha_16/fedlora_avg_muonlora_v9/server_opt_sgd/client_opt_sgd/client_lr_1.0/client_momentum_0.0/client_weight_decay_0.0/client_num_64/client_epoch_1/client_round_0/sketch_size_-1/scheduler_cosine/lr_min_1e-05/lr_0.002/moment_0.7/wd_0.0/batch_size_2/epoch_10000/run_0"
-#lora_adapter_path = "/u/lucmon/mlopt/results/oasst2/HF_CrossEntropy/federated/meta-llama/Llama-3.2-3B/task_name_en/lora_rank_-1/lora_alpha_16/server_opt_dion/client_opt_sgd/client_lr_1.0/client_momentum_0.0/client_weight_decay_0.0/client_num_64/client_epoch_1/client_round_0/sketch_size_-1/dion_rank_16/scheduler_cosine/lr_min_1e-05/lr_0.001/moment_0.95/wd_0.0/batch_size_2/epoch_10000/run_0/"
+lora_adapter_path = "/u/lucmon/mlopt/results/oasst2/HF_CrossEntropy/federated/meta-llama/Llama-3.2-3B/task_name_en/dtype_fp16/lora_rank_16/lora_alpha_16/fedlora_avg_muonlora_v9/server_opt_sgd/client_opt_sgd/client_lr_1.0/client_momentum_0.0/client_weight_decay_0.0/client_num_64/client_epoch_1/client_round_0/sketch_size_-1/scheduler_cosine/lr_min_1e-05/lr_0.002/moment_0.7/wd_0.0/batch_size_2/epoch_10000/run_0/checkpoint_201"
 compare_with = "muon"
+#lora_adapter_path = "/u/lucmon/mlopt/results/oasst2/HF_CrossEntropy/federated/meta-llama/Llama-3.2-3B/task_name_en/lora_rank_-1/lora_alpha_16/server_opt_dion/client_opt_sgd/client_lr_1.0/client_momentum_0.0/client_weight_decay_0.0/client_num_64/client_epoch_1/client_round_0/sketch_size_-1/dion_rank_16/scheduler_cosine/lr_min_1e-05/lr_0.002/moment_0.95/wd_0.0/batch_size_2/epoch_10000/run_0/checkpoint_201"
+#compare_with = "dion"
+
+print(f"Evaluating {compare_with}")
+print(f"Checkpoint path: {lora_adapter_path}")
 
 
 if compare_with == "muon":
