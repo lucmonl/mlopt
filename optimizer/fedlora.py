@@ -1120,9 +1120,11 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
         if (server_epoch - 1) % opt_params["muonlora_switch_interval"]== 0:
             if "update_B" in opt_params:
                 # switch update parameter
+                print("Switching update to {}...".format("B" if opt_params["update_B"] else "A"))
                 opt_params["update_B"] = not opt_params["update_B"]
             else:
                 #lazy initialize update_B
+                print("Init update on B...")
                 opt_params["update_B"] = True
 
     for name, param in model.named_parameters():
@@ -1195,9 +1197,28 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                         # re-do SVD
                         A_server = original_params_data[grad_param_name_A].to(torch.float64)  # (r, n)
                         B_server = original_params_data[grad_param_name_B].to(torch.float64)  # (m, r)
-                        W_server = B_server @ A_server  # (m, n)
-                        U_svd, S_svd, Vh_svd = torch.linalg.svd(W_server, full_matrices=False)
+                        #W_server = B_server @ A_server  # (m, n)
+                        #U_svd, S_svd, Vh_svd = torch.linalg.svd(W_server, full_matrices=False)
                         # U_svd: (m, r)  S_svd: (r,)  Vh_svd: (r, n)
+                        Q_B, R_B = torch.linalg.qr(B_server)
+                        # A needs to be transposed so torch.linalg.qr operates on the columns
+                        # Q_A will be (n, r), R_A will be (r, r)
+                        Q_A, R_A = torch.linalg.qr(A_server.T)
+
+                        # Mathematically: W = B @ A = (Q_B @ R_B) @ (R_A.T @ Q_A.T)
+                        # So W = Q_B @ (R_B @ R_A.T) @ Q_A.T
+
+                        # 2. Form the tiny core matrix to be SVD-ed
+                        core_matrix = R_B @ R_A.T  # Shape: (r, r)
+
+                        # 3. Perform SVD on the r x r core matrix instead of the m x n matrix
+                        U_core, S_svd, Vh_core = torch.linalg.svd(core_matrix)  # All are (r, r) or (r,)
+
+                        # 4. Project the singular vectors back to the original m and n dimensions
+                        U_svd = Q_B @ U_core       # Shape: (m, r)
+                        Vh_svd = Vh_core @ Q_A.T   # Shape: (r, n)
+
+                        assert U_svd.shape == B_server.shape
 
                         U_svd_t = U_svd.to(param.dtype)
                         Vh_svd_t = Vh_svd.to(param.dtype)
