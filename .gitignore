@@ -13,6 +13,8 @@ results
 output/
 output
 .vscode/
+analysis/weight_diff.py
+analysis/adapter_diff.py
 #results/**/*.ckpt
 #results/**/*.json
 #results/**/*.pt
