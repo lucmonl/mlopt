@@ -1255,14 +1255,22 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                     if opt_params["update_B"]:
                         # B-side fusion: fuse U into B, keep A=Vh_svd fixed
                         # B_server_new @ A_server_new = (U_svd @ S + U) @ Vh_svd = W + U @ Vh_svd
-                        server_param_updates[grad_param_name_B] = original_params_data[grad_param_name_B] + U
-                        muon_updates[muon_update_name_A] = V - original_params_data[grad_param_name_A]
+                        server_param_updates[grad_param_name_B] = original_params_data[grad_param_name_B] + opt_params["muonlora_merge_alpha"] * U
+                        muon_updates[muon_update_name_A] = V - opt_params["muonlora_merge_alpha"] * original_params_data[grad_param_name_A]
                         # muon_updates[muon_update_name_B] = U (unchanged)
+                        from utilities import principal_angle
+                        print(f"param norm: {original_params_data[grad_param_name_B].float().norm().item()} U norm: {U.float().norm().item()}")
+                        principal_angle(grad_param_name_B, original_params_data[grad_param_name_B].float(), U.float())
+                        principal_angle(grad_param_name_B + " after update", original_params_data[grad_param_name_B].float(), server_param_updates[grad_param_name_B].float())
                     else:
                         # A-side fusion: fuse V into A, keep B=U_svd fixed
                         # B_server_new @ A_server_new = U_svd @ (S @ Vh_svd + V) = W + U_svd @ V
-                        server_param_updates[grad_param_name_A] = original_params_data[grad_param_name_A] + V
-                        muon_updates[muon_update_name_B] = U - original_params_data[grad_param_name_B]
+                        server_param_updates[grad_param_name_A] = original_params_data[grad_param_name_A] + opt_params["muonlora_merge_alpha"] * V
+                        muon_updates[muon_update_name_B] = U - opt_params["muonlora_merge_alpha"] * original_params_data[grad_param_name_B]
+                        from utilities import principal_angle
+                        print(f"param norm: {original_params_data[grad_param_name_A].float().norm().item()} V norm: {V.float().norm().item()}")
+                        principal_angle(grad_param_name_A, original_params_data[grad_param_name_A].float().T, V.float().T)
+                        principal_angle(grad_param_name_A + " after update", original_params_data[grad_param_name_A].float().T, server_param_updates[grad_param_name_A].float().T)
                         # muon_updates[muon_update_name_A] = U  (unchanged)
                         #print(f"v10 B-side fusion: ||fused||={torch.norm(U_svd_t @ V_mu).item():.4f}, ||residual||={torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]).item():.4f}")
                 else:

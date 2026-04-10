@@ -1065,6 +1065,27 @@ def tensor_randk(x, k):
     
     return x_hat
 
+def principal_angle(name, A_1, A_2):
+
+    # Orthonormal bases for each column space via QR
+    Q_1, _ = torch.linalg.qr(A_1)  # [in_features, r]
+    Q_2, _ = torch.linalg.qr(A_2)  # [in_features, r]
+
+    # Principal angles: cos(θ_i) = singular values of Q_1^T Q_2
+    M = Q_1.T @ Q_2  # [r, r]
+    sigma = torch.linalg.svd(M, full_matrices=False).S  # [r], values in [0, 1]
+    sigma = sigma.clamp(0.0, 1.0)  # numerical safety before arccos
+    principal_angles = torch.acos(sigma)  # [r], radians
+
+    grassmann_dist = principal_angles.norm().item()
+    mean_cos = sigma.mean().item()
+    min_cos = sigma.min().item()
+
+    print(f"  [{name}] column-space alignment: \n"
+            f"  mean cos(θ)={mean_cos:.4f} \n"
+            f"  min cos(θ)={min_cos:.4f} \n"
+            f"  Grassmann dist={grassmann_dist:.4f}")
+
 import sys
 def deepgso(ob):
     size = sys.getsizeof(ob)
