@@ -2789,7 +2789,7 @@ if __name__ == "__main__":
                     safe_save_model_for_hf_trainer(trainer=trainer, output_dir=analysis_params["model_path"])
                 else:
                     # a normal model
-                    os.makedirs(f"{directory}/checkpoint_{epoch}")
+                    os.makedirs(f"{directory}/checkpoint_{epoch}", exist_ok=True)
                     torch.save(model.state_dict(), f"{directory}/checkpoint_{epoch}/model.ckpt") 
                     
 
