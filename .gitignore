@@ -17,6 +17,7 @@ analysis/weight_diff.py
 analysis/adapter_diff.py
 results_old
 plots
+environment.yml
 #results/**/*.ckpt
 #results/**/*.json
 #results/**/*.pt

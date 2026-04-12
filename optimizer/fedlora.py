@@ -920,19 +920,28 @@ def get_muonlora_hparams(fedlora_avg_name):
     elif fedlora_avg_name == 'muonlora_v9':
         """directly adding momentum to the lora adapters."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, True, True
-    elif fedlora_avg_name == 'muonlora_v10':
+    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11']:
         """split muon update: fuse singular-vector-aligned part into server adapter, keep residual as muon update; alternates A/B sides across epochs."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, False, True
     else:
         raise NotImplementedError
-    return use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor
+    
+    if fedlora_avg_name == 'muonlora_v10':
+        partial_merge, orth_then_merge = True, True
+    elif fedlora_avg_name == 'muonlora_v11':
+        partial_merge, orth_then_merge = True, False
+    else:
+        partial_merge, orth_then_merge = False, False
+    return use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
+            orth_then_merge
 
 def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
     import copy
     from main import train
 
-    use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
+    use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
+        orth_then_merge = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
     if use_model_grad:
         opt_params["local_update_ON"] = False
     else:
@@ -1085,7 +1094,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     # compute the muon update directions
     muon_updates = {}
     updated_base_weights = {}
-    server_param_updates = {}  # for muonlora_v10: stores updated server adapter params after fusion
+    server_param_updates = {}  # for muonlora_v10 and onwards: stores updated server adapter params after fusion
     """
     for name, param in model.named_parameters():
         if "muon_update" in name and 'lora_B' in name:
@@ -1116,7 +1125,8 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             print("gradA norm:", params_grads[grad_param_name_A].norm().item())
             print("gradA error: ", (recovered_grad.T @ B_param - params_grads[grad_param_name_A].T).norm().item())
     """
-    if opt_params["fedlora_avg"] == 'muonlora_v10':
+    if partial_merge:
+        assert opt_params["muonlora_switch_interval"] > 0
         if (server_epoch - 1) % opt_params["muonlora_switch_interval"]== 0:
             if "update_B" in opt_params:
                 # switch update parameter
@@ -1192,52 +1202,60 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                 if torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]).item() > 0.01:
                     print("Muon update is too large! Warning!")
                 """
-                if opt_params["fedlora_avg"] == 'muonlora_v10':
-                    if (server_epoch - 1) % opt_params["muonlora_switch_interval"]== 0:
-                        # re-do SVD
-                        A_server = original_params_data[grad_param_name_A].to(torch.float64)  # (r, n)
-                        B_server = original_params_data[grad_param_name_B].to(torch.float64)  # (m, r)
-                        #W_server = B_server @ A_server  # (m, n)
-                        #U_svd, S_svd, Vh_svd = torch.linalg.svd(W_server, full_matrices=False)
-                        # U_svd: (m, r)  S_svd: (r,)  Vh_svd: (r, n)
-                        Q_B, R_B = torch.linalg.qr(B_server)
-                        # A needs to be transposed so torch.linalg.qr operates on the columns
-                        # Q_A will be (n, r), R_A will be (r, r)
-                        Q_A, R_A = torch.linalg.qr(A_server.T)
+                if partial_merge == True:
+                    if orth_then_merge:
+                        if (server_epoch - 1) % opt_params["muonlora_switch_interval"]== 0:
+                            # re-do SVD
+                            A_server = original_params_data[grad_param_name_A].to(torch.float64)  # (r, n)
+                            B_server = original_params_data[grad_param_name_B].to(torch.float64)  # (m, r)
+                            #W_server = B_server @ A_server  # (m, n)
+                            #U_svd, S_svd, Vh_svd = torch.linalg.svd(W_server, full_matrices=False)
+                            # U_svd: (m, r)  S_svd: (r,)  Vh_svd: (r, n)
+                            Q_B, R_B = torch.linalg.qr(B_server)
+                            # A needs to be transposed so torch.linalg.qr operates on the columns
+                            # Q_A will be (n, r), R_A will be (r, r)
+                            Q_A, R_A = torch.linalg.qr(A_server.T)
 
-                        # Mathematically: W = B @ A = (Q_B @ R_B) @ (R_A.T @ Q_A.T)
-                        # So W = Q_B @ (R_B @ R_A.T) @ Q_A.T
+                            # Mathematically: W = B @ A = (Q_B @ R_B) @ (R_A.T @ Q_A.T)
+                            # So W = Q_B @ (R_B @ R_A.T) @ Q_A.T
 
-                        # 2. Form the tiny core matrix to be SVD-ed
-                        core_matrix = R_B @ R_A.T  # Shape: (r, r)
+                            # 2. Form the tiny core matrix to be SVD-ed
+                            core_matrix = R_B @ R_A.T  # Shape: (r, r)
 
-                        # 3. Perform SVD on the r x r core matrix instead of the m x n matrix
-                        U_core, S_svd, Vh_core = torch.linalg.svd(core_matrix)  # All are (r, r) or (r,)
+                            # 3. Perform SVD on the r x r core matrix instead of the m x n matrix
+                            U_core, S_svd, Vh_core = torch.linalg.svd(core_matrix)  # All are (r, r) or (r,)
 
-                        # 4. Project the singular vectors back to the original m and n dimensions
-                        U_svd = Q_B @ U_core       # Shape: (m, r)
-                        Vh_svd = Vh_core @ Q_A.T   # Shape: (r, n)
+                            # 4. Project the singular vectors back to the original m and n dimensions
+                            U_svd = Q_B @ U_core       # Shape: (m, r)
+                            Vh_svd = Vh_core @ Q_A.T   # Shape: (r, n)
 
-                        assert U_svd.shape == B_server.shape
+                            assert U_svd.shape == B_server.shape
 
-                        U_svd_t = U_svd.to(param.dtype)
-                        Vh_svd_t = Vh_svd.to(param.dtype)
-                        S_diag = torch.diag(S_svd.to(param.dtype))
+                            U_svd_t = U_svd.to(param.dtype)
+                            Vh_svd_t = Vh_svd.to(param.dtype)
+                            S_diag = torch.diag(S_svd.to(param.dtype))
+
+                            if opt_params["update_B"]:
+                                original_params_data[grad_param_name_B] = U_svd_t @ S_diag
+                                original_params_data[grad_param_name_A] = Vh_svd_t
+                                server_param_updates[grad_param_name_A] = original_params_data[grad_param_name_A]
+                            else:
+                                original_params_data[grad_param_name_B] = U_svd_t
+                                original_params_data[grad_param_name_A] = S_diag @ Vh_svd_t
+                                server_param_updates[grad_param_name_B] = original_params_data[grad_param_name_B]
 
                         if opt_params["update_B"]:
-                            original_params_data[grad_param_name_B] = U_svd_t @ S_diag
-                            original_params_data[grad_param_name_A] = Vh_svd_t
-                            server_param_updates[grad_param_name_A] = original_params_data[grad_param_name_A]
+                            # update is on B
+                            muon_updates[muon_update_name_B] *= -server_lr
                         else:
-                            original_params_data[grad_param_name_B] = U_svd_t
-                            original_params_data[grad_param_name_A] = S_diag @ Vh_svd_t
-                            server_param_updates[grad_param_name_B] = original_params_data[grad_param_name_B]
-
-                    if opt_params["update_B"]:
-                        # update is on B
-                        muon_updates[muon_update_name_B] *= -server_lr
-                    else:
-                        muon_updates[muon_update_name_A] *= -server_lr
+                            muon_updates[muon_update_name_A] *= -server_lr
+                    elif orth_then_merge == False:
+                        # keep the original original_params_data
+                        if opt_params["update_B"]:
+                            # update is on B
+                            muon_updates[muon_update_name_B] *= -server_lr
+                        else:
+                            muon_updates[muon_update_name_A] *= -server_lr
                     # Split the update into a server-adapter-fused part and a residual muon update.
                     # Full update = V @ U  where V = muon_updates[B] (m×r), U = muon_updates[A] (r×n)
                     # SVD of current server adapter weight W = B_server @ A_server = U_svd diag(S) Vh_svd
@@ -1311,7 +1329,9 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
 
     #sys.exit()
     # muonlora_v10: apply fused updates to server adapter params before merging muon_update
-    if server_param_updates:
+    if partial_merge:
+        #apply fused updates to server adapter params before merging muon_update
+        assert server_param_updates != {}
         for name, param in model.named_parameters():
             if name in server_param_updates:
                 param.data = server_param_updates[name]

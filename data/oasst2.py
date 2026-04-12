@@ -61,6 +61,7 @@ def load_oasst2_federated(model_name, task_name, batch_size, client_num, model_p
     os.makedirs(SAVE_DIR, exist_ok=True)
 
     # load the tokenized datasets
+    print(SAVE_DIR)
     train_dataset = load_from_disk(SAVE_DIR + f"tokenized_oasst2_train_{task_name}.jsonl")
     eval_dataset = load_from_disk(SAVE_DIR + f"tokenized_oasst2_validation_{task_name}.jsonl")
 

@@ -1782,7 +1782,7 @@ if __name__ == "__main__":
                                                             "sketch_v2", "svd_het", "fedex", "flora", "flasc", "ffa",
                                                              "sb", "fr", "fr_v2", "muonlora_v1", "muonlora_v2", "muonlora_v3",
                                                              "muonlora_v4", "muonlora_v5", "muonlora_v6", "muonlora_v7", "muonlora_v8",
-                                                             "muonlora_v9", "muonlora_v10"], default="avg", 
+                                                             "muonlora_v9", "muonlora_v10", "muonlora_v11"], default="avg", 
                                                              help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
     parser.add_argument("--uba_mode", type=str, default='none', choices=["ada", "none"], help="ada means adaptive uba")
@@ -1792,7 +1792,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_ef", type=int, default=False, help="use error feedback (currently only in lora)")
     parser.add_argument("--client_early_stop", type=int, default=-1, help="the number of minibatch for each client iteration, -1 for complete training")
     parser.add_argument("--marina_prob", type=float, default=-1.0, help="the probability of transmitting full gradient")
-    parser.add_argument("--muonlora_switch_interval", type=float, default=-1.0, help="the probability of transmitting full gradient")
+    parser.add_argument("--muonlora_switch_interval", type=int, default=-1.0, help="the probability of transmitting full gradient")
     parser.add_argument("--muonlora_merge_alpha", type=float, default=11.0, help="merging alpha, larger alpha means faster change in B and A")
     parser.add_argument("--dion_rank", type=int, default=-1, help="the rank of dion for projection")
 

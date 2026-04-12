@@ -1,6 +1,6 @@
 import torch
 import torch.optim as optim
-import warmup_scheduler
+#import warmup_scheduler
 import sys
 
 def load_optimizer_param(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, warm_start, model_params, **kwargs):
