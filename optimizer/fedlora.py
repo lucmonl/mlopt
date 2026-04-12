@@ -920,20 +920,25 @@ def get_muonlora_hparams(fedlora_avg_name):
     elif fedlora_avg_name == 'muonlora_v9':
         """directly adding momentum to the lora adapters."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, True, True
-    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11']:
+    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11', 'muonlora_v12']:
         """split muon update: fuse singular-vector-aligned part into server adapter, keep residual as muon update; alternates A/B sides across epochs."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, False, True
     else:
         raise NotImplementedError
     
     if fedlora_avg_name == 'muonlora_v10':
-        partial_merge, orth_then_merge = True, True
+        partial_merge, orth_then_merge, alternate_update = True, True, True
     elif fedlora_avg_name == 'muonlora_v11':
-        partial_merge, orth_then_merge = True, False
+        # do not do QR to A or B before the update
+        partial_merge, orth_then_merge, alternate_update = True, False, True
+    elif fedlora_avg_name == 'muonlora_v12':
+        #alternate_update == False ==> only update on A
+        #alternate_update == True + large switch_interval ==> only update on B
+        partial_merge, orth_then_merge, alternate_update = True, False, False
     else:
-        partial_merge, orth_then_merge = False, False
+        partial_merge, orth_then_merge, alternate_update = False, False, False
     return use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
-            orth_then_merge
+            orth_then_merge, alternate_update
 
 def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
@@ -941,7 +946,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     from main import train
 
     use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
-        orth_then_merge = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
+        orth_then_merge, alternate_update = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
     if use_model_grad:
         opt_params["local_update_ON"] = False
     else:
@@ -1126,16 +1131,20 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             print("gradA error: ", (recovered_grad.T @ B_param - params_grads[grad_param_name_A].T).norm().item())
     """
     if partial_merge:
-        assert opt_params["muonlora_switch_interval"] > 0
-        if (server_epoch - 1) % opt_params["muonlora_switch_interval"]== 0:
-            if "update_B" in opt_params:
-                # switch update parameter
-                opt_params["update_B"] = not opt_params["update_B"]
-                print("Switching update to {}...".format("B" if opt_params["update_B"] else "A"))
-            else:
-                #lazy initialize update_B
-                print("Init update on B...")
-                opt_params["update_B"] = True
+        if alternate_update == False:
+            print("Keep update on A...")
+            opt_params["update_B"] = False
+        else:
+            assert opt_params["muonlora_switch_interval"] > 0
+            if (server_epoch - 1) % opt_params["muonlora_switch_interval"]== 0:
+                if "update_B" in opt_params:
+                    # switch update parameter
+                    opt_params["update_B"] = not opt_params["update_B"]
+                    print("Switching update to {}...".format("B" if opt_params["update_B"] else "A"))
+                else:
+                    #lazy initialize update_B
+                    print("Init update on B...")
+                    opt_params["update_B"] = True
 
     for name, param in model.named_parameters():
         if "muon_update" in name and 'lora_B' in name:
