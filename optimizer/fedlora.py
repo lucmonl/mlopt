@@ -4,6 +4,7 @@ import copy
 import torch.nn.functional as F
 from arch.lora import synchronize_lora, merge_to_base
 import numpy as np
+import math
 
 def compute_adapter_weight(model_name, lora_A_param, lora_B_param):
     if model_name in ["google/vit-base-patch16-224-in21k", "roberta-base"]:
@@ -1273,6 +1274,11 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                     if opt_params["update_B"]:
                         # B-side fusion: fuse U into B, keep A=Vh_svd fixed
                         # B_server_new @ A_server_new = (U_svd @ S + U) @ Vh_svd = W + U @ Vh_svd
+                        if opt_params["muonlora_scaled"]:
+                            I_size, J_size = U.shape[0], V.shape[1]
+                            scale = math.sqrt(I_size / J_size)
+                            muon_updates[muon_update_name_B] *= scale
+                            U = muon_updates[muon_update_name_B]
                         server_param_updates[grad_param_name_B] = original_params_data[grad_param_name_B] + opt_params["muonlora_merge_alpha"] * U
                         muon_updates[muon_update_name_A] = V - opt_params["muonlora_merge_alpha"] * original_params_data[grad_param_name_A]
                         # muon_updates[muon_update_name_B] = U (unchanged)
@@ -1283,6 +1289,11 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                     else:
                         # A-side fusion: fuse V into A, keep B=U_svd fixed
                         # B_server_new @ A_server_new = U_svd @ (S @ Vh_svd + V) = W + U_svd @ V
+                        if opt_params["muonlora_scaled"]:
+                            I_size, J_size = U.shape[0], V.shape[1]
+                            scale = math.sqrt(I_size / J_size)
+                            muon_updates[muon_update_name_A] *= scale
+                            V = muon_updates[muon_update_name_A]
                         server_param_updates[grad_param_name_A] = original_params_data[grad_param_name_A] + opt_params["muonlora_merge_alpha"] * V
                         muon_updates[muon_update_name_B] = U - opt_params["muonlora_merge_alpha"] * original_params_data[grad_param_name_B]
                         from utilities import principal_angle
@@ -1294,6 +1305,10 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                 else:
                     #scale either side is ok
                     muon_updates[muon_update_name_A] *= -server_lr
+                    if opt_params["muonlora_scaled"]:
+                        I_size, J_size = muon_updates[muon_update_name_B].shape[0], muon_updates[muon_update_name_A].shape[1]
+                        scale = math.sqrt(I_size / J_size)
+                        muon_updates[muon_update_name_A] *= scale
                 #print(muon_update_name_A, muon_updates[muon_update_name_A].shape, muon_updates[muon_update_name_B].shape)
             else:
                 if apply_momentum:
@@ -1304,7 +1319,11 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                     print("Pseudo grad Norm: ", torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]))
                     if torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]).item() > 0.01:
                         print("Muon update is too large! Warning!")
-
+                
+                if opt_params["muonlora_scaled"]:
+                    I_size, J_size = muon_updates[muon_update_name_B].shape[0], muon_updates[muon_update_name_A].shape[1]
+                    scale = math.sqrt(I_size / J_size)
+                    muon_updates[muon_update_name_B] *= scale
                 
             
             #recovered_grad = -1 * muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]

@@ -238,6 +238,8 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
     elif opt_name == "dion":
         base_optimizer = torch.optim.SGD
         optimizer = base_optimizer(model.parameters(), lr=lr, momentum=0.0, weight_decay=weight_decay)
+        if kwargs["muonlora_scaled"]:
+            model_params = model_params | {"muon": "scaled"}
         model_params = model_params | {"dion_rank": kwargs["dion_rank"]}
         kwargs["local_update_ON"] = False
     elif opt_name == "fetchsgd":

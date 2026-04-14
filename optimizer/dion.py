@@ -56,7 +56,7 @@ def power_iter1(M, V):
     return U, W_reduced
  
  
-def dion_update_0d(G, M, V, beta=0.05):
+def dion_update_0d(G, M, V, beta=0.05, scaled=False):
     """
     DION^0D — Unsharded Dion update rule (Algorithm 2).
  
@@ -88,8 +88,11 @@ def dion_update_0d(G, M, V, beta=0.05):
     O = U @ V_new.T                            # [I, J]
  
     # Line 7: scale and return
-    I_size, J_size = G.shape
-    scale = math.sqrt(I_size / J_size)
+    if scaled:
+        I_size, J_size = G.shape
+        scale = math.sqrt(I_size / J_size)
+    else:
+        scale=1
     O_scaled = scale * O
  
     return O_scaled, M_new, V_new
@@ -247,7 +250,7 @@ def dion(
         if param.dim() == 2:
             # ── Dion update for 2-D weight matrices ───────────────────────────
             state = model._dion_state[name]
-            O_scaled, M_new, V_new = dion_update_0d(G, state["M"], state["V"], beta)
+            O_scaled, M_new, V_new = dion_update_0d(G, state["M"], state["V"], beta, opt_params["muonlora_scaled"])
             state["M"] = M_new
             state["V"] = V_new
             param.grad = O_scaled.to(param.dtype)

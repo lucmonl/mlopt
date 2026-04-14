@@ -1793,7 +1793,8 @@ if __name__ == "__main__":
     parser.add_argument("--client_early_stop", type=int, default=-1, help="the number of minibatch for each client iteration, -1 for complete training")
     parser.add_argument("--marina_prob", type=float, default=-1.0, help="the probability of transmitting full gradient")
     parser.add_argument("--muonlora_switch_interval", type=int, default=-1.0, help="the probability of transmitting full gradient")
-    parser.add_argument("--muonlora_merge_alpha", type=float, default=11.0, help="merging alpha, larger alpha means faster change in B and A")
+    parser.add_argument("--muonlora_merge_alpha", type=float, default=1.0, help="merging alpha, larger alpha means faster change in B and A")
+    parser.add_argument("--muonlora_scaled", action='store_true', help="scale every muon update by (I/J)**0.5")
     parser.add_argument("--dion_rank", type=int, default=-1, help="the rank of dion for projection")
 
     parser.add_argument("--privacy_clip", type=float, default=-1.0, help="clip for prrivacy")
@@ -1935,6 +1936,7 @@ if __name__ == "__main__":
     opt_params["dion_rank"]        = args.dion_rank
     opt_params["muonlora_switch_interval"] = args.muonlora_switch_interval
     opt_params["muonlora_merge_alpha"] = args.muonlora_merge_alpha
+    opt_params["muonlora_scaled"]  = args.muonlora_scaled
     opt_params["privacy_clip"]     = args.privacy_clip
     opt_params["privacy_noise"]    = args.privacy_noise
     
@@ -2607,6 +2609,8 @@ if __name__ == "__main__":
                 model_params = model_params | {"fedlora_uba": opt_params["fedlora_uba"]}
             if opt_params["fedlora_avg"] == "flasc":
                 model_params = model_params | {"dl_density": args.dl_density, "ul_density": args.ul_density}
+            if opt_params["muonlora_scaled"]:
+                model_params = model_params | {"muon": "scaled"}
             if opt_params["muonlora_switch_interval"] != -1:
                 model_params = model_params | {"muonlora_switch_interval": args.muonlora_switch_interval}
                 model_params = model_params | {"muonlora_merge_alpha": args.muonlora_merge_alpha}
