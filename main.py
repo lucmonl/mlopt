@@ -1781,8 +1781,8 @@ if __name__ == "__main__":
     parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch",
                                                             "sketch_v2", "svd_het", "fedex", "flora", "flasc", "ffa",
                                                              "sb", "fr", "fr_v2", "muonlora_v1", "muonlora_v2", "muonlora_v3",
-                                                             "muonlora_v4", "muonlora_v5", "muonlora_v6", "muonlora_v7", "muonlora_v8",
-                                                             "muonlora_v9", "muonlora_v10", "muonlora_v11"], default="avg", 
+                                                             "muonlora_v4", "muonlora_v5", "muonlora_v6",  "muonlora_v7", "muonlora_v8",
+                                                             "muonlora_v9", "muonlora_v10", "muonlora_v11", "muonlora_v12"], default="avg", 
                                                              help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
     parser.add_argument("--uba_mode", type=str, default='none', choices=["ada", "none"], help="ada means adaptive uba")
