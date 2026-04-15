@@ -938,7 +938,7 @@ def get_muonlora_hparams(fedlora_avg_name):
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, False, False
     elif fedlora_avg_name == 'muonlora_v13':
         """principled momentum aggregation: project old momentum onto new factor's column/row space before accumulating."""
-        partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, False, True
+        partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
     else:
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = False, False, False, False
     return use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
@@ -1076,12 +1076,11 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                 if moment_on_factor:
                     if "momentum" not in opt_params:
                         opt_params["momentum"] = {}
-                    if "prev_factor" not in opt_params:
+                    if aligned_momentum and "prev_factor" not in opt_params:
                         opt_params["prev_factor"] = {}
                     if name in opt_params["momentum"]:
                         if aligned_momentum:
                             old_mom = opt_params["momentum"][name].to(torch.float64)
-                            old_factor = opt_params["prev_factor"][name].to(torch.float64)
                             new_grad = param.grad.to(torch.float64)
                             if 'lora_B' in name:
                                 if not opt_params["update_B"]:
@@ -1093,8 +1092,9 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                                     
                                     C = torch.linalg.pinv(core, rcond=1e-6) @ old_factor @ cur_adapter_weights[prev_factor_name].T.to(torch.float64)  # (r, r)
                                     aligned_mom = old_mom @ C  # (m, r)
-                                    print(f"A was updated in the last iteration. \
-                                          Retrive factor size: {old_factor.shape}. Old momentum shape: {old_mom.shape} New momentum shape: {aligned_mom.shape}")
+                                    #print(f"A was updated in the last iteration. \n"
+                                    #      f"Retrive factor size: {old_factor.shape}. Old momentum shape: {old_mom.shape} New momentum shape: {aligned_mom.shape}")
+                                    #print((aligned_mom - old_mom).norm().item())
                                     #opt_params["prev_factor"][prev_factor_name] = cur_adapter_weights[prev_factor_name]
                                 else:
                                     aligned_mom = old_mom
@@ -1113,8 +1113,9 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                                     # Directly: C = new_grad @ old_raw.T @ pinv(core)
                                     C = cur_adapter_weights[prev_factor_name].to(torch.float64).T @ old_factor @ torch.linalg.pinv(core, rcond=1e-6)  # (r, r)
                                     aligned_mom = C @ old_mom  # (r, n)
-                                    print(f"B was updated in the last iteration. \
-                                           Retrive factor size: {old_factor.shape}. Old momentum shape: {old_mom.shape} New momentum shape: {aligned_mom.shape}")
+                                    #print(f"B was updated in the last iteration. \n"
+                                    #       f"Retrive factor size: {old_factor.shape}. Old momentum shape: {old_mom.shape} New momentum shape: {aligned_mom.shape}")
+                                    #print((aligned_mom - old_mom).norm().item())
                                 else:
                                     aligned_mom = old_mom
                             params_grads[name] = (opt_params["server_momentum"] * aligned_mom + new_grad).to(param.grad.dtype)
@@ -1123,10 +1124,10 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                     else:
                         params_grads[name] = param.grad.clone()
                     opt_params["momentum"][name] = params_grads[name].clone()
-                    opt_params["prev_factor"][name] = param.data
+                    #opt_params["prev_factor"][name] = param.data
                 else:
                     params_grads[name] = param.grad.clone()
-                print(name, param.grad.norm().item())
+                #print(name, param.grad.norm().item())
                 """
                 print("param original norm: ", param.data.norm().item(), param.data.dtype)
                 print("param original norm 2: ", original_params_data[name].norm().item(), original_params_data[name].data.dtype)
@@ -1143,6 +1144,12 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     #    train_graphs.grad_norm.append(grad_norm ** 0.5)
     #    print("grad norm:", train_graphs.grad_norm[-1])
     
+    # update the previous factors with the current factor (before real updates)
+    if aligned_momentum:
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                opt_params["prev_factor"][name] = param.data.clone()
+
     server_lr = 0
     for group in server_optimizer.param_groups:
         server_lr = group['lr']
@@ -1344,8 +1351,8 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                         # muon_updates[muon_update_name_B] = U (unchanged)
                         from utilities import principal_angle
                         print(f"param norm: {original_params_data[grad_param_name_B].float().norm().item()} U norm: {U.float().norm().item()}")
-                        principal_angle(grad_param_name_B, original_params_data[grad_param_name_B].float(), U.float())
-                        principal_angle(grad_param_name_B + " after update", original_params_data[grad_param_name_B].float(), server_param_updates[grad_param_name_B].float())
+                        #principal_angle(grad_param_name_B, original_params_data[grad_param_name_B].float(), U.float())
+                        #principal_angle(grad_param_name_B + " after update", original_params_data[grad_param_name_B].float(), server_param_updates[grad_param_name_B].float())
                     else:
                         # A-side fusion: fuse V into A, keep B=U_svd fixed
                         # B_server_new @ A_server_new = U_svd @ (S @ Vh_svd + V) = W + U_svd @ V
@@ -1358,8 +1365,8 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                         muon_updates[muon_update_name_B] = U - opt_params["muonlora_merge_alpha"] * original_params_data[grad_param_name_B]
                         from utilities import principal_angle
                         print(f"param norm: {original_params_data[grad_param_name_A].float().norm().item()} V norm: {V.float().norm().item()}")
-                        principal_angle(grad_param_name_A, original_params_data[grad_param_name_A].float().T, V.float().T)
-                        principal_angle(grad_param_name_A + " after update", original_params_data[grad_param_name_A].float().T, server_param_updates[grad_param_name_A].float().T)
+                        #principal_angle(grad_param_name_A, original_params_data[grad_param_name_A].float().T, V.float().T)
+                        #principal_angle(grad_param_name_A + " after update", original_params_data[grad_param_name_A].float().T, server_param_updates[grad_param_name_A].float().T)
                         # muon_updates[muon_update_name_A] = U  (unchanged)
                         #print(f"v10 B-side fusion: ||fused||={torch.norm(U_svd_t @ V_mu).item():.4f}, ||residual||={torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]).item():.4f}")
                 else:
