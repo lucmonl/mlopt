@@ -921,25 +921,28 @@ def get_muonlora_hparams(fedlora_avg_name):
     elif fedlora_avg_name == 'muonlora_v9':
         """directly adding momentum to the lora adapters."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, True, True
-    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11', 'muonlora_v12']:
+    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11', 'muonlora_v12', 'muonlora_v13']:
         """split muon update: fuse singular-vector-aligned part into server adapter, keep residual as muon update; alternates A/B sides across epochs."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, False, True
     else:
         raise NotImplementedError
-    
+
     if fedlora_avg_name == 'muonlora_v10':
-        partial_merge, orth_then_merge, alternate_update = True, True, True
+        partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, True, True, False
     elif fedlora_avg_name == 'muonlora_v11':
         # do not do QR to A or B before the update
-        partial_merge, orth_then_merge, alternate_update = True, False, True
+        partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, False
     elif fedlora_avg_name == 'muonlora_v12':
         #alternate_update == False ==> only update on A
         #alternate_update == True + large switch_interval ==> only update on B
-        partial_merge, orth_then_merge, alternate_update = True, False, False
+        partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, False, False
+    elif fedlora_avg_name == 'muonlora_v13':
+        """principled momentum aggregation: project old momentum onto new factor's column/row space before accumulating."""
+        partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, False, True
     else:
-        partial_merge, orth_then_merge, alternate_update = False, False, False
+        partial_merge, orth_then_merge, alternate_update, aligned_momentum = False, False, False, False
     return use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
-            orth_then_merge, alternate_update
+            orth_then_merge, alternate_update, aligned_momentum
 
 def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
@@ -947,7 +950,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     from main import train
 
     use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
-        orth_then_merge, alternate_update = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
+        orth_then_merge, alternate_update, aligned_momentum = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
     if use_model_grad:
         opt_params["local_update_ON"] = False
     else:
@@ -1052,7 +1055,12 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
         grad_norm = 0
 
     params_grads = {}
-    print("adapter diff norm")
+    #print("adapter diff norm")
+    cur_adapter_weights = {}
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            cur_adapter_weights[name] = param.data
+
     for name, param in model.named_parameters():
         if param.requires_grad:
             if output_layer_name and output_layer_name in name:
@@ -1068,11 +1076,54 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                 if moment_on_factor:
                     if "momentum" not in opt_params:
                         opt_params["momentum"] = {}
+                    if "prev_factor" not in opt_params:
+                        opt_params["prev_factor"] = {}
                     if name in opt_params["momentum"]:
-                        params_grads[name] = opt_params["server_momentum"] * opt_params["momentum"][name] + param.grad  
+                        if aligned_momentum:
+                            old_mom = opt_params["momentum"][name].to(torch.float64)
+                            old_factor = opt_params["prev_factor"][name].to(torch.float64)
+                            new_grad = param.grad.to(torch.float64)
+                            if 'lora_B' in name:
+                                if not opt_params["update_B"]:
+                                    # B is (m, r): right-multiply old momentum by (r×r) change-of-basis
+                                    # C = pinv(B_{t-1}^T @ B_{t-1}) @ B_{t-1}^T @ B_t
+                                    prev_factor_name = name.replace("lora_B", "lora_A")  # lora_B key
+                                    old_factor = opt_params["prev_factor"][prev_factor_name].to(torch.float64)  # A_{t-1} r * n
+                                    core = old_factor @ old_factor.T  # (r, r)
+                                    
+                                    C = torch.linalg.pinv(core, rcond=1e-6) @ old_factor @ cur_adapter_weights[prev_factor_name].T.to(torch.float64)  # (r, r)
+                                    aligned_mom = old_mom @ C  # (m, r)
+                                    print(f"A was updated in the last iteration. \
+                                          Retrive factor size: {old_factor.shape}. Old momentum shape: {old_mom.shape} New momentum shape: {aligned_mom.shape}")
+                                    #opt_params["prev_factor"][prev_factor_name] = cur_adapter_weights[prev_factor_name]
+                                else:
+                                    aligned_mom = old_mom
+                            else:
+                                assert 'lora_A' in name
+                                if opt_params["update_B"]:
+                                    # A is (r, n): left-multiply old momentum by (r×r) change-of-basis
+                                    # C = new_grad @ old_raw^T @ pinv(old_raw @ old_raw^T)
+                                    prev_factor_name = name.replace("lora_A", "lora_B")
+                                    old_factor = opt_params["prev_factor"][prev_factor_name].to(torch.float64) # B_{t-1} m * r
+                                    core = old_factor.T @ old_factor  # (r, r)
+                                    # C = new_grad @ (old_raw @ old_raw^T)^{-1} @ old_raw ... rearranged:
+                                    # C^T = old_raw^T @ pinv(old_raw @ old_raw^T)^T @ new_grad^T
+                                    #      => solve core.T @ C^T = old_raw^T @ new_grad^T  (but core is sym)
+                                    # Solve: core @ X = old_raw @ new_grad^T, then C = X^T ... hmm
+                                    # Directly: C = new_grad @ old_raw.T @ pinv(core)
+                                    C = cur_adapter_weights[prev_factor_name].to(torch.float64).T @ old_factor @ torch.linalg.pinv(core, rcond=1e-6)  # (r, r)
+                                    aligned_mom = C @ old_mom  # (r, n)
+                                    print(f"B was updated in the last iteration. \
+                                           Retrive factor size: {old_factor.shape}. Old momentum shape: {old_mom.shape} New momentum shape: {aligned_mom.shape}")
+                                else:
+                                    aligned_mom = old_mom
+                            params_grads[name] = (opt_params["server_momentum"] * aligned_mom + new_grad).to(param.grad.dtype)
+                        else:
+                            params_grads[name] = opt_params["server_momentum"] * opt_params["momentum"][name] + param.grad
                     else:
                         params_grads[name] = param.grad.clone()
                     opt_params["momentum"][name] = params_grads[name].clone()
+                    opt_params["prev_factor"][name] = param.data
                 else:
                     params_grads[name] = param.grad.clone()
                 print(name, param.grad.norm().item())
