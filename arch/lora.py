@@ -496,9 +496,9 @@ def merge_to_base(model, adapter_name, lora_r, lora_alpha, model_name):
             original_param_data = param.data.clone()
             if model_name in ["gpt2"]:
                 #print(name_A)
-                param.data += lora_alpha / lora_r * (adapter_weights[name_B] @ adapter_weights[name_A]).T
+                param.data += lora_alpha / lora_r * (adapter_weights[name_B] @ adapter_weights[name_A]).to(param.dtype).T
             elif model_name in ["meta-llama/Llama-3.1-8B-Instruct", "meta-llama/Llama-3.1-8B", "meta-llama/Llama-3.2-3B"]:
-                param.data += lora_alpha / lora_r * (adapter_weights[name_B] @ adapter_weights[name_A])
+                param.data += lora_alpha / lora_r * (adapter_weights[name_B] @ adapter_weights[name_A]).to(param.dtype)
             else:
                 raise NotImplementedError
             print(name, original_param_data.norm().item(), param.data.norm().item(), (param.data - original_param_data).norm().item())

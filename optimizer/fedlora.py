@@ -1087,13 +1087,13 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                                     # B is (m, r): right-multiply old momentum by (r×r) change-of-basis
                                     # C = pinv(B_{t-1}^T @ B_{t-1}) @ B_{t-1}^T @ B_t
                                     prev_factor_name = name.replace("lora_B", "lora_A")  # lora_B key
-                                    old_factor = opt_params["prev_factor"][prev_factor_name].to(torch.float64)  # A_{t-1} r * n
-                                    core = old_factor @ old_factor.T  # (r, r)
+                                    prev_factor = opt_params["prev_factor"][prev_factor_name].to(torch.float64)   # A_{t-1} r * n
+                                    core = prev_factor @ prev_factor.T  # (r, r)
                                     
-                                    C = torch.linalg.pinv(core, rcond=1e-6) @ old_factor @ cur_adapter_weights[prev_factor_name].T.to(torch.float64)  # (r, r)
+                                    C = torch.linalg.pinv(core, rcond=1e-6) @ prev_factor @ cur_adapter_weights[prev_factor_name].T.to(torch.float64)  # (r, r)
                                     aligned_mom = old_mom @ C  # (m, r)
                                     #print(f"A was updated in the last iteration. \n"
-                                    #      f"Retrive factor size: {old_factor.shape}. Old momentum shape: {old_mom.shape} New momentum shape: {aligned_mom.shape}")
+                                    #      f"Retrive factor size: {prev_factor.shape}. Old momentum shape: {old_mom.shape} New momentum shape: {aligned_mom.shape}")
                                     #print((aligned_mom - old_mom).norm().item())
                                     #opt_params["prev_factor"][prev_factor_name] = cur_adapter_weights[prev_factor_name]
                                 else:
@@ -1104,29 +1104,29 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                                     # A is (r, n): left-multiply old momentum by (r×r) change-of-basis
                                     # C = new_grad @ old_raw^T @ pinv(old_raw @ old_raw^T)
                                     prev_factor_name = name.replace("lora_A", "lora_B")
-                                    old_factor = opt_params["prev_factor"][prev_factor_name].to(torch.float64) # B_{t-1} m * r
-                                    core = old_factor.T @ old_factor  # (r, r)
+                                    prev_factor = opt_params["prev_factor"][prev_factor_name].to(torch.float64) # B_{t-1} m * r, dtype->fp64
+                                    core = prev_factor.T @ prev_factor  # (r, r)
                                     # C = new_grad @ (old_raw @ old_raw^T)^{-1} @ old_raw ... rearranged:
                                     # C^T = old_raw^T @ pinv(old_raw @ old_raw^T)^T @ new_grad^T
                                     #      => solve core.T @ C^T = old_raw^T @ new_grad^T  (but core is sym)
                                     # Solve: core @ X = old_raw @ new_grad^T, then C = X^T ... hmm
                                     # Directly: C = new_grad @ old_raw.T @ pinv(core)
-                                    C = cur_adapter_weights[prev_factor_name].to(torch.float64).T @ old_factor @ torch.linalg.pinv(core, rcond=1e-6)  # (r, r)
+                                    C = cur_adapter_weights[prev_factor_name].to(torch.float64).T @ prev_factor @ torch.linalg.pinv(core, rcond=1e-6)  # (r, r)
                                     aligned_mom = C @ old_mom  # (r, n)
                                     #print(f"B was updated in the last iteration. \n"
-                                    #       f"Retrive factor size: {old_factor.shape}. Old momentum shape: {old_mom.shape} New momentum shape: {aligned_mom.shape}")
+                                    #       f"Retrive factor size: {prev_factor.shape}. Old momentum shape: {old_mom.shape} New momentum shape: {aligned_mom.shape}")
                                     #print((aligned_mom - old_mom).norm().item())
                                 else:
                                     aligned_mom = old_mom
-                            params_grads[name] = (opt_params["server_momentum"] * aligned_mom + new_grad).to(param.grad.dtype)
+                            params_grads[name] = (opt_params["server_momentum"] * aligned_mom + new_grad) #.to(param.grad.dtype) # keep it fp64
                         else:
-                            params_grads[name] = opt_params["server_momentum"] * opt_params["momentum"][name] + param.grad
+                            params_grads[name] = opt_params["server_momentum"] * opt_params["momentum"][name] + param.grad.to(torch.float64)
                     else:
-                        params_grads[name] = param.grad.clone()
+                        params_grads[name] = param.grad.clone().to(torch.float64)
                     opt_params["momentum"][name] = params_grads[name].clone()
                     #opt_params["prev_factor"][name] = param.data
                 else:
-                    params_grads[name] = param.grad.clone()
+                    params_grads[name] = param.grad.clone().to(torch.float64)
                 #print(name, param.grad.norm().item())
                 """
                 print("param original norm: ", param.data.norm().item(), param.data.dtype)
@@ -1148,6 +1148,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     if aligned_momentum:
         for name, param in model.named_parameters():
             if param.requires_grad:
+                # store prev_factor in model dtype
                 opt_params["prev_factor"][name] = param.data.clone()
 
     server_lr = 0
@@ -1214,7 +1215,9 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             muon_update_name_B = name
             base_name = muon_update_name_B.replace("lora_B.muon_update", "base_layer")
             
-            grad_B, grad_A = params_grads[grad_param_name_B].to(torch.float64), params_grads[grad_param_name_A].T.to(torch.float64)
+            #grad_B, grad_A = params_grads[grad_param_name_B].to(torch.float64), params_grads[grad_param_name_A].T.to(torch.float64)
+            # already fp64
+            grad_B, grad_A = params_grads[grad_param_name_B], params_grads[grad_param_name_A].T
 
             A_param = original_params_data[grad_param_name_A].T.to(torch.float64) #n*r
             B_param = original_params_data[grad_param_name_B].to(torch.float64) #m*r
@@ -1262,8 +1265,8 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                 U_R, S_R, Vh_R = torch.linalg.svd(R)
 
                 
-                muon_updates[muon_update_name_A] = (Q_N @ Vh_R.T).T.to(param.dtype) #r*n
-                muon_updates[muon_update_name_B] = (Q_M @ U_R).to(param.dtype) #m*r
+                muon_updates[muon_update_name_A] = (Q_N @ Vh_R.T).T #.to(param.dtype) #r*n keep it fp64
+                muon_updates[muon_update_name_B] = (Q_M @ U_R) #.to(param.dtype) #m*r
                 
                 """
                 print("Pseudo grad Norm: ", torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]))
@@ -1274,15 +1277,15 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                     if orth_then_merge:
                         if (server_epoch - 1) % opt_params["muonlora_switch_interval"]== 0:
                             # re-do SVD
-                            A_server = original_params_data[grad_param_name_A].to(torch.float64)  # (r, n)
-                            B_server = original_params_data[grad_param_name_B].to(torch.float64)  # (m, r)
+                            #A_server = original_params_data[grad_param_name_A].to(torch.float64)  # (r, n)
+                            #B_server = original_params_data[grad_param_name_B].to(torch.float64)  # (m, r)
                             #W_server = B_server @ A_server  # (m, n)
                             #U_svd, S_svd, Vh_svd = torch.linalg.svd(W_server, full_matrices=False)
                             # U_svd: (m, r)  S_svd: (r,)  Vh_svd: (r, n)
-                            Q_B, R_B = torch.linalg.qr(B_server)
+                            Q_B, R_B = torch.linalg.qr(B_param)
                             # A needs to be transposed so torch.linalg.qr operates on the columns
                             # Q_A will be (n, r), R_A will be (r, r)
-                            Q_A, R_A = torch.linalg.qr(A_server.T)
+                            Q_A, R_A = torch.linalg.qr(A_param)
 
                             # Mathematically: W = B @ A = (Q_B @ R_B) @ (R_A.T @ Q_A.T)
                             # So W = Q_B @ (R_B @ R_A.T) @ Q_A.T
@@ -1297,7 +1300,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             U_svd = Q_B @ U_core       # Shape: (m, r)
                             Vh_svd = Vh_core @ Q_A.T   # Shape: (r, n)
 
-                            assert U_svd.shape == B_server.shape
+                            assert U_svd.shape == B_param.shape
 
                             U_svd_t = U_svd.to(param.dtype)
                             Vh_svd_t = Vh_svd.to(param.dtype)
@@ -1346,11 +1349,11 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             scale = math.sqrt(I_size / J_size)
                             muon_updates[muon_update_name_B] *= scale
                             U = muon_updates[muon_update_name_B]
-                        server_param_updates[grad_param_name_B] = original_params_data[grad_param_name_B] + opt_params["muonlora_merge_alpha"] * U
-                        muon_updates[muon_update_name_A] = V - opt_params["muonlora_merge_alpha"] * original_params_data[grad_param_name_A]
+                        server_param_updates[grad_param_name_B] = B_param + opt_params["muonlora_merge_alpha"] * U
+                        muon_updates[muon_update_name_A] = V - opt_params["muonlora_merge_alpha"] * A_param.T
                         # muon_updates[muon_update_name_B] = U (unchanged)
                         from utilities import principal_angle
-                        print(f"param norm: {original_params_data[grad_param_name_B].float().norm().item()} U norm: {U.float().norm().item()}")
+                        print(f"param norm: {B_param.float().norm().item()} U norm: {U.float().norm().item()}")
                         #principal_angle(grad_param_name_B, original_params_data[grad_param_name_B].float(), U.float())
                         #principal_angle(grad_param_name_B + " after update", original_params_data[grad_param_name_B].float(), server_param_updates[grad_param_name_B].float())
                     else:
@@ -1361,10 +1364,10 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             scale = math.sqrt(I_size / J_size)
                             muon_updates[muon_update_name_A] *= scale
                             V = muon_updates[muon_update_name_A]
-                        server_param_updates[grad_param_name_A] = original_params_data[grad_param_name_A] + opt_params["muonlora_merge_alpha"] * V
-                        muon_updates[muon_update_name_B] = U - opt_params["muonlora_merge_alpha"] * original_params_data[grad_param_name_B]
+                        server_param_updates[grad_param_name_A] = A_param.T + opt_params["muonlora_merge_alpha"] * V
+                        muon_updates[muon_update_name_B] = U - opt_params["muonlora_merge_alpha"] * B_param
                         from utilities import principal_angle
-                        print(f"param norm: {original_params_data[grad_param_name_A].float().norm().item()} V norm: {V.float().norm().item()}")
+                        print(f"param norm: {A_param.float().norm().item()} V norm: {V.float().norm().item()}")
                         #principal_angle(grad_param_name_A, original_params_data[grad_param_name_A].float().T, V.float().T)
                         #principal_angle(grad_param_name_A + " after update", original_params_data[grad_param_name_A].float().T, server_param_updates[grad_param_name_A].float().T)
                         # muon_updates[muon_update_name_A] = U  (unchanged)
@@ -1420,14 +1423,14 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
         assert server_param_updates != {}
         for name, param in model.named_parameters():
             if name in server_param_updates:
-                param.data = server_param_updates[name]
+                param.data = server_param_updates[name].to(param.dtype)
 
     muon_update_num = 0
     #print("muon update")
 
     for name, param in model.named_parameters():
         if "muon_update" in name:
-            param.data = muon_updates[name]
+            param.data = muon_updates[name] #an issue is here muon_updates is float63, but param is fp16/bf16
         #if opt_params["server_name"] in name:
         #   muon_name = name.replace(opt_params["server_name"], "muon_update")
         #    param.data = muon_updates[muon_name]
