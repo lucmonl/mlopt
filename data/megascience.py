@@ -156,11 +156,14 @@ def evaluate_func(model, eval_dataset, device, tokenizer=None):
 
     instruction = example["instruction"]
     reference_answer = example["answer"]
+    response = example["response"]
 
     # The dataset is already tokenized; extract the prompt portion using labels.
     # Labels are -100 for the user/prompt tokens and real IDs for the assistant tokens.
     labels = example["labels"]
     prompt_len = next(i for i, l in enumerate(labels) if l != -100)
+    #print("======== input ids decoded ==========")
+    #print(tokenizer.decode(example["input_ids"]).strip())
     input_ids = torch.tensor(example["input_ids"][:prompt_len], dtype=torch.long).unsqueeze(0).to(device)
 
     with torch.no_grad():
@@ -175,10 +178,13 @@ def evaluate_func(model, eval_dataset, device, tokenizer=None):
     # Decode only the newly generated tokens
     generated_ids = output_ids[0, input_ids.shape[1]:]
     output_text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
-
+    """
     print("=" * 60)
     print("INSTRUCTION:")
     print(instruction)
+    print("=" * 60)
+    print("RESPONSE:")
+    print(response)
     print("-" * 60)
     print("MODEL OUTPUT:")
     print(output_text)
@@ -186,8 +192,14 @@ def evaluate_func(model, eval_dataset, device, tokenizer=None):
     print("REFERENCE ANSWER:")
     print(reference_answer)
     print("=" * 60)
+    """
+    print("-" * 60)
+    print("MODEL OUTPUT:")
+    print(output_text)
+    print("-" * 60)
 
-    return {"instruction": instruction, "output": output_text, "reference_answer": reference_answer}
+    # {"instruction": instruction, "output": output_text, "reference_answer": reference_answer}
+    return 0
 
 
 def preprocess_megascience(model_id, val_ratio=0.05, test_ratio=0.05, seed=42, max_length=2048):
