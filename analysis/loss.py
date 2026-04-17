@@ -69,7 +69,10 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
         graphs.loss.append(loss_sum / len(loader_abridged.dataset))
 
         if opt_params["compute_ex_score"] is not None:
-            accuracy = opt_params["compute_ex_score"](model, opt_params["analysis_dataset"], device)
+            if "tokenizer" in opt_params:
+                accuracy = opt_params["compute_ex_score"](model, opt_params["analysis_dataset"], device, tokenizer=opt_params["tokenizer"])
+            else:
+                accuracy = opt_params["compute_ex_score"](model, opt_params["analysis_dataset"], device)
             graphs.accuracy.append(accuracy)
         else:
             graphs.accuracy.append(accuracy_sum / len(loader_abridged.dataset))
@@ -163,7 +166,10 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
         test_loss = loss_sum / len(test_loader.dataset)
         graphs.test_loss.append(test_loss)
         if opt_params["compute_ex_score"] is not None:
-            test_accuracy = opt_params["compute_ex_score"](model, opt_params["test_dataset"], device)
+            if "tokenizer" in opt_params:
+                test_accuracy = opt_params["compute_ex_score"](model, opt_params["test_dataset"], device, tokenizer=opt_params["tokenizer"])
+            else:
+                test_accuracy = opt_params["compute_ex_score"](model, opt_params["test_dataset"], device)
         else:
             test_accuracy = accuracy_sum / len(test_loader.dataset)
         #print(loss_sum / len(test_loader.dataset))

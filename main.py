@@ -1655,7 +1655,7 @@ def hook(self, input, output):
 if __name__ == "__main__":
     DATASETS = ["spurious", "cifar", "cifar100", "imagenet_tiny", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", 
                 "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds", "icl", "20newsgroups", "mathqa_gsm8k", "swag",
-                "spider", "fedllm_bench", "fineweb", "oasst2"]
+                "spider", "fedllm_bench", "fineweb", "oasst2", "cot_collection", "megascience"]
     HF_MODELS = ["google/vit-base-patch16-224-in21k", "gpt2", "roberta-base", "akjindal53244/Arithmo-Mistral-7B", 
                 "mistralai/Mistral-7B-v0.1", "google/vit-huge-patch14-224-in21k", "deepseek-ai/deepseek-coder-1.3b-instruct",
                 "meta-llama/Llama-3.1-8B-Instruct", "meta-llama/Llama-3.1-8B", "meta-llama/Llama-3.2-3B"]
@@ -2101,6 +2101,22 @@ if __name__ == "__main__":
         if opt_params["opt_name"] == "federated":
             from data.oasst2 import load_oasst2_federated
             model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_oasst2_federated(model_name, args.task_name, batch_size, opt_params["client_num"], model_params, opt_params["dtype"], init_weights)
+        else:
+            raise NotImplementedError
+        opt_params["tokenizer"] = tokenizer
+    elif dataset_name == "cot_collection":
+        model_params = {}
+        if opt_params["opt_name"] == "federated":
+            from data.cot_collection import load_cot_collection_federated
+            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_cot_collection_federated(model_name, batch_size, opt_params["client_num"], model_params, opt_params["dtype"], init_weights)
+        else:
+            raise NotImplementedError
+        opt_params["tokenizer"] = tokenizer
+    elif dataset_name == "megascience":
+        model_params = {}
+        if opt_params["opt_name"] == "federated":
+            from data.megascience import load_megascience_federated
+            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_megascience_federated(model_name, batch_size, opt_params["client_num"], model_params, opt_params["dtype"], init_weights)
         else:
             raise NotImplementedError
         opt_params["tokenizer"] = tokenizer
