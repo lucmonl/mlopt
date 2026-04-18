@@ -10,8 +10,11 @@ from optimizer.load_optimizer import load_optimizer
  
 def orthonormalize(P):
     """QR-based orthonormalization of columns of P[I, R]."""
+    # offloading to CPU
+    device = P.device
+    P = P.to("cpu")
     Q, _ = torch.linalg.qr(P)
-    return Q
+    return Q.to(device)
  
  
 def col_norm(W):
@@ -161,9 +164,9 @@ def dion(
                 I, J = param.data.shape
                 R    = min(dion_rank, min(I, J))
                 model._dion_state[name] = {
-                    "M": torch.zeros(I, J, device=device),
+                    "M": torch.zeros(I, J, device=param.device),
                     "V": torch.nn.functional.normalize(
-                        torch.randn(J, R, device=device), dim=0
+                        torch.randn(J, R, device=param.device), dim=0
                     ),
                 }
  

@@ -1306,9 +1306,6 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 output = model(**input)
             elif type(input).__name__ == "BatchEncoding":
                 target = input["labels"].to(device)
-                print("input device:", input["input_ids"].device)
-                print("acceleator device: ", opt_params["accelerator"].device)
-                print("target device", target.device)
                 output = model(input_ids=input["input_ids"], attention_mask=input["attention_mask"], labels=target)
             else:
                 print(type(input).__name__)
@@ -2739,7 +2736,11 @@ if __name__ == "__main__":
 
         #if model_name != "akjindal53244/Arithmo-Mistral-7B":
             # Mistral is already on cuda:0
-        model = model.to(device)
+        if opt_params["accelerator"]:
+            # model has been wrappped by accelerator
+            pass
+        else:
+            model = model.to(device)
         if opt_params["use_parallel"]:
             model = nn.DataParallel(model)
         #for name, param in model.named_parameters():
@@ -2809,6 +2810,8 @@ if __name__ == "__main__":
                     torch.save(optimizer.base_optimizer.state_dict(), f"{directory}/base_optimizer.ckpt")
                 _skip_keys = {"server_params", "device"}
                 opt_params_to_save = {k: v for k, v in opt_params.items() if k not in _skip_keys}
+                for k, v in opt_params_to_save:
+                    print(k, type(v))
                 pickle.dump(opt_params_to_save, open(f"{directory}/opt_params.pk", "wb"))
                 
             if store_model_checkpoint and epoch in save_epoch_list:
