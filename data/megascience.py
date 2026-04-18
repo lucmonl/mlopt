@@ -145,6 +145,13 @@ def load_megascience_federated(model_name, batch_size, client_num, model_params,
     data_params["compute_ex_score"] = evaluate_func
     data_params["analysis_dataset"] = analysis_dataset
     data_params["test_dataset"] = analysis_eval_dataset
+
+    from accelerate import Accelerator
+    accelerator = Accelerator(gradient_accumulation_steps=1)
+    train_loader, model, val_loader, test_loader, analysis_loader, analysis_test_loader = accelerator.prepare(train_loader, model, val_loader, test_loader, analysis_loader, analysis_test_loader)
+    data_params["accelerator"] = accelerator
+    print(accelerator.device)
+
     return model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
 
 

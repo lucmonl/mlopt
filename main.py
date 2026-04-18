@@ -1306,6 +1306,9 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 output = model(**input)
             elif type(input).__name__ == "BatchEncoding":
                 target = input["labels"].to(device)
+                print("input device:", input["input_ids"].device)
+                print("acceleator device: ", opt_params["accelerator"].device)
+                print("target device", target.device)
                 output = model(input_ids=input["input_ids"], attention_mask=input["attention_mask"], labels=target)
             else:
                 print(type(input).__name__)
@@ -1949,6 +1952,7 @@ if __name__ == "__main__":
     analysis_params["model_path"]  = None #placeholder
     analysis_params["tokenizer"]   = None #placeholder
     opt_params["compute_ex_score"] = None #placeholder
+    opt_params["accelerator"]       = None #placeholder
     analysis_params["is_val"]       = True 
 
     opt_params["use_parallel"]     = args.use_parallel
@@ -2179,6 +2183,7 @@ if __name__ == "__main__":
         opt_params["compute_ex_score"] = data_params["compute_ex_score"]
         opt_params["analysis_dataset"] = data_params["analysis_dataset"]
         opt_params["test_dataset"] = data_params["test_dataset"]
+        opt_params["accelerator"] = data_params["accelerator"]
     if args.mixup == "cut":
         from data.data_process import CutMix
         cutmix = CutMix(int(np.sqrt(num_pixels/input_ch)), beta=1)
