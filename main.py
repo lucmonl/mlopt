@@ -2732,6 +2732,10 @@ if __name__ == "__main__":
 
             with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
                 train_graphs = pickle.load(f)
+            if os.path.exists(f'{load_from_dir}/opt_params.pk'):
+                with open(f'{load_from_dir}/opt_params.pk', 'rb') as f:
+                    saved_opt_params = pickle.load(f)
+                opt_params.update(saved_opt_params)
 
         #if model_name != "akjindal53244/Arithmo-Mistral-7B":
             # Mistral is already on cuda:0
@@ -2803,6 +2807,9 @@ if __name__ == "__main__":
                 torch.save(optimizer.state_dict(), f"{directory}/optimizer.ckpt")
                 if hasattr(optimizer, "base_optimizer"):
                     torch.save(optimizer.base_optimizer.state_dict(), f"{directory}/base_optimizer.ckpt")
+                _skip_keys = {"server_params", "device"}
+                opt_params_to_save = {k: v for k, v in opt_params.items() if k not in _skip_keys}
+                pickle.dump(opt_params_to_save, open(f"{directory}/opt_params.pk", "wb"))
                 
             if store_model_checkpoint and epoch in save_epoch_list:
                 if model_name in ["akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1"]:
