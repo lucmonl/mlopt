@@ -98,6 +98,7 @@ def load_megascience_federated(model_name, batch_size, client_num, model_params,
     training_args = TrainingArguments(
         output_dir="output/",
         per_device_train_batch_size=batch_size,
+        per_device_eval_batch_size=batch_size,
         gradient_accumulation_steps=1,
         learning_rate=2e-5,
         weight_decay=0.01,

@@ -2802,16 +2802,14 @@ if __name__ == "__main__":
                     torch.save(model.state_dict(), f"{directory}/best_model.ckpt")
 
             if epoch in epoch_list or epoch == epochs:
-                print(len(train_graphs.minibatch_grad_norm))
                 pickle.dump(train_graphs, open(f"{directory}/train_graphs.pk", "wb"))
                 torch.save(model.state_dict(), f"{directory}/model.ckpt")
                 torch.save(optimizer.state_dict(), f"{directory}/optimizer.ckpt")
                 if hasattr(optimizer, "base_optimizer"):
                     torch.save(optimizer.base_optimizer.state_dict(), f"{directory}/base_optimizer.ckpt")
-                _skip_keys = {"server_params", "device"}
+                
+                _skip_keys = {"server_params", "device", "accelerator"}
                 opt_params_to_save = {k: v for k, v in opt_params.items() if k not in _skip_keys}
-                for k, v in opt_params_to_save:
-                    print(k, type(v))
                 pickle.dump(opt_params_to_save, open(f"{directory}/opt_params.pk", "wb"))
                 
             if store_model_checkpoint and epoch in save_epoch_list:
