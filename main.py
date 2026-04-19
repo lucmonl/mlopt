@@ -2726,6 +2726,9 @@ if __name__ == "__main__":
                 #print(optimizer.base_optimizer.state_dict()['state'][0]['step'])
                 #sys.exit()
             optimizer_to(optimizer, device)
+            lr_scheduler_ckpt = os.path.join(load_from_dir, "lr_scheduler.ckpt")
+            if lr_scheduler is not None and os.path.exists(lr_scheduler_ckpt):
+                lr_scheduler.load_state_dict(torch.load(lr_scheduler_ckpt))
 
             with open(f'{load_from_dir}/train_graphs.pk', 'rb') as f:
                 train_graphs = pickle.load(f)
@@ -2807,7 +2810,9 @@ if __name__ == "__main__":
                 torch.save(optimizer.state_dict(), f"{directory}/optimizer.ckpt")
                 if hasattr(optimizer, "base_optimizer"):
                     torch.save(optimizer.base_optimizer.state_dict(), f"{directory}/base_optimizer.ckpt")
-                
+                if lr_scheduler is not None:
+                    torch.save(lr_scheduler.state_dict(), f"{directory}/lr_scheduler.ckpt")
+
                 _skip_keys = {"server_params", "device", "accelerator"}
                 opt_params_to_save = {k: v for k, v in opt_params.items() if k not in _skip_keys}
                 pickle.dump(opt_params_to_save, open(f"{directory}/opt_params.pk", "wb"))
