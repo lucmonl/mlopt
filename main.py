@@ -1804,6 +1804,7 @@ if __name__ == "__main__":
     #llm hyperparameters
     parser.add_argument("--task_name", type=str, default="mrpc", help="task name")
     parser.add_argument("--max_seq_length", type=int, default=128, help="max_seq_length")
+    parser.add_argument("--max_length", type=int, default=None, help="max token length for megascience dataset (selects pre-filtered split)")
     parser.add_argument("--num_register", type=int, default=0, help="number of registers in context")
 
     args = parser.parse_args()
@@ -2114,10 +2115,11 @@ if __name__ == "__main__":
             raise NotImplementedError
         opt_params["tokenizer"] = tokenizer
     elif dataset_name == "megascience":
-        model_params = {}
+        if args.max_length:
+            model_params = {"length": args.max_length}
         if opt_params["opt_name"] == "federated":
             from data.megascience import load_megascience_federated
-            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_megascience_federated(model_name, batch_size, opt_params["client_num"], model_params, opt_params["dtype"], init_weights)
+            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_megascience_federated(model_name, batch_size, opt_params["client_num"], model_params, opt_params["dtype"], init_weights, max_length=args.max_length)
         else:
             raise NotImplementedError
         opt_params["tokenizer"] = tokenizer
@@ -2180,6 +2182,7 @@ if __name__ == "__main__":
         opt_params["compute_ex_score"] = data_params["compute_ex_score"]
         opt_params["analysis_dataset"] = data_params["analysis_dataset"]
         opt_params["test_dataset"] = data_params["test_dataset"]
+    if "accelerator" in data_params:
         opt_params["accelerator"] = data_params["accelerator"]
     if args.mixup == "cut":
         from data.data_process import CutMix

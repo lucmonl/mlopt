@@ -23,21 +23,17 @@ import evaluate
 from tqdm import tqdm
 
 
-def load_megascience_federated(model_name, batch_size, client_num, model_params, dtype, init_weights):
+def load_megascience_federated(model_name, batch_size, client_num, model_params, dtype, init_weights, max_length=None):
     DATA_FOLDER = os.environ["DATA_HOME"]
-    SAVE_DIR = DATA_FOLDER + f"tokenized_megascience/{model_name}/"
-    os.makedirs(SAVE_DIR, exist_ok=True)
+    if max_length is not None:
+        SAVE_DIR = DATA_FOLDER + f"tokenized_megascience/{model_name}/length_{max_length}/"
+    else:
+        SAVE_DIR = DATA_FOLDER + f"tokenized_megascience/{model_name}/"
 
     # load the tokenized datasets
     print(SAVE_DIR)
     train_dataset = load_from_disk(SAVE_DIR + "tokenized_megascience_train.jsonl")
     eval_dataset = load_from_disk(SAVE_DIR + "tokenized_megascience_validation.jsonl")
-
-    max_seq_length = 1024
-    print(f"Before filtering: {len(train_dataset)} train, {len(eval_dataset)} eval samples")
-    train_dataset = train_dataset.filter(lambda x: len(x["input_ids"]) <= max_seq_length)
-    eval_dataset = eval_dataset.filter(lambda x: len(x["input_ids"]) <= max_seq_length)
-    #print(f"After filtering (max_length={max_seq_length}): {len(train_dataset)} train, {len(eval_dataset)} eval samples")
 
     if 'llama' in model_name:
         model, tokenizer, formatting_prompts_func = get_llama_model_and_formats(model_name, dtype, model_params)
@@ -152,13 +148,13 @@ def load_megascience_federated(model_name, batch_size, client_num, model_params,
     data_params["compute_ex_score"] = evaluate_func
     data_params["analysis_dataset"] = analysis_dataset
     data_params["test_dataset"] = analysis_eval_dataset
-
+    """
     from accelerate import Accelerator
     accelerator = Accelerator(gradient_accumulation_steps=1)
     train_loader, model, val_loader, test_loader, analysis_loader, analysis_test_loader = accelerator.prepare(train_loader, model, val_loader, test_loader, analysis_loader, analysis_test_loader)
     data_params["accelerator"] = accelerator
     print(accelerator.device)
-
+    """
     return model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params
 
 
@@ -278,18 +274,44 @@ def preprocess_megascience(model_id, val_ratio=0.05, test_ratio=0.05, seed=42, m
     tokenized_test.save_to_disk(SAVE_DIR + "tokenized_megascience_test.jsonl")
 
 
+def filter_megascience(model_id, max_length):
+    DATA_FOLDER = os.environ["DATA_HOME"]
+    SRC_DIR = DATA_FOLDER + f"tokenized_megascience/{model_id}/"
+    DST_DIR = DATA_FOLDER + f"tokenized_megascience/{model_id}/length_{max_length}/"
+    os.makedirs(DST_DIR, exist_ok=True)
+
+    splits = ["train", "validation", "test"]
+    for split in splits:
+        src_path = SRC_DIR + f"tokenized_megascience_{split}.jsonl"
+        dst_path = DST_DIR + f"tokenized_megascience_{split}.jsonl"
+        ds = load_from_disk(src_path)
+        before = len(ds)
+        ds = ds.filter(lambda x: len(x["input_ids"]) <= max_length)
+        after = len(ds)
+        print(f"{split}: {before} -> {after} samples after filtering (max_length={max_length})")
+        ds.save_to_disk(dst_path)
+        print(f"saved {after} {split} samples to {dst_path}")
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Preprocess MegaScience/MegaScience dataset.")
-    parser.add_argument("--val_ratio", type=float, default=0.05, help="Fraction of data to use as validation.")
-    parser.add_argument("--test_ratio", type=float, default=0.05, help="Fraction of data to use as test.")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed for train/val/test split.")
-    parser.add_argument("--max_length", type=int, default=2048, help="Max combined token length for instruction + response.")
+    parser = argparse.ArgumentParser(description="Preprocess or filter MegaScience/MegaScience dataset.")
+    parser.add_argument("--mode", type=str, choices=["preprocess", "filter"], default="preprocess",
+                        help="'preprocess': tokenize raw dataset and save splits; 'filter': filter existing tokenized splits by max_length.")
+    parser.add_argument("--max_length", type=int, default=2048, help="Max token length. For preprocess: combined instruction+response; for filter: input_ids length.")
+    parser.add_argument("--model_name", type=str, default="meta-llama/Llama-3.2-1B", help="Model name or path for tokenizer.")
+    parser.add_argument("--val_ratio", type=float, default=0.05, help="(preprocess only) Fraction of data to use as validation.")
+    parser.add_argument("--test_ratio", type=float, default=0.05, help="(preprocess only) Fraction of data to use as test.")
+    parser.add_argument("--seed", type=int, default=42, help="(preprocess only) Random seed for train/val/test split.")
 
     args = parser.parse_args()
-    preprocess_megascience(
-        'meta-llama/Llama-3.2-1B',
-        val_ratio=args.val_ratio,
-        test_ratio=args.test_ratio,
-        seed=args.seed,
-        max_length=args.max_length,
-    )
+
+    if args.mode == "preprocess":
+        preprocess_megascience(
+            args.model_name,
+            val_ratio=args.val_ratio,
+            test_ratio=args.test_ratio,
+            seed=args.seed,
+            max_length=args.max_length,
+        )
+    else:
+        filter_megascience(args.model_name, max_length=args.max_length)
