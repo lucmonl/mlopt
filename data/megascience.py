@@ -214,7 +214,6 @@ def preprocess_megascience(model_id, val_ratio=0.05, test_ratio=0.05, seed=42, m
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
     ds = load_dataset("MegaScience/MegaScience", split="train")
-    ds = ds.select(range(30))
 
     # Build list of dicts: instruction (question), response (answer for training), reference_answer (true answer)
     sample_list = []
@@ -282,7 +281,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     preprocess_megascience(
-        'meta-llama/Llama-3.2-3B',
+        'meta-llama/Llama-3.2-1B',
         val_ratio=args.val_ratio,
         test_ratio=args.test_ratio,
         seed=args.seed,
