@@ -33,6 +33,12 @@ def load_megascience_federated(model_name, batch_size, client_num, model_params,
     train_dataset = load_from_disk(SAVE_DIR + "tokenized_megascience_train.jsonl")
     eval_dataset = load_from_disk(SAVE_DIR + "tokenized_megascience_validation.jsonl")
 
+    max_seq_length = 1024
+    print(f"Before filtering: {len(train_dataset)} train, {len(eval_dataset)} eval samples")
+    train_dataset = train_dataset.filter(lambda x: len(x["input_ids"]) <= max_seq_length)
+    eval_dataset = eval_dataset.filter(lambda x: len(x["input_ids"]) <= max_seq_length)
+    #print(f"After filtering (max_length={max_seq_length}): {len(train_dataset)} train, {len(eval_dataset)} eval samples")
+
     if 'llama' in model_name:
         model, tokenizer, formatting_prompts_func = get_llama_model_and_formats(model_name, dtype, model_params)
     else:
