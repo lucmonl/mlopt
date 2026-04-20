@@ -1658,7 +1658,7 @@ if __name__ == "__main__":
                 "spider", "fedllm_bench", "fineweb", "oasst2", "cot_collection", "megascience"]
     HF_MODELS = ["google/vit-base-patch16-224-in21k", "gpt2", "roberta-base", "akjindal53244/Arithmo-Mistral-7B", 
                 "mistralai/Mistral-7B-v0.1", "google/vit-huge-patch14-224-in21k", "deepseek-ai/deepseek-coder-1.3b-instruct",
-                "meta-llama/Llama-3.1-8B-Instruct", "meta-llama/Llama-3.1-8B", "meta-llama/Llama-3.2-3B"]
+                "meta-llama/Llama-3.1-8B-Instruct", "meta-llama/Llama-3.1-8B", "meta-llama/Llama-3.2-1B", "meta-llama/Llama-3.2-3B"]
     MODELS = ["2-mlp-sim-bn", "2-mlp-sim-ln", "conv_fixed_last", "conv_with_last", "res_conv_fixed_last", "weight_norm_torch", "scalarized_conv", "weight_norm", "weight_norm_v2",
               "weight_norm_width_scale", "resnet18", "resnet_fixup", "resnet_gn", "WideResNet", "WideResNet_WN_woG", "ViT", "emnistcnn", 
               "google-bert/bert-base-cased"
