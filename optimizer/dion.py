@@ -232,6 +232,11 @@ def dion(
     for name, param in model.named_parameters():
         if param.requires_grad:
             param_grads[name] = param_grads[name] / client_num
+            recovered_grad = param_grads[name].float()
+            print(name, "Gradient frob-norm: ", recovered_grad.norm().item())
+            stable_rank = torch.linalg.norm(recovered_grad) / torch.linalg.matrix_norm(recovered_grad, ord=2)
+            print(f"stable rank: {stable_rank.item()}")
+            print(f"grad dtype: ", param_grads[name].dtype)
 
     # ── 4. Compute truncation error (same as federated_lora_avg) ─────────────
     server_optimizer.zero_grad()

@@ -1240,6 +1240,10 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                 proj_G_inv = torch.linalg.pinv(proj_G)
             _, S_G_inv, _ = torch.linalg.svd(proj_G_inv, full_matrices=False)
             print("proj_G_inv SVD: ", S_G_inv)
+            recovered_grad = (grad_B @ torch.diag(S_G_inv) @ grad_A.T).to(torch.float32)
+            print(name, "Gradient frob-norm: ", recovered_grad.norm().item())
+            stable_rank = torch.linalg.norm(recovered_grad) / torch.linalg.matrix_norm(recovered_grad, ord=2)
+            print(f"stable rank: {stable_rank}")
             #print("pinv error:", torch.norm(A_inv @ A_param - torch.eye(A_inv.shape[0]).to(A_inv)).item())
             #assert torch.norm(proj_G_inv @ proj_G - torch.eye(proj_G_inv.shape[0]).to(proj_G_inv)) < 1e-5
 
