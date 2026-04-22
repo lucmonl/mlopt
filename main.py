@@ -1704,6 +1704,7 @@ if __name__ == "__main__":
     parser.add_argument("--lora_alpha", type=int, default=16)
     parser.add_argument("--hetero_rank", type=int, default=-1)
     parser.add_argument("--lora_freeze_a", action='store_true', help="freeze A matrix in lora")
+    parser.add_argument("--lora_init_scale", type=float, default=-1.0, help="uniform singular-vector init scale for LoRA (>0 enables; replaces pissa)")
     parser.add_argument("--cls_lr", type=float, default=-1, help="specific learning rate for the output layer")
     parser.add_argument("--compute_base_grad", action='store_true', help="compute full base grad and the ratio of the real gradient to the full gradient")
 
@@ -1931,6 +1932,7 @@ if __name__ == "__main__":
     opt_params["uba_mode"]         = args.uba_mode
     opt_params["uba_weight"]       = args.uba_weight
     opt_params["lora_freeze_a"]    = args.lora_freeze_a
+    opt_params["lora_init_scale"]  = args.lora_init_scale
     opt_params["hetero_rank"]      = args.hetero_rank
     opt_params["use_ef"]           = args.use_ef
     opt_params["client_early_stop"]= args.client_early_stop
@@ -2624,6 +2626,8 @@ if __name__ == "__main__":
         model_params = model_params | {"lora_rank": lora_rank, "lora_alpha": lora_alpha}
         if args.lora_freeze_a:
             model_params = model_params | {"lora_freeze": "a"}
+        if args.lora_init_scale > 0:
+            model_params = model_params | {"lora_init_scale": args.lora_init_scale}
         if opt_params["opt_name"] == "federated":
             if opt_params["fedlora_avg"] != 'avg':
                 model_params = model_params | {"fedlora_avg": opt_params["fedlora_avg"]}

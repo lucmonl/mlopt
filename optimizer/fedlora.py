@@ -1651,7 +1651,10 @@ def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, devic
     from main import train
 
     use_model_grad = get_fr_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
-
+    if use_model_grad:
+        opt_params["local_update_ON"] = False
+    else:
+        opt_params["local_update_ON"] = True
 
     adapter_names = []
     adapter_weights = {}
@@ -1683,9 +1686,7 @@ def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, devic
     for client_id in client_selected:
         # update client models
         adapter_name = "client_{}".format(client_id)
-        if use_model_grad:
-            model.set_adapter(opt_params["server_name"])
-        else:
+        if opt_params["local_update_ON"]:
             model.set_adapter(adapter_name)
         client_model = model #alias
 
@@ -1727,8 +1728,9 @@ def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, devic
 
     for server_adapter_name in adapter_weights:
         adapter_weights[server_adapter_name] = adapter_weights[server_adapter_name] / client_num
-    
-    model.set_adapter(opt_params["server_name"])
+
+    if opt_params["local_update_ON"]:
+        model.set_adapter(opt_params["server_name"])
     #truncate_err, truncate_err_ratio = compute_truncate_err(model, adapter_weights, client_num, opt_params["model_name"], opt_params["server_name"])
     server_optimizer.zero_grad()
 

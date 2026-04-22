@@ -212,20 +212,78 @@ def examine_lora(model, name1, name2):
         elif name == "vit.encoder.layer.0.attention.attention.query.lora_A.client_1.weight":
             print(torch.norm(param).item())
         
+def init_lora_uniform_sv(model, adapter_name, lora_rank, lora_alpha, scale):
+    """
+    Initialize a LoRA adapter using top singular vectors with uniform scaling.
 
+    For each LoRA-wrapped layer with base weight W:
+      - Computes thin SVD: W = U @ diag(S) @ Vh
+      - Sets lora_A.weight = scale * Vh[:r, :]  (each row has norm = scale)
+      - Sets lora_B.weight = scale * U[:, :r]   (each column has norm = scale)
+      - Updates base weight: W -= (lora_alpha / r) * scale^2 * U_r @ Vh_r
+        so the merged weight W_base + (lora_alpha/r) * B @ A equals the original W.
+    """
+    for _, module in model.named_modules():
+        if not hasattr(module, 'lora_A') or adapter_name not in module.lora_A:
+            continue
+        if module.base_layer.weight.ndim != 2:
+            continue
+
+        lora_A_w = module.lora_A[adapter_name].weight  # (r, n)
+        lora_B_w = module.lora_B[adapter_name].weight  # (m, r)
+        W = module.base_layer.weight.data
+        dtype = W.dtype
+        r = lora_rank
+        m = lora_B_w.shape[0]  # out_features
+        n = lora_A_w.shape[1]  # in_features
+
+        # Handle both standard (m, n) and Conv1D-style transposed (n, m) weights
+        if W.shape == (m, n):
+            W_svd = W.float()
+            transposed = False
+        elif W.shape == (n, m):
+            W_svd = W.float().T  # view as (m, n)
+            transposed = True
+        else:
+            continue  # unexpected shape, skip
+
+        U, _, Vh = torch.linalg.svd(W_svd, full_matrices=False)
+        U_r  = U[:, :r]   # (m, r)
+        Vh_r = Vh[:r, :]  # (r, n)
+
+        lora_A_w.data = (scale * Vh_r).to(dtype)
+        lora_B_w.data = (scale * U_r).to(dtype)
+
+        delta = (lora_alpha / r) * (scale ** 2) * (U_r @ Vh_r)
+        if transposed:
+            module.base_layer.weight.data = (W_svd - delta).T.to(dtype)
+        else:
+            module.base_layer.weight.data = (W_svd - delta).to(dtype)
+            
+            
 def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_params, lora_freeze_a=False):
     client_rank = lora_rank
     #lora_alpha = lora_rank
     if opt_params["fedlora_avg"] == "sb":
         opt_params["server_name"] = "default"
-    if opt_params["fedlora_avg"] in ["fr", "fr_v2"] or opt_params["fedlora_avg"].startswith("muonlora_v"): # "muonlora_v1", "muonlora_v2", "muonlora_v3", "muonlora_v4", "muonlora_v5", "muonlora_v6", "muonlora_v7","muonlora_v8"]:
-        init_lora_weights = "pissa"
+    use_uniform_sv = opt_params.get("lora_init_scale", -1) > 0
+    if opt_params["fedlora_avg"] in ["fr", "fr_v2"] or opt_params["fedlora_avg"].startswith("muonlora_v"):
+        init_lora_weights = True if use_uniform_sv else "pissa"
     else:
         init_lora_weights = True
 
     model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
         lora_freeze_a=lora_freeze_a, adapter_name=opt_params["server_name"], init_lora_weights=init_lora_weights, \
         server_name = opt_params["server_name"], add_to_output_layer = False)
+
+    if use_uniform_sv:
+        init_lora_uniform_sv(model, opt_params["server_name"], lora_rank, lora_alpha, opt_params["lora_init_scale"])
+
+    for name, param in model.named_parameters():
+        if 'lora_B' in name:
+            print(name)
+            print(param.shape, param.norm(dim=0))
+
     if opt_params["fedlora_avg"] == "sb":
         from optimizer.fedlora_sb import find_and_initialize
         find_and_initialize(model, Lora_config, lora_rank, model_name)
