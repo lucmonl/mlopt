@@ -232,9 +232,11 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
         return model, output_layer_name, Lora_config
     
     use_model_grad = True
-    from optimizer.fedlora import get_muonlora_hparams
+    from optimizer.fedlora import get_muonlora_hparams, get_fr_hparams
     if opt_params["fedlora_avg"].startswith("muonlora_v"):
         use_model_grad = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])[0]
+    elif opt_params["fedlora_avg"] in ["fr", "fr_v2"]:
+        use_model_grad = get_fr_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
         
     if not use_model_grad:
         # add distinct adapters for each client

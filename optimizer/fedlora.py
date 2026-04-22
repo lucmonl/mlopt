@@ -1679,7 +1679,10 @@ def federated_frlora(model, loss_name, criterion, lora_rank, train_graphs, devic
     for client_id in client_selected:
         # update client models
         adapter_name = "client_{}".format(client_id)
-        model.set_adapter(adapter_name)
+        if use_model_grad:
+            model.set_adapter(opt_params["server_name"])
+        else:
+            model.set_adapter(adapter_name)
         client_model = model #alias
 
         client_model.train()
