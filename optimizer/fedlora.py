@@ -1243,10 +1243,12 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                 proj_G_inv = torch.linalg.pinv(proj_G)
             _, S_G_inv, _ = torch.linalg.svd(proj_G_inv, full_matrices=False)
             print("proj_G_inv SVD: ", S_G_inv)
+            """
             recovered_grad = (grad_B @ torch.diag(S_G_inv) @ grad_A.T).to(torch.float32)
             print(name, "Gradient frob-norm: ", recovered_grad.norm().item())
             stable_rank = torch.linalg.norm(recovered_grad) / torch.linalg.matrix_norm(recovered_grad, ord=2)
             print(f"stable rank: {stable_rank}")
+            """
             #print("pinv error:", torch.norm(A_inv @ A_param - torch.eye(A_inv.shape[0]).to(A_inv)).item())
             #assert torch.norm(proj_G_inv @ proj_G - torch.eye(proj_G_inv.shape[0]).to(proj_G_inv)) < 1e-5
 
@@ -1322,18 +1324,24 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                                 original_params_data[grad_param_name_A] = S_diag @ Vh_svd_t
                                 server_param_updates[grad_param_name_B] = original_params_data[grad_param_name_B]
 
+                        inv_s = opt_params["lora_rank"] / opt_params["lora_alpha"]
                         if opt_params["update_B"]:
                             # update is on B
-                            muon_updates[muon_update_name_B] *= -server_lr
+                            muon_updates[muon_update_name_B] *= -server_lr * inv_s
                         else:
-                            muon_updates[muon_update_name_A] *= -server_lr
+                            muon_updates[muon_update_name_A] *= -server_lr * inv_s
                     elif orth_then_merge == False:
                         # keep the original original_params_data
+                        # Divide by s = lora_alpha/lora_rank so that:
+                        #   merge_to_base adds s * (muon_B) @ (muon_A) = -lr * U @ (...),
+                        # and the factor update ΔB = alpha * muon_B = -alpha*lr/s * U,
+                        # matching the paper's formula W <- W - lr*UV^T with B <- B - alpha*lr/s * U.
+                        inv_s = opt_params["lora_rank"] / opt_params["lora_alpha"]
                         if opt_params["update_B"]:
                             # update is on B
-                            muon_updates[muon_update_name_B] *= -server_lr
+                            muon_updates[muon_update_name_B] *= -server_lr * inv_s
                         else:
-                            muon_updates[muon_update_name_A] *= -server_lr
+                            muon_updates[muon_update_name_A] *= -server_lr * inv_s
                     # Split the update into a server-adapter-fused part and a residual muon update.
                     # Full update = V @ U  where V = muon_updates[B] (m×r), U = muon_updates[A] (r×n)
                     # SVD of current server adapter weight W = B_server @ A_server = U_svd diag(S) Vh_svd
@@ -1414,7 +1422,8 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             print(f"v14 A-side orth: ||A_new-gamma*Q||={A_corr.norm().item():.4f}")
                 else:
                     #scale either side is ok
-                    muon_updates[muon_update_name_A] *= -server_lr
+                    inv_s = opt_params["lora_rank"] / opt_params["lora_alpha"]
+                    muon_updates[muon_update_name_A] *= -server_lr * inv_s
                     if opt_params["muonlora_scaled"]:
                         I_size, J_size = muon_updates[muon_update_name_B].shape[0], muon_updates[muon_update_name_A].shape[1]
                         scale = math.sqrt(I_size / J_size)
