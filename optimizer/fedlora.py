@@ -921,7 +921,7 @@ def get_muonlora_hparams(fedlora_avg_name):
     elif fedlora_avg_name == 'muonlora_v9':
         """directly adding momentum to the lora adapters."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, True, True
-    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11', 'muonlora_v12', 'muonlora_v13']:
+    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11', 'muonlora_v12', 'muonlora_v13', 'muonlora_v14']:
         """split muon update: fuse singular-vector-aligned part into server adapter, keep residual as muon update; alternates A/B sides across epochs."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, False, True
     else:
@@ -938,6 +938,9 @@ def get_muonlora_hparams(fedlora_avg_name):
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, False, False
     elif fedlora_avg_name == 'muonlora_v13':
         """principled momentum aggregation: project old momentum onto new factor's column/row space before accumulating."""
+        partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
+    elif fedlora_avg_name == 'muonlora_v14':
+        """v13 + re-orthonormalize the updated LoRA factor after each partial merge (Sec 3.7)."""
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
     else:
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = False, False, False, False
@@ -1360,6 +1363,22 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                         print(f"param norm: {B_param.float().norm().item()} U norm: {U.float().norm().item()}")
                         #principal_angle(grad_param_name_B, original_params_data[grad_param_name_B].float(), U.float())
                         #principal_angle(grad_param_name_B + " after update", original_params_data[grad_param_name_B].float(), server_param_updates[grad_param_name_B].float())
+
+                        # v14: re-orthonormalize the updated B factor (Sec 3.7).
+                        # Let Q*R = B_new (QR decomp). Set B <- gamma*Q.
+                        # Correction to W: (lora_alpha/r) * (B_new - gamma*Q) @ A_weight,
+                        # stored as rank-r factors (B_corr, A_corr_weight) and merged later.
+                        if opt_params["fedlora_avg"] == "muonlora_v14":
+                            B_new = server_param_updates[grad_param_name_B]  # (m, r), float64
+                            Q_B, _ = torch.linalg.qr(B_new, mode='reduced')   # Q_B: (m, r)
+                            gamma_orth = float(opt_params.get("lora_init_scale", 1.0))
+                            B_corr = B_new - gamma_orth * Q_B       # (m, r) — left factor
+                            A_corr = A_param.T                       # (r, n) — right factor (= lora_A weight)
+                            if "orth_corrections" not in opt_params:
+                                opt_params["orth_corrections"] = {}
+                            opt_params["orth_corrections"][base_name] = (B_corr, A_corr)
+                            server_param_updates[grad_param_name_B] = gamma_orth * Q_B
+                            print(f"v14 B-side orth: ||B_new-gamma*Q||={B_corr.norm().item():.4f}")
                     else:
                         # A-side fusion: fuse V into A, keep B=U_svd fixed
                         # B_server_new @ A_server_new = U_svd @ (S @ Vh_svd + V) = W + U_svd @ V
@@ -1376,6 +1395,23 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                         #principal_angle(grad_param_name_A + " after update", original_params_data[grad_param_name_A].float().T, server_param_updates[grad_param_name_A].float().T)
                         # muon_updates[muon_update_name_A] = U  (unchanged)
                         #print(f"v10 B-side fusion: ||fused||={torch.norm(U_svd_t @ V_mu).item():.4f}, ||residual||={torch.norm(muon_updates[muon_update_name_B] @ muon_updates[muon_update_name_A]).item():.4f}")
+
+                        # v14: re-orthonormalize the updated A factor (Sec 3.7).
+                        # A_weight is (r, n); columns of A_math = A_weight.T are (n, r).
+                        # Let Q*R = A_math (QR decomp). Set A_math <- gamma*Q, i.e. A_weight <- gamma*Q.T.
+                        # Correction: (lora_alpha/r) * B @ (A_weight_new - gamma*Q.T),
+                        # stored as rank-r factors (B_corr, A_corr_weight) and merged later.
+                        if opt_params["fedlora_avg"] == "muonlora_v14":
+                            A_weight_new = server_param_updates[grad_param_name_A]  # (r, n), float64
+                            Q_A, _ = torch.linalg.qr(A_weight_new.T, mode='reduced')  # Q_A: (n, r)
+                            gamma_orth = float(opt_params.get("lora_init_scale", 1.0))
+                            B_corr = B_param                             # (m, r) — left factor
+                            A_corr = A_weight_new - gamma_orth * Q_A.T  # (r, n) — right factor
+                            if "orth_corrections" not in opt_params:
+                                opt_params["orth_corrections"] = {}
+                            opt_params["orth_corrections"][base_name] = (B_corr, A_corr)
+                            server_param_updates[grad_param_name_A] = gamma_orth * Q_A.T
+                            print(f"v14 A-side orth: ||A_new-gamma*Q||={A_corr.norm().item():.4f}")
                 else:
                     #scale either side is ok
                     muon_updates[muon_update_name_A] *= -server_lr
@@ -1450,10 +1486,32 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     #print("I am merging muon_update adapter")
     #model.merge_adapter(["muon_update"])
     merge_to_base(model,
-                adapter_name="muon_update", 
-                lora_r=opt_params["lora_rank"], 
-                lora_alpha=opt_params["lora_alpha"], 
+                adapter_name="muon_update",
+                lora_r=opt_params["lora_rank"],
+                lora_alpha=opt_params["lora_alpha"],
                 model_name=opt_params["model_name"])
+
+    # v14: apply orthonormalization corrections via the orth_correction adapter
+    if opt_params["fedlora_avg"] == "muonlora_v14" and opt_params.get("orth_corrections"):
+        for name, param in model.named_parameters():
+            if "orth_correction" not in name:
+                continue
+            if "lora_B" in name:
+                key = name.replace("lora_B.orth_correction", "base_layer")
+                if key in opt_params["orth_corrections"]:
+                    B_corr, _ = opt_params["orth_corrections"][key]
+                    param.data = B_corr.to(param.dtype)
+            elif "lora_A" in name:
+                key = name.replace("lora_A.orth_correction", "base_layer")
+                if key in opt_params["orth_corrections"]:
+                    _, A_corr = opt_params["orth_corrections"][key]
+                    param.data = A_corr.to(param.dtype)
+        merge_to_base(model,
+                    adapter_name="orth_correction",
+                    lora_r=opt_params["lora_rank"],
+                    lora_alpha=opt_params["lora_alpha"],
+                    model_name=opt_params["model_name"])
+        opt_params["orth_corrections"] = {}
 
     #model.merge_adapter(["fr_save_neg_init"])
     """

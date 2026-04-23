@@ -330,13 +330,20 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
         synchronize_lora_fr_neg(model, server_name=opt_params["server_name"], truncate_last=truncate_last, output_layer_name=output_layer_name)
 
     if opt_params["fedlora_avg"].startswith("muonlora_v"): # in ["muonlora_v1", "muonlora_v2", "muonlora_v3",  "muonlora_v4", "muonlora_v5", "muonlora_v6", "muonlora_v7", "muonlora_v8"]:
-        # use the name fr_save_neg_init to avoid subsequent if conditions on  $"fr_save_init" in name$                                                    
+        # use the name fr_save_neg_init to avoid subsequent if conditions on  $"fr_save_init" in name$
         model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
                                                                         lora_freeze_a=lora_freeze_a, adapter_name="muon_update", \
                                                                          init_lora_weights=True, server_name = opt_params["server_name"], \
                                                                         add_to_output_layer = False)
         #no need to initialize, will be reset at every step
         #synchronize_lora_fr_neg(model, server_name=opt_params["server_name"], truncate_last=truncate_last)
+
+    if opt_params["fedlora_avg"] == "muonlora_v14":
+        # extra adapter to carry the rank-r orthonormalization correction factors (Sec 3.7)
+        model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
+                                                                        lora_freeze_a=lora_freeze_a, adapter_name="orth_correction", \
+                                                                        init_lora_weights=True, server_name=opt_params["server_name"], \
+                                                                        add_to_output_layer=False)
 
     if Lora_config:
         model.set_adapter(opt_params["server_name"])
