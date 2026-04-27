@@ -1235,6 +1235,9 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
     
     batch_idx = -1
 
+    from utilities import get_gpu_memory
+    get_gpu_memory()
+
     input_is_train_loader = None
     if iter(train_loader) is train_loader:
         input_is_train_loader = False

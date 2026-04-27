@@ -7,8 +7,8 @@
 #SBATCH --partition=dali
 #SBATCH --output=weight_norm.o%j
 ##SBATCH --error=weight_norm.e%j
-##SBATCH --mail-user=lucmon@illinois.edu
-##SBATCH --mail-type=BEGIN,END
+#SBATCH --mail-user=lucmonexp@outlook.com
+#SBATCH --mail-type=BEGIN,END
 #SBATCH --gres=gpu:A100:1
 #
 # End of embedded SBATCH options

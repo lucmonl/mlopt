@@ -1,4 +1,6 @@
 results/
+results_old/
+results_old
 __pycache__/
 sbatch/
 *.bash
