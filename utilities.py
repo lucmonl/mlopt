@@ -1117,20 +1117,20 @@ def get_gpu_memory():
     print(memory_free_values)
     return memory_free_values
     """
-    import nvidia_smi
+    import pynvml
 
-    nvidia_smi.nvmlInit()
+    pynvml.nvmlInit()
 
-    handle = nvidia_smi.nvmlDeviceGetHandleByIndex(0)
+    handle = pynvml.nvmlDeviceGetHandleByIndex(0)
     # card id 0 hardcoded here, there is also a call to get all available card ids, so we could iterate
 
-    info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
+    info = pynvml.nvmlDeviceGetMemoryInfo(handle)
 
     print("Total memory:", info.total)
     print("Free memory:", info.free)
     print("Used memory:", info.used)
 
-    nvidia_smi.nvmlShutdown()
+    pynvml.nvmlShutdown()
 
 def safe_save_model_for_hf_trainer(trainer, output_dir: str):
     """Collects the state dict and dump to disk."""
