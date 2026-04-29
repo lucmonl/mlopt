@@ -2112,6 +2112,8 @@ if __name__ == "__main__":
         opt_params["tokenizer"] = tokenizer
     elif dataset_name == "oasst2":
         model_params = {"task_name": args.task_name, }
+        if args.max_length:
+            model_params = model_params | {"length": args.max_length}
         if opt_params["opt_name"] == "federated":
             from data.oasst2 import load_oasst2_federated
             model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_oasst2_federated(model_name, args.task_name, batch_size, opt_params["client_num"], model_params, opt_params["dtype"], init_weights)

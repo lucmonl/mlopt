@@ -55,10 +55,12 @@ def recombine_datasets_evenly(datasets_list, M):
 
     return new_datasets
 
-def load_oasst2_federated(model_name, task_name, batch_size, client_num, model_params, dtype, init_weights):
+def load_oasst2_federated(model_name, task_name, batch_size, client_num, model_params, dtype, init_weights, max_length=None):
     DATA_FOLDER = os.environ["DATA_HOME"]
-    SAVE_DIR = DATA_FOLDER + f"tokenized_oasst2/{model_name}/"
-    os.makedirs(SAVE_DIR, exist_ok=True)
+    if max_length is not None:
+        SAVE_DIR = os.path.join(DATA_FOLDER, f"tokenized_oasst2/{model_name}/length_{max_length}/")
+    else:
+        SAVE_DIR = os.path.join(DATA_FOLDER, f"tokenized_oasst2/{model_name}/")
 
     # load the tokenized datasets
     print(SAVE_DIR)
@@ -193,16 +195,13 @@ def load_oasst2_federated(model_name, task_name, batch_size, client_num, model_p
 
 
 
-def preprocess_oasst2(model_id, split="train", lang_filter="en"):
+def preprocess_oasst2(model_id, split="train", lang_filter="en", max_length=2048):
     from datasets import load_dataset
     from collections import defaultdict
-    import matplotlib.pyplot as plt
     import numpy as np
     import os
-    from transformers import AutoTokenizer, AutoModelForCausalLM
-    from dataclasses import dataclass
+    from transformers import AutoTokenizer
 
-    HF_HOME = os.environ["HF_HOME"]
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
     ds = load_dataset("OpenAssistant/oasst2")
@@ -249,22 +248,35 @@ def preprocess_oasst2(model_id, split="train", lang_filter="en"):
     dataset = Dataset.from_list(chat_list)
     tokenized_dataset = dataset.map(format_and_mask_instruction,
                                     fn_kwargs={
-                                        "tokenizer": tokenizer, 
-                                        "max_length": 2048
+                                        "tokenizer": tokenizer,
+                                        "max_length": max_length,
                                     },)
-    
+
     DATA_FOLDER = os.environ["DATA_HOME"]
-    SAVE_DIR = DATA_FOLDER + f"tokenized_oasst2/{model_id}/"
+    SAVE_DIR = os.path.join(DATA_FOLDER, f"tokenized_oasst2/{model_id}/length_{max_length}/")
     os.makedirs(SAVE_DIR, exist_ok=True)
     print(f"saving {len(tokenized_dataset)} samples to {SAVE_DIR}")
     tokenized_dataset.save_to_disk(SAVE_DIR + f"tokenized_oasst2_{split}_{lang_filter}.jsonl")
 
 
 if __name__ == "__main__":
-    # Call the main function when the script is run directly
-    #preprocess_oasst2('meta-llama/Llama-3.2-3B')
-    parser = argparse.ArgumentParser(description="A simple script using argparse.")
-    parser.add_argument("--split", type=str, help="Include a greeting.")
-    
+    parser = argparse.ArgumentParser(description="Preprocess OpenAssistant/oasst2 dataset.")
+    parser.add_argument(
+        "--model_name", type=str, default="meta-llama/Llama-3.2-1B",
+        help="Model name or path for tokenizer.",
+    )
+    parser.add_argument(
+        "--max_length", type=int, default=1024,
+        help="Max token length (prompt + response combined).",
+    )
+    parser.add_argument(
+        "--split", type=str, default="train",
+        help="Dataset split to preprocess.",
+    )
+    parser.add_argument(
+        "--lang_filter", type=str, default="en",
+        help="Language filter for the dataset.",
+    )
+
     args = parser.parse_args()
-    preprocess_oasst2('meta-llama/Llama-3.2-3B', args.split)
+    preprocess_oasst2(args.model_name, args.split, args.lang_filter, args.max_length)
