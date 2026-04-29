@@ -845,6 +845,11 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
         dion(model, loss_name, criterion, opt_params["dion_rank"], train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
         return
 
+    if opt_params.get("use_model_grad", False):
+        from optimizer.federated_train_single_step import federated_train as _federated_train_mg
+        _federated_train_mg(model, loss_name, criterion, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch)
+        return
+
     if opt_params["server_opt_name"] in ["cocktailsgd", "cocktailsgd2"]:
         from optimizer.cocktailsgd import federated_cocktail_train
         federated_cocktail_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, epochs_lr_decay, lr_decay, model_params, opt_params, server_epoch)
@@ -1801,6 +1806,7 @@ if __name__ == "__main__":
     parser.add_argument("--muonlora_merge_alpha", type=float, default=1.0, help="merging alpha, larger alpha means faster change in B and A")
     parser.add_argument("--muonlora_scaled", action='store_true', help="scale every muon update by (I/J)**0.5")
     parser.add_argument("--dion_rank", type=int, default=-1, help="the rank of dion for projection")
+    parser.add_argument("--use_model_grad", action='store_true', help="use model_grad-based federated_train (optimizer/federated_train.py) instead of the param-diff-based one")
 
     parser.add_argument("--privacy_clip", type=float, default=-1.0, help="clip for prrivacy")
     parser.add_argument("--privacy_noise", type=float, default=0.0, help="clip for prrivacy")
@@ -1941,6 +1947,7 @@ if __name__ == "__main__":
     opt_params["client_early_stop"]= args.client_early_stop
     opt_params["marina_prob"]      = args.marina_prob
     opt_params["dion_rank"]        = args.dion_rank
+    opt_params["use_model_grad"]   = args.use_model_grad
     opt_params["muonlora_switch_interval"] = args.muonlora_switch_interval
     opt_params["muonlora_merge_alpha"] = args.muonlora_merge_alpha
     opt_params["muonlora_scaled"]  = args.muonlora_scaled
