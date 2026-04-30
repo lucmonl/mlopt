@@ -59,6 +59,7 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
             model_params = model_params | {
                 'server_opt': kwargs['server_opt_name'],
                 'client_num': kwargs['client_num'],
+                'client_round': kwargs['client_early_stop'],
                 'sketch_size': kwargs['sketch_size'],
                 'use_model_grad': "true",
             }

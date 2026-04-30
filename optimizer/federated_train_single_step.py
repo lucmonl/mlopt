@@ -52,6 +52,7 @@ def federated_train(
     # ── 2. Local client training ─────────────────────────────────────────────
     client_opt_params = copy.deepcopy(opt_params)
     client_opt_params["train_stats"] = False
+    assert client_opt_params["client_early_stop"] == 0
     # do NOT call optimizer.step() inside train(); we aggregate first
     assert client_opt_params.get("local_update_ON") == False, \
         "local_update_ON must be False for model_grad-based federated_train"
