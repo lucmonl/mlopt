@@ -1,6 +1,7 @@
 import torch
 import copy
 import math
+import os
 from optimizer.load_optimizer import load_optimizer
  
  
@@ -163,12 +164,23 @@ def dion(
                 print(name, param.data.shape)
                 I, J = param.data.shape
                 R    = min(dion_rank, min(I, J))
+                print(f"[dion init] RNG state hash at V init for {name}: {torch.get_rng_state().sum().item()}")
+                with torch.random.fork_rng():
+                    dion_seed = int.from_bytes(os.urandom(4), 'little')
+                    print("picking seed: ", dion_seed)
+                    torch.manual_seed(dion_seed)
+                    V_init = torch.nn.functional.normalize(
+                        torch.randn(J, R, device=param.device), dim=0
+                    )
+                torch.nn.functional.normalize(
+                    torch.randn(J, R, device=param.device), dim=0
+                )
                 model._dion_state[name] = {
                     "M": torch.zeros(I, J, device=param.device),
-                    "V": torch.nn.functional.normalize(
-                        torch.randn(J, R, device=param.device), dim=0
-                    ),
+                    "V": V_init,
                 }
+                print(V_init)
+                print("another sample: ", torch.randn(1))
  
     # ── 3. Local client training (identical to federated_lora_avg) ───────────
     client_opt_params = copy.deepcopy(opt_params)
