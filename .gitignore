@@ -9,7 +9,10 @@ data/camelyon17_v1.0
 *.bin
 notebook/data
 *.ipynb
-notebook/
+#notebook
+#notebook/
+notebook/*
+!notebook/plot_functions.py
 sbatch
 results
 output/
