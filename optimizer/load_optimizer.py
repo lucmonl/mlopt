@@ -74,6 +74,8 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
             model_params = model_params | {"client_partial": kwargs["client_partial"]}
         if kwargs["privacy_clip"] != -1:
             model_params = model_params | {"privacy_clip": kwargs["privacy_clip"], "privacy_noise": kwargs["privacy_noise"]}
+        if kwargs["double_sketch"]:
+            model_params = model_params | {"double_sketch": "true"}
     
     if kwargs["clip_tau"] != -1:
         model_params = model_params | {'clip': kwargs['clip_tau']}

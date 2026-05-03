@@ -823,6 +823,22 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
     print("Truncation Error Ratio: ", train_graphs.truncate_err_ratio[-1])
     
 
+def srht_sketch_desketch(vec, sketch_size):
+    """Sketch vec with a fresh SRHT then immediately desketch; returns the desketeched vector (same shape as vec)."""
+    import math
+    from hadamard_transform import hadamard_transform, pad_to_power_of_2
+    p = len(vec)
+    p_pad = pow(2, math.ceil(math.log(p) / math.log(2)))
+    D = (((torch.randn(p_pad, dtype=torch.float32) > 0).to(vec) - 0.5) * 2)
+    sample_rows = torch.stack([torch.arange(sketch_size), torch.randperm(p_pad)[:sketch_size]]).to(vec.device)
+    S = torch.sparse_coo_tensor(sample_rows, torch.ones(sketch_size).to(vec.device),
+                                [sketch_size, p_pad]) * ((p_pad / sketch_size) ** 0.5)
+    vec_pad = pad_to_power_of_2(vec)
+    sketched = S @ hadamard_transform(D * vec_pad)
+    desketched = hadamard_transform(S.T @ sketched) * D
+    return desketched[:p]
+
+
 def federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
     import psutil
     process = psutil.Process()
@@ -933,7 +949,9 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
                 new_params_pad = (old_params - new_params).detach()
                 new_params_pad = torch.clip(new_params_pad / client_lr, min=-opt_params["privacy_clip"], max=opt_params["privacy_clip"])
                 privacy_noise = torch.normal(0, opt_params["privacy_noise"], size=new_params_pad.size()).to(new_params_pad)
-                new_params_pad = client_lr * (new_params_pad + privacy_noise) 
+                new_params_pad = client_lr * (new_params_pad + privacy_noise)
+                if opt_params["double_sketch"]:
+                    new_params_pad = srht_sketch_desketch(new_params_pad, sketch_size)
             elif opt_params["clip_tau"] != -1:
                 new_params_pad = (old_params - new_params).detach()
                 clipped_vector_m = torch.clip(new_params_pad, min=-opt_params["clip_tau"], max=opt_params["clip_tau"])
@@ -1810,6 +1828,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--privacy_clip", type=float, default=-1.0, help="clip for prrivacy")
     parser.add_argument("--privacy_noise", type=float, default=0.0, help="clip for prrivacy")
+    parser.add_argument("--double_sketch", action='store_true', help="apply an SRHT sketch-desketch to new_params_pad after the privacy clip step")
 
     #llm hyperparameters
     parser.add_argument("--task_name", type=str, default="mrpc", help="task name")
@@ -1953,6 +1972,7 @@ if __name__ == "__main__":
     opt_params["muonlora_scaled"]  = args.muonlora_scaled
     opt_params["privacy_clip"]     = args.privacy_clip
     opt_params["privacy_noise"]    = args.privacy_noise
+    opt_params["double_sketch"]    = args.double_sketch
     
     exp_avg, exp_avg_sq            = None, None
 
