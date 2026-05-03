@@ -339,7 +339,7 @@ def federated_lora_grad(model, loss_name, criterion, device, train_loaders, serv
     server_optimizer.step()
 
 def federated_lora(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
-    if lora_rank <= 0:
+    if lora_rank <= 0 or opt_params["use_model_grad"]:
         # full finetuning
         return federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch)
     
