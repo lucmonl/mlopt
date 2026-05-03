@@ -437,7 +437,7 @@ def plot_attr_overlap(ax, train_graphs, attr, start=None, end=None, alpha=1.0, l
     xaxis = xaxes[0][:min_len]
 
     yaxis = np.mean(np.array(data), axis=0).reshape(-1)
-    stds = np.std(np.array(data), axis=0).reshape(-1) * 3
+    stds = np.std(np.array(data), axis=0).reshape(-1)# * 3
 
     if attr in ['test_err', 'loss', 'train_err', 'test_loss']:
         line = plot_xlogy(ax, xaxis, yaxis, name=attr, alpha=alpha)

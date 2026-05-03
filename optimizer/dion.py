@@ -165,14 +165,15 @@ def dion(
                 I, J = param.data.shape
                 R    = min(dion_rank, min(I, J))
                 print(f"[dion init] RNG state hash at V init for {name}: {torch.get_rng_state().sum().item()}")
-                with torch.random.fork_rng():
-                    dion_seed = int.from_bytes(os.urandom(4), 'little')
-                    print("picking seed: ", dion_seed)
-                    torch.manual_seed(dion_seed)
-                    V_init = torch.nn.functional.normalize(
-                        torch.randn(J, R, device=param.device), dim=0
-                    )
-                torch.nn.functional.normalize(
+                if opt_params["multiple_run"]:
+                    with torch.random.fork_rng():
+                        dion_seed = int.from_bytes(os.urandom(4), 'little')
+                        print("picking multi_run seed: ", dion_seed)
+                        torch.manual_seed(dion_seed)
+                        V_init = torch.nn.functional.normalize(
+                            torch.randn(J, R, device=param.device), dim=0
+                        )
+                V_init = torch.nn.functional.normalize(
                     torch.randn(J, R, device=param.device), dim=0
                 )
                 model._dion_state[name] = {

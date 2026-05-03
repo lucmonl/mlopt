@@ -1968,6 +1968,7 @@ if __name__ == "__main__":
     opt_params["use_parallel"]     = args.use_parallel
     opt_params["multi_gpu"]        = args.multi_gpu
     opt_params["compute_base_grad"]= args.compute_base_grad
+    opt_params["multiple_run"]     = multi_run
 
     if opt_params["debug"]:
         torch.autograd.set_detect_anomaly(True)

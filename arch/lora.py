@@ -272,9 +272,19 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
     else:
         init_lora_weights = True
 
-    model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
-        lora_freeze_a=lora_freeze_a, adapter_name=opt_params["server_name"], init_lora_weights=init_lora_weights, \
-        server_name = opt_params["server_name"], add_to_output_layer = False)
+    if opt_params["multiple_run"]:
+        import os
+        with torch.random.fork_rng():
+            lora_seed = int.from_bytes(os.urandom(4), 'little')
+            print("picking seed for lora init: ", lora_seed)
+            torch.manual_seed(lora_seed)
+            model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
+                lora_freeze_a=lora_freeze_a, adapter_name=opt_params["server_name"], init_lora_weights=init_lora_weights, \
+                server_name = opt_params["server_name"], add_to_output_layer = False)
+    else:
+        model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
+            lora_freeze_a=lora_freeze_a, adapter_name=opt_params["server_name"], init_lora_weights=init_lora_weights, \
+            server_name = opt_params["server_name"], add_to_output_layer = False)
 
     if use_uniform_sv:
         init_lora_uniform_sv(model, opt_params["server_name"], lora_rank, lora_alpha, opt_params["lora_init_scale"])
