@@ -340,7 +340,7 @@ def federated_lora_grad(model, loss_name, criterion, device, train_loaders, serv
 
 def federated_lora(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
     if lora_rank <= 0 or opt_params["use_model_grad"]:
-        # full finetuning
+        # full finetuning or directly using lora gradient for training
         return federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch)
     
     if opt_params["fedlora_avg"] != "sb":
