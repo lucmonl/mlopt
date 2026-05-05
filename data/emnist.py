@@ -135,8 +135,13 @@ def load_emnist_federated(loss: str, batch_size: int, train_size = -1, client_nu
     N = len(train)
     trainidx = np.arange(0, N)
     Y_tr = np.array([train.targets[i] for i in trainidx])
-    clientidx = partition_dirichlet(Y_tr, client_num, alpha, seed)
-    clients = [torch.utils.data.Subset(train, trainidx[cidx]) for cidx in clientidx]
+    if alpha == 0.0:
+        rng = np.random.default_rng(seed)
+        perm = rng.permutation(len(trainidx))
+        clients = [torch.utils.data.Subset(train, trainidx[perm[i::client_num]]) for i in range(client_num)]
+    else:
+        clientidx = partition_dirichlet(Y_tr, client_num, alpha, seed)
+        clients = [torch.utils.data.Subset(train, trainidx[cidx]) for cidx in clientidx]
 
     
     test = EMNIST(root=DATASETS_FOLDER, split='byclass', download=True, train=False, transform=train_transform)
