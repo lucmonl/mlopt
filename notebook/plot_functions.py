@@ -953,14 +953,14 @@ def plot_figures_opts_attr_ci(opts_list, model_params, opt_params, attrs, start=
     if return_max:
         return max_val
 
-def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attrs, start=None, end=None, alpha=0.9, linewidth=2.0, legend_fontsize=11, ylabel=None, legends=[], titles=[], yaxis=[], xlabels=[], save_dir=None, return_last=False, return_max=False, overlap=False, use_seaborn=True, linestyles=[]):
+def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attrs, start=None, end=None, alpha=0.9, linewidth=2.0, legend_fontsize=11, ylabel=None, legends=[], titles=[], yaxis=[], xlabels=[], save_dir=None, return_last=False, return_max=False, overlap=False, use_seaborn=True, linestyles=[], ci=True):
     """Beautified version of plot_figures_opts_attr_ci with improved aesthetics."""
     import matplotlib.ticker as mtick
     import seaborn as sns
     import pandas as pd
 
     # Colorblind-friendly palette (Wong 2011)
-    PALETTE = ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#E69F00', '#56B4E9', '#F0E442', '#000000']
+    PALETTE = ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#56B4E9', '#E69F00', '#F0E442', '#000000']
 
     rows, cols = 1, len(opts_list)
     fig, axs = plt.subplots(rows, cols, figsize=(cols * 5, rows * 3.8))
@@ -1032,41 +1032,60 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
 
             if use_seaborn:
                 label = legend[opt_idx] if opt_idx < len(legend) else opt_name
-                df_rows = []
-                for tg in train_graphs:
+                if not ci:
+                    tg = train_graphs[0]
                     vals = get_attr_from_graph(tg, attr)[start:end]
                     xax = tg.log_epochs[start:end]
-                    for x, y in zip(xax, vals):
-                        df_rows.append({'x': x, 'value': y, 'run': id(tg)})
-                df = pd.DataFrame(df_rows)
-                sns.lineplot(
-                    data=df, x='x', y='value',
-                    ax=ax, label=label,
-                    errorbar='sd', linewidth=linewidth,
-                    alpha=opt_alpha, linestyle=optlinestyle, color=color,
-                )
-                line = ax.lines[-1]
-                line_handles.append(line)
-                mean_vals = df.groupby('x')['value'].mean()
-                last_val[-1].append(float(mean_vals.iloc[-1]))
-                max_val[-1].append(float(mean_vals.max()))
+                    line, = ax.plot(xax, vals, label=label, linewidth=linewidth,
+                                    alpha=opt_alpha, linestyle=optlinestyle, color=color)
+                    line_handles.append(line)
+                    last_val[-1].append(float(vals[-1]))
+                    max_val[-1].append(float(np.max(vals)))
+                else:
+                    df_rows = []
+                    for tg in train_graphs:
+                        vals = get_attr_from_graph(tg, attr)[start:end]
+                        xax = tg.log_epochs[start:end]
+                        for x, y in zip(xax, vals):
+                            df_rows.append({'x': x, 'value': y, 'run': id(tg)})
+                    df = pd.DataFrame(df_rows)
+                    sns.lineplot(
+                        data=df, x='x', y='value',
+                        ax=ax, label=label,
+                        errorbar='sd', linewidth=linewidth,
+                        alpha=opt_alpha, linestyle=optlinestyle, color=color,
+                    )
+                    line = ax.lines[-1]
+                    line_handles.append(line)
+                    mean_vals = df.groupby('x')['value'].mean()
+                    last_val[-1].append(float(mean_vals.iloc[-1]))
+                    max_val[-1].append(float(mean_vals.max()))
             else:
-                plot_fn = plot_attr_overlap if overlap else plot_attr
-                line = plot_fn(ax=ax, train_graphs=train_graphs, attr=attr, start=start, end=end,
-                               alpha=opt_alpha, linewidth=linewidth, linestyle=optlinestyle)
-                line.set_color(color)
-                line_handles.append(line)
-                ydata = line.get_ydata()
-                last_val[-1].append(ydata[-1])
-                max_val[-1].append(np.max(ydata))
+                if not ci:
+                    tg = train_graphs[0]
+                    vals = np.array(get_attr_from_graph(tg, attr)[start:end])
+                    xax = tg.log_epochs[start:end]
+                    line, = ax.plot(xax, vals, alpha=opt_alpha, linewidth=linewidth, linestyle=optlinestyle, color=color)
+                    line_handles.append(line)
+                    last_val[-1].append(float(vals[-1]))
+                    max_val[-1].append(float(np.max(vals)))
+                else:
+                    plot_fn = plot_attr_overlap if overlap else plot_attr
+                    line = plot_fn(ax=ax, train_graphs=train_graphs, attr=attr, start=start, end=end,
+                                   alpha=opt_alpha, linewidth=linewidth, linestyle=optlinestyle)
+                    line.set_color(color)
+                    line_handles.append(line)
+                    ydata = line.get_ydata()
+                    last_val[-1].append(ydata[-1])
+                    max_val[-1].append(np.max(ydata))
 
         ax.set_xlabel(xlabel, fontsize=12, labelpad=4)
         ax.set_title(title, fontsize=13, fontweight='bold', pad=6)
         ax.tick_params(axis='both', labelsize=10)
         if use_seaborn:
-            ax.legend(fontsize=legend_fontsize, framealpha=0.9, edgecolor='#cccccc')
+            ax.legend(fontsize=legend_fontsize, framealpha=0.9, edgecolor='#cccccc', loc='upper right')
         else:
-            ax.legend(line_handles, legend, fontsize=legend_fontsize, framealpha=0.9, edgecolor='#cccccc')
+            ax.legend(line_handles, legend, fontsize=legend_fontsize, framealpha=0.9, edgecolor='#cccccc', loc='upper right')
         ax_ptr += 1
 
     if yaxis == []:
