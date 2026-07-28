@@ -7,7 +7,7 @@ import numpy as np
 import math
 
 def compute_adapter_weight(model_name, lora_A_param, lora_B_param):
-    if model_name in ["google/vit-base-patch16-224-in21k", "roberta-base"]:
+    if model_name in ["google/vit-base-patch16-224-in21k", "roberta-base", "meta-llama/Llama-3.2-3B"]:
         return lora_B_param @ lora_A_param
     elif model_name in ["gpt2"]:
         return (lora_B_param @ lora_A_param).T
@@ -209,6 +209,11 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
     import math
     from utilities import vector_to_grads, vector_to_grads_sq
     from main import train
+    shared_train_loader = (
+        len(train_loaders) == 2
+        and iter(train_loaders[0]) is train_loaders[0]
+        and iter(train_loaders[1]) is not train_loaders[1]
+    )
 
     adapter_names = []
     adapter_weights = {}
@@ -246,7 +251,17 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], opt_params["lr_decay"], opt_params["epochs_lr_decay"], False, model_params, opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
         for epoch in range(client_epoch):
-            train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
+            if shared_train_loader:
+                try:
+                    train_graphs.loader_iter += 1
+                    train(client_model, loss_name, criterion, device, train_loaders[0], optimizer, lr_scheduler, server_epoch, client_opt_params)
+                except StopIteration:
+                    print("\nData Iterator is reloaded")
+                    train_graphs.loader_iter += 1
+                    train_loaders[0] = iter(train_loaders[1])
+                    train(client_model, loss_name, criterion, device, train_loaders[0], optimizer, lr_scheduler, server_epoch, client_opt_params)
+            else:
+                train(client_model, loss_name, criterion, device, train_loaders[client_id], optimizer, lr_scheduler, server_epoch, client_opt_params)
             
         for name, param in client_model.named_parameters():
             if param.requires_grad:
@@ -278,13 +293,13 @@ def federated_lora_avg(model, loss_name, criterion, lora_rank, train_graphs, dev
                     assert False
                 """
     model.set_adapter(opt_params["server_name"])
-    truncate_err, truncate_err_ratio = compute_truncate_err(model, adapter_weights, client_num, opt_params["model_name"], opt_params["server_name"])
+    #truncate_err, truncate_err_ratio = compute_truncate_err(model, adapter_weights, client_num, opt_params["model_name"], opt_params["server_name"])
     server_optimizer.zero_grad()
 
-    train_graphs.truncate_err.append(truncate_err)
-    train_graphs.truncate_err_ratio.append(truncate_err_ratio)
-    print("Truncation Error: ", train_graphs.truncate_err[-1])
-    print("Truncation Error Ratio: ", train_graphs.truncate_err_ratio[-1])
+    #train_graphs.truncate_err.append(truncate_err)
+    #train_graphs.truncate_err_ratio.append(truncate_err_ratio)
+    #print("Truncation Error: ", train_graphs.truncate_err[-1])
+    #print("Truncation Error Ratio: ", train_graphs.truncate_err_ratio[-1])
 
     if opt_params["train_stats"]:
         grad_norm = 0
