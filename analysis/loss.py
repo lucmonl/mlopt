@@ -4,7 +4,7 @@ from tqdm import tqdm
 import torch.nn.functional as F
 import sys
 import numpy as np
-from utilities import dict_to_
+from utilities import dict_to_, get_gpu_memory
 
 @torch.no_grad
 def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, loader_abridged, test_loader, opt_params, \
@@ -16,6 +16,9 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
     save_best_model = False
     
     model_output = []
+
+    print("="*10, " 8 ", "="*10)
+    get_gpu_memory()
     
     if loader_abridged:
         for batch_idx, input in enumerate(loader_abridged, start=1):
@@ -186,6 +189,8 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
         print("Mean Test Loss: {} \t Accuarcy: {}".format(graphs.test_loss[-1], graphs.test_accuracy[-1]), flush=True)
 
     enable_running_stats(model)
+    print("="*10, " 9 ", "="*10)
+    get_gpu_memory()
     return save_best_model
 
 from transformers.trainer_pt_utils import LabelSmoother

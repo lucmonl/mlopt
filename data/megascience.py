@@ -37,6 +37,10 @@ def load_megascience_federated(model_name, batch_size, client_num, model_params,
 
     if 'llama' in model_name:
         model, tokenizer, formatting_prompts_func = get_llama_model_and_formats(model_name, dtype, model_params)
+        model.config.use_cache = False
+        model.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": False}
+        )
     else:
         raise NotImplementedError
 

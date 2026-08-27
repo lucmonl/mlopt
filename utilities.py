@@ -1107,30 +1107,55 @@ def get_model_size(model):
             size_model += param.numel() * torch.iinfo(param.data.dtype).bits
     return size_model
 
-def get_gpu_memory():
+def get_gpu_memory(device=None):
+    """Print driver and PyTorch CUDA-memory statistics for one GPU.
+
+    NVML reports driver-visible GPU use, while PyTorch distinguishes live tensor
+    allocations from blocks retained by its caching allocator.
     """
-    import subprocess as sp
-    import os
-    command = "nvidia-smi --query-gpu=memory.free --format=csv"
-    memory_free_info = sp.check_output(command.split()).decode('ascii').split('\n')[:-1][1:]
-    memory_free_values = [int(x.split()[0]) for i, x in enumerate(memory_free_info)]
-    print(memory_free_values)
-    return memory_free_values
-    """
+    if not torch.cuda.is_available():
+        print("CUDA is not available.")
+        return None
+
+    if device is None:
+        device = torch.cuda.current_device()
+    device = torch.device(device)
+    if device.type != "cuda":
+        raise ValueError(f"Expected a CUDA device, received {device}.")
+
+    device_index = torch.cuda.current_device() if device.index is None else device.index
+    torch.cuda.synchronize(device_index)
+
     import pynvml
 
     pynvml.nvmlInit()
+    try:
+        handle = pynvml.nvmlDeviceGetHandleByIndex(device_index)
+        info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+    finally:
+        pynvml.nvmlShutdown()
 
-    handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-    # card id 0 hardcoded here, there is also a call to get all available card ids, so we could iterate
-
-    info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-
-    print("Total memory:", info.total)
-    print("Free memory:", info.free)
-    print("Used memory:", info.used)
-
-    pynvml.nvmlShutdown()
+    gib = 1024 ** 3
+    stats = {
+        "nvml_total": info.total,
+        "nvml_free": info.free,
+        "nvml_used": info.used,
+        "allocated": torch.cuda.memory_allocated(device),
+        "reserved": torch.cuda.memory_reserved(device),
+        "peak_allocated": torch.cuda.max_memory_allocated(device),
+        "peak_reserved": torch.cuda.max_memory_reserved(device),
+    }
+    print(
+        f"GPU {device_index} NVML memory (GiB): total={stats['nvml_total'] / gib:.2f}, "
+        f"free={stats['nvml_free'] / gib:.2f}, used={stats['nvml_used'] / gib:.2f}"
+    )
+    print(
+        f"GPU {device_index} PyTorch CUDA memory (GiB): "
+        f"allocated={stats['allocated'] / gib:.2f}, reserved={stats['reserved'] / gib:.2f}, "
+        f"peak_allocated={stats['peak_allocated'] / gib:.2f}, "
+        f"peak_reserved={stats['peak_reserved'] / gib:.2f}"
+    )
+    return stats
 
 def safe_save_model_for_hf_trainer(trainer, output_dir: str):
     """Collects the state dict and dump to disk."""

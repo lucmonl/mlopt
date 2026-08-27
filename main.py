@@ -1248,6 +1248,14 @@ def federated_train(model, loss_name, criterion, device, train_loaders, server_o
 def train(model, loss_name, criterion, device, train_loader, optimizer, lr_scheduler, epoch, opt_params):   
     #old_params = parameters_to_vector(model.parameters())
     model.train()
+
+    from utilities import get_gpu_memory
+
+    def log_gpu_memory(stage):
+        if torch.cuda.is_available():
+            torch.cuda.synchronize(device)
+        print("=" * 10, stage, "=" * 10)
+        get_gpu_memory(device)
     
     # initialize training statistics
     accuracy = 0
@@ -1258,8 +1266,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
     
     batch_idx = -1
 
-    from utilities import get_gpu_memory
-    get_gpu_memory()
+    log_gpu_memory("train entry")
 
     input_is_train_loader = None
     if iter(train_loader) is train_loader:
@@ -1288,6 +1295,8 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             # let the loader iterate to the end and next epoch you can get a fresh batch! important to put in the beginning!
             #continue
             break
+
+        log_gpu_memory("before forward")
 
         if opt_params["wild_data"]:
             data, target, metadata = input
@@ -1342,6 +1351,8 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             if opt_params["use_parallel"]:
                 loss = torch.mean(loss)
 
+        log_gpu_memory("after forward")
+
         if opt_params["forward_backward"]:
             if opt_params["opt_name"] == "adahessian":
                 loss.backward(create_graph=True)
@@ -1351,6 +1362,8 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
                 loss.backward()
                 end_time = time.time()
                 print(f"Time taken for backward pass: {end_time - start_time} seconds")
+
+            log_gpu_memory("after backward")
 
             if opt_params["compute_acc"]:
                 if out.dim() > 1:
@@ -1520,6 +1533,7 @@ def train(model, loss_name, criterion, device, train_loader, optimizer, lr_sched
             for name, param in model.named_parameters():
                 if param.requires_grad:
                     model_grad[name] = param.grad.clone()
+            log_gpu_memory("after gradient copy")
 
             #print("after step") 
             #for name, param in model.named_parameters():

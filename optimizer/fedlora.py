@@ -967,6 +967,8 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     import copy
     from main import train
 
+    from utilities import get_gpu_memory
+
     use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
         orth_then_merge, alternate_update, aligned_momentum = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
     if use_model_grad:
@@ -1011,6 +1013,8 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
         optimizer, lr_scheduler, _= load_optimizer(client_opt_name, client_model, client_lr, opt_params["client_momentum"], opt_params["client_weight_decay"], opt_params["lr_decay"], opt_params["epochs_lr_decay"], False, model_params, opt_params)
         #vector_to_parameters(old_params, client_model.parameters())
         
+        print("="*10, " 1 ", "="*10)
+        get_gpu_memory()
         for epoch in range(client_epoch):
             try:
                 train_graphs.loader_iter += 1
@@ -1027,7 +1031,10 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                 train_graphs.loader_iter += 1
                 train_loaders[0] = iter(train_loaders[1])
                 _, model_grad = train(client_model, loss_name, criterion, device, train_loaders[0], optimizer, lr_scheduler, server_epoch, client_opt_params)
-            
+
+        print("="*10, " 2 ", "="*10)
+        get_gpu_memory()
+        
         for name, param in client_model.named_parameters():
             if param.requires_grad:
                 #param_names.append(name)
@@ -1052,6 +1059,9 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                         assert False
 
     print(f"Total training time: {training_time_accumulated} seconds")
+    print("="*10, " 3 ", "="*10)
+    get_gpu_memory()
+
     # average step is after the summation -- to provide more precisions
     for server_adapter_name in output_weights:
         output_weights[server_adapter_name] = output_weights[server_adapter_name] / client_num
@@ -1162,6 +1172,10 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     #    train_graphs.grad_norm.append(grad_norm ** 0.5)
     #    print("grad norm:", train_graphs.grad_norm[-1])
     
+    print("="*10, " 4 ", "="*10)
+    get_gpu_memory()
+
+
     # update the previous factors with the current factor (before real updates)
     if aligned_momentum:
         for name, param in model.named_parameters():
@@ -1223,6 +1237,10 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                     #lazy initialize update_B
                     print("Init update on B...")
                     opt_params["update_B"] = True
+
+    print("="*10, " 5 ", "="*10)
+    get_gpu_memory()
+
 
     for name, param in model.named_parameters():
         if "muon_update" in name and 'lora_B' in name:
@@ -1491,6 +1509,8 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
 
     muon_update_num = 0
     #print("muon update")
+    print("="*10, " 6 ", "="*10)
+    get_gpu_memory()
 
     for name, param in model.named_parameters():
         if "muon_update" in name:
@@ -1514,6 +1534,9 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                 lora_r=opt_params["lora_rank"],
                 lora_alpha=opt_params["lora_alpha"],
                 model_name=opt_params["model_name"])
+
+    print("="*10, " 7 ", "="*10)
+    get_gpu_memory()
 
     # v14: apply orthonormalization corrections via the orth_correction adapter
     if opt_params["fedlora_avg"] == "muonlora_v14" and opt_params.get("orth_corrections"):
