@@ -2678,7 +2678,9 @@ if __name__ == "__main__":
         #sys.exit()
         opt_params["output_layer_name"] = output_layer_name
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        print(f"Training {trainable_params} parameters ({100*trainable_params/total_params:.2f}% of original {total_params})")
+        from arch.lora import count_adapted_base_params
+        adapted_params = count_adapted_base_params(model)
+        print(f"Training {trainable_params} parameters ({100*trainable_params/adapted_params:.2f}% of adapted {adapted_params}, {100*trainable_params/total_params:.2f}% of original {total_params})")
         model_params = model_params | {"lora_rank": lora_rank, "lora_alpha": lora_alpha}
         if args.lora_freeze_a:
             model_params = model_params | {"lora_freeze": "a"}

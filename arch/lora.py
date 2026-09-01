@@ -480,6 +480,14 @@ def get_base_layer_norm(model):
     print("base layer norms: ", norm_base_layer.item())
     return norm_base_layer.item()
 
+def count_adapted_base_params(model):
+    """Number of parameters in the base weights that LoRA adapters were added to."""
+    adapted_params = 0
+    for name, param in model.named_parameters():
+        if name.endswith('base_layer.weight'):
+            adapted_params += param.numel()
+    return max(adapted_params, 1)
+
 def load_server_optimizer(model, lr, momentum, weight_decay, model_params, **kwargs):
     from torch.nn.parameter import Parameter
     parameters = {}

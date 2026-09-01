@@ -62,7 +62,8 @@ def compute_update_stable_rank_lora(checkpoint_path, base_model, dtype, lora_ran
         sr = compute_stable_rank(W_update)
         layer_name = a_key.replace(f".lora_A.{server_name}.weight", "")
         results.append((layer_name, sr, W_update.shape))
-        print(f"  {layer_name:60s}  shape={tuple(W_update.shape)}  stable_rank={sr:.4f}")
+        print(f"  {layer_name:60s}  shape={tuple(W_update.shape)}  stable_rank={sr:.4f}"
+              f"  ||update||={W_update.norm():.4e}")
 
     avg_sr = sum(r[1] for r in results) / len(results) if results else 0
     print(f"\n  Average stable rank: {avg_sr:.4f}")
@@ -102,7 +103,48 @@ def compute_update_stable_rank_dion(checkpoint_path, base_model, dtype, target_m
 
         sr = compute_stable_rank(delta)
         results.append((name, sr, delta.shape))
-        print(f"  {name:60s}  shape={tuple(delta.shape)}  stable_rank={sr:.4f}")
+        print(f"  {name:60s}  shape={tuple(delta.shape)}  stable_rank={sr:.4f}"
+              f"  ||update||={delta.norm():.4e}")
+
+    avg_sr = sum(r[1] for r in results) / len(results) if results else 0
+    print(f"\n  Average stable rank: {avg_sr:.4f}")
+    return results
+
+
+def compute_update_stable_rank_adam(checkpoint_path, base_model, dtype, target_modules):
+    """Adam: stable_rank(new_param - old_param) for each target layer."""
+    from transformers import AutoModelForCausalLM
+
+    torch_dtype = get_dtype(dtype)
+
+    # Load base model (original weights)
+    print("Loading base model...")
+    base = AutoModelForCausalLM.from_pretrained(base_model, torch_dtype=torch_dtype, device_map="cpu")
+    base_state = base.state_dict()
+
+    # Load checkpoint state dict
+    ckpt_state = torch.load(os.path.join(checkpoint_path, "model.ckpt"), map_location="cpu", weights_only=True)
+
+    results = []
+    for name in sorted(base_state.keys()):
+        if not any(t in name for t in target_modules):
+            continue
+        if "weight" not in name or base_state[name].dim() != 2:
+            continue
+        if name not in ckpt_state:
+            continue
+
+        old_W = base_state[name].float()
+        new_W = ckpt_state[name].float()
+        delta = new_W - old_W
+
+        if delta.norm() < 1e-10:
+            continue
+
+        sr = compute_stable_rank(delta)
+        results.append((name, sr, delta.shape))
+        print(f"  {name:60s}  shape={tuple(delta.shape)}  stable_rank={sr:.4f}"
+              f"  ||update||={delta.norm():.4e}")
 
     avg_sr = sum(r[1] for r in results) / len(results) if results else 0
     print(f"\n  Average stable rank: {avg_sr:.4f}")
@@ -175,7 +217,15 @@ def compute_update_stable_rank_muonlora(checkpoint_path, base_model, dtype, lora
         sr = compute_stable_rank(total_update)
         layer_name = a_key.replace(f".lora_A.{server_name}.weight", "")
         results.append((layer_name, sr, total_update.shape))
-        print(f"  {layer_name:60s}  shape={tuple(total_update.shape)}  stable_rank={sr:.4f}")
+        # The base weight is stored in bf16 (8 mantissa bits), so an update whose norm is at
+        # the rounding error of the stored weight is quantization noise -- and quantization
+        # noise is white, i.e. full rank. Print the floor next to the norm to make that visible.
+        noise_floor = (new_base_W.abs() * (2 ** -9) / (3 ** 0.5)).norm()
+        print(f"  {layer_name:60s}  shape={tuple(total_update.shape)}  stable_rank={sr:.4f}"
+              f"  ||update||={total_update.norm():.4e}"
+              f"  ||base_delta||={(new_base_W - old_W).norm():.4e}"
+              f"  ||lora||={lora_update.norm():.4e}"
+              f"  bf16_noise_floor={noise_floor:.4e}")
 
     avg_sr = sum(r[1] for r in results) / len(results) if results else 0
     print(f"\n  Average stable rank: {avg_sr:.4f}")
@@ -184,7 +234,7 @@ def compute_update_stable_rank_muonlora(checkpoint_path, base_model, dtype, lora
 
 def main():
     parser = argparse.ArgumentParser(description="Compute stable rank of parameter updates")
-    parser.add_argument("--method", type=str, required=True, choices=["lora", "dion", "muonlora"])
+    parser.add_argument("--method", type=str, required=True, choices=["lora", "dion", "muonlora", "adam"])
     parser.add_argument("--checkpoint_path", type=str, required=True)
     parser.add_argument("--base_model", type=str, default="meta-llama/Llama-3.2-3B")
     parser.add_argument("--dtype", type=str, default="bf16")
@@ -207,6 +257,10 @@ def main():
         )
     elif args.method == "dion":
         compute_update_stable_rank_dion(
+            args.checkpoint_path, args.base_model, args.dtype, target_modules
+        )
+    elif args.method == "adam":
+        compute_update_stable_rank_adam(
             args.checkpoint_path, args.base_model, args.dtype, target_modules
         )
     elif args.method == "muonlora":
