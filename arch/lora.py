@@ -298,7 +298,15 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
         from optimizer.fedlora_sb import find_and_initialize
         find_and_initialize(model, Lora_config, lora_rank, model_name)
         return model, output_layer_name, Lora_config
-    
+
+    if opt_params["fedlora_avg"] == "ef14muon":
+        # EF14-Muon trains the dense weights of the LoRA target modules, so the
+        # call above only ran add_ft() to set requires_grad. There are no LoRA
+        # factors and no per-client adapters to create or synchronize.
+        assert lora_rank == -1, "ef14muon expects --lora_rank -1 (dense target modules)"
+        return model, output_layer_name, Lora_config
+
+
     use_model_grad = True
     if opt_params["fedlora_avg"] == "avg":
         use_model_grad = False

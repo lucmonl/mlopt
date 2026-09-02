@@ -339,6 +339,15 @@ def federated_lora_grad(model, loss_name, criterion, device, train_loaders, serv
     server_optimizer.step()
 
 def federated_lora(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
+    if opt_params["fedlora_avg"] == "ef14muon":
+        # dense weights of the LoRA target modules (run with --lora_rank -1);
+        # must be checked before the lora_rank <= 0 branch below
+        from optimizer.ef14muon import federated_ef14muon
+        federated_ef14muon(model, loss_name, criterion, train_graphs, device, train_loaders,
+                           server_optimizer, server_lr_scheduler, client_lr, opt_params,
+                           model_params, server_epoch)
+        return
+
     if lora_rank <= 0 or opt_params["use_model_grad"]:
         # full finetuning or directly using lora gradient for training
         return federated_train(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch)
@@ -1816,7 +1825,8 @@ if __name__ == "__main__":
     parser.add_argument("--client_momentum", type=float, default=0.0, help="momentum of clients")
     parser.add_argument("--client_weight_decay", type=float, default=0.0, help="momentum of clients")
     parser.add_argument("--client_epoch", type=int, default=200, help="total epochs of client training")
-    parser.add_argument("--sketch_size", type=int, default=-1, help="sketch size in communication")
+    parser.add_argument("--sketch_size", type=float, default=-1, help="sketch size in communication; a value in (0,1) is a fraction of the trainable coordinates, >=1 is an absolute size, -1 disables")
+    parser.add_argument("--compressor", type=str, default="topk", choices=["topk", "randk", "none"], help="compression operator (currently used by fedlora_avg=ef14muon)")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
     parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch",
@@ -1824,7 +1834,7 @@ if __name__ == "__main__":
                                                              "sb", "fr", "fr_v2", "muonlora_v1", "muonlora_v2", "muonlora_v3",
                                                              "muonlora_v4", "muonlora_v5", "muonlora_v6",  "muonlora_v7", "muonlora_v8",
                                                              "muonlora_v9", "muonlora_v10", "muonlora_v11", "muonlora_v12",
-                                                             "muonlora_v13", "muonlora_v14"], default="avg", 
+                                                             "muonlora_v13", "muonlora_v14", "ef14muon"], default="avg",
                                                              help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
     parser.add_argument("--uba_mode", type=str, default='none', choices=["ada", "none"], help="ada means adaptive uba")
@@ -1962,7 +1972,11 @@ if __name__ == "__main__":
     opt_params["client_num"]       = args.client_num
     opt_params["client_partial"]   = args.client_partial
     opt_params["client_epoch"]     = args.client_epoch
-    opt_params["sketch_size"]      = args.sketch_size
+    # keep an integral sketch_size integral: every pre-existing consumer uses it
+    # as a tensor dimension. Only a fraction in (0,1) stays a float, and that is
+    # read exclusively by ef14muon (resolved against the trainable dimension).
+    opt_params["sketch_size"]      = args.sketch_size if 0 < args.sketch_size < 1 else int(args.sketch_size)
+    opt_params["compressor"]       = args.compressor
     opt_params["server_lr"]        = args.lr
     opt_params["server_momentum"]  = args.momentum
     opt_params["client_momentum"]  = args.client_momentum
@@ -2693,6 +2707,8 @@ if __name__ == "__main__":
                 model_params = model_params | {"fedlora_uba": opt_params["fedlora_uba"]}
             if opt_params["fedlora_avg"] == "flasc":
                 model_params = model_params | {"dl_density": args.dl_density, "ul_density": args.ul_density}
+            if opt_params["fedlora_avg"] == "ef14muon":
+                model_params = model_params | {"compressor": args.compressor, "sketch_size": args.sketch_size}
             if opt_params["muonlora_scaled"]:
                 model_params = model_params | {"muon": "scaled"}
             if opt_params["muonlora_switch_interval"] != -1:
