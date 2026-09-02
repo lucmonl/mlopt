@@ -261,7 +261,45 @@ def init_lora_uniform_sv(model, adapter_name, lora_rank, lora_alpha, scale):
             module.base_layer.weight.data = (W_svd - delta).to(dtype)
             
             
+def add_adapters_riemannion(model_name, model, lora_rank, opt_params, lora_freeze_a=False):
+    """Server adapter for Riemannion.
+
+    The manifold rank is `lora_rank` = r, but the adapter is allocated at width
+    2r so that a single backward yields both tangent-space gradient factors
+    (Eq. 18 of the paper); see optimizer/riemannion.py for the layout.
+
+    lora_alpha is set to 2r so the adapter scaling alpha/width is exactly 1, and
+    the LoRA dropout is disabled -- both are required for the identities
+    grad_lora_B[:, :r] = grad_W L @ B_R and grad_lora_A[r:, :] = A_L.T @ grad_W L
+    to hold. The factors themselves are initialized by federated_riemannion on
+    the first round, together with the W' = W - dW^(0) base-weight shift.
+    """
+    width = 2 * lora_rank
+    model, output_layer_name, Lora_config = add_adapters_dataset(
+        model_name, model, width, width, lora_freeze_a=lora_freeze_a,
+        adapter_name=opt_params["server_name"], init_lora_weights=True,
+        server_name=opt_params["server_name"], add_to_output_layer=False)
+
+    server_name = opt_params["server_name"]
+    n_dropout = 0
+    for module in model.modules():
+        if hasattr(module, "lora_dropout") and server_name in getattr(module, "lora_dropout", {}):
+            module.lora_dropout[server_name] = torch.nn.Identity()
+            n_dropout += 1
+        if hasattr(module, "scaling") and server_name in getattr(module, "scaling", {}):
+            assert abs(module.scaling[server_name] - 1.0) < 1e-9, \
+                "riemannion needs adapter scaling 1, got {}".format(module.scaling[server_name])
+    print("[riemannion] adapter width {} (manifold rank {}), dropout disabled on {} modules".format(
+        width, lora_rank, n_dropout))
+    return model, output_layer_name, Lora_config
+
+
 def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_params, lora_freeze_a=False):
+    if opt_params["fedlora_avg"] == "riemannion":
+        assert lora_rank > 0, "riemannion needs --lora_rank > 0 (the manifold rank)"
+        return add_adapters_riemannion(model_name, model, lora_rank, opt_params,
+                                       lora_freeze_a=lora_freeze_a)
+
     client_rank = lora_rank
     #lora_alpha = lora_rank
     if opt_params["fedlora_avg"] == "sb":

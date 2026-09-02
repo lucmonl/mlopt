@@ -339,6 +339,15 @@ def federated_lora_grad(model, loss_name, criterion, device, train_loaders, serv
     server_optimizer.step()
 
 def federated_lora(model, loss_name, criterion, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, server_epoch):
+    if opt_params["fedlora_avg"] == "riemannion":
+        # Muon on the fixed-rank manifold; the server adapter (width 2*rank)
+        # holds the manifold point, so this must precede the checks below
+        from optimizer.riemannion import federated_riemannion
+        federated_riemannion(model, loss_name, criterion, train_graphs, device, train_loaders,
+                             server_optimizer, server_lr_scheduler, client_lr, opt_params,
+                             model_params, server_epoch)
+        return
+
     if opt_params["fedlora_avg"] == "ef14muon":
         # dense weights of the LoRA target modules (run with --lora_rank -1);
         # must be checked before the lora_rank <= 0 branch below
@@ -1825,8 +1834,10 @@ if __name__ == "__main__":
     parser.add_argument("--client_momentum", type=float, default=0.0, help="momentum of clients")
     parser.add_argument("--client_weight_decay", type=float, default=0.0, help="momentum of clients")
     parser.add_argument("--client_epoch", type=int, default=200, help="total epochs of client training")
-    parser.add_argument("--sketch_size", type=float, default=-1, help="sketch size in communication; a value in (0,1) is a fraction of the trainable coordinates, >=1 is an absolute size, -1 disables")
-    parser.add_argument("--compressor", type=str, default="topk", choices=["topk", "randk", "none"], help="compression operator (currently used by fedlora_avg=ef14muon)")
+    parser.add_argument("--sketch_size", type=float, default=-1, help="compression budget; for ef14muon a value in (0,1) is a fraction of EACH tensor's entries (0.02 = 2% per layer), >=1 is an absolute count per tensor, -1 disables. Other methods use it as an absolute sketch dimension")
+    parser.add_argument("--compressor", type=str, default="topk", choices=["topk", "randk", "none"], help="layer-wise sparsifier used by fedlora_avg=ef14muon, applied per client and again to the server error buffer")
+    parser.add_argument("--riemann_alpha", type=float, default=-1.0, help="riemannion: scale of the initial manifold point; <=0 uses 0.01/sqrt(rank)")
+    parser.add_argument("--riemann_retract", type=str, default="literal", choices=["literal", "accumulate"], help="riemannion line 12: 'literal' reproduces the printed retraction (step only); 'accumulate' carries the current point forward as in Algorithm 6")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
     parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch",
@@ -1834,7 +1845,8 @@ if __name__ == "__main__":
                                                              "sb", "fr", "fr_v2", "muonlora_v1", "muonlora_v2", "muonlora_v3",
                                                              "muonlora_v4", "muonlora_v5", "muonlora_v6",  "muonlora_v7", "muonlora_v8",
                                                              "muonlora_v9", "muonlora_v10", "muonlora_v11", "muonlora_v12",
-                                                             "muonlora_v13", "muonlora_v14", "ef14muon"], default="avg",
+                                                             "muonlora_v13", "muonlora_v14", "ef14muon",
+                                                             "riemannion"], default="avg",
                                                              help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
     parser.add_argument("--uba_mode", type=str, default='none', choices=["ada", "none"], help="ada means adaptive uba")
@@ -1977,13 +1989,21 @@ if __name__ == "__main__":
     # read exclusively by ef14muon (resolved against the trainable dimension).
     opt_params["sketch_size"]      = args.sketch_size if 0 < args.sketch_size < 1 else int(args.sketch_size)
     opt_params["compressor"]       = args.compressor
+    opt_params["fedlora_avg"]      = args.fedlora_avg
+    opt_params["riemann_retract"]  = args.riemann_retract
+    if opt_params["fedlora_avg"] == "riemannion":
+        # --lora_rank is the manifold rank r; the adapter is allocated at 2r so
+        # that one backward yields both tangent-space gradient factors.
+        opt_params["riemann_rank"] = args.lora_rank
+        opt_params["riemann_gamma"] = args.weight_decay   # gamma in Algorithm 5 line 12
+        opt_params["riemann_alpha"] = (args.riemann_alpha if args.riemann_alpha > 0
+                                       else 0.01 / (args.lora_rank ** 0.5))
     opt_params["server_lr"]        = args.lr
     opt_params["server_momentum"]  = args.momentum
     opt_params["client_momentum"]  = args.client_momentum
     opt_params["client_weight_decay"]  = args.client_weight_decay
     opt_params["non_iid"]          = args.non_iid_alpha
     opt_params["clip_tau"]         = args.clip_tau
-    opt_params["fedlora_avg"]      = args.fedlora_avg
     opt_params["fedlora_uba"]      = args.fedlora_uba
     opt_params["uba_mode"]         = args.uba_mode
     opt_params["uba_weight"]       = args.uba_weight
