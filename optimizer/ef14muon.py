@@ -55,6 +55,15 @@ from optimizer.federated_train_single_step import collect_client_grads
 NS_COEFFS = (3.4445, -4.7750, 2.0315)
 NS_STEPS = 5
 
+# Everything -- client gradients, server buffers, compression, the LMO -- runs
+# in bf16, matching the model dtype, so nothing is silently promoted. The one
+# exception is `svd_orth`: torch.linalg.svd has no bf16 kernel on either CPU or
+# CUDA, so it upcasts internally and casts the result back. Scalar reductions
+# used only for printed diagnostics stay in fp32; summing squares over millions
+# of entries in bf16 would report noise.
+BUF_DTYPE = torch.bfloat16
+VALUE_BITS = 16   # bf16 payload on the wire, must track BUF_DTYPE
+
 
 @torch.no_grad()
 def newton_schulz5(G, steps=NS_STEPS, eps=1e-7):
@@ -83,37 +92,79 @@ def newton_schulz5(G, steps=NS_STEPS, eps=1e-7):
 
 
 @torch.no_grad()
-def lmo_step(chunk):
+def svd_orth(G):
+    """Exact spectral-norm LMO: return U V^T for the thin SVD G = U S V^T.
+
+    Same target as `newton_schulz5`, without the polynomial approximation -- use
+    it to check how far the quintic iteration actually is from the true
+    orthogonal factor. Costs a full SVD per call, so it is a diagnostic, not a
+    drop-in for the training loop.
+
+    This is the one place the bf16 pipeline is broken, and not by choice:
+    torch.linalg.svd has no bfloat16 kernel on CPU ("linalg_svd_cpu" not
+    implemented for 'BFloat16') or on CUDA, so the factorization runs in fp32
+    and the result is cast back to G's dtype.
+
+    Like the NS iteration this is scale invariant and ignores S entirely, so a
+    rank-deficient G still comes back with min(m, n) orthonormal directions --
+    the ones belonging to zero singular values are arbitrary but harmless, since
+    the LMO only ever multiplies them by zero downstream.
+    """
+    assert G.ndim == 2, "spectral LMO needs a matrix, got shape {}".format(tuple(G.shape))
+    X = G.float()
+    try:
+        U, _, Vh = torch.linalg.svd(X, full_matrices=False)
+    except Exception:
+        # cuSOLVER gesvd occasionally fails to converge; the CPU path does not
+        U, _, Vh = torch.linalg.svd(X.cpu(), full_matrices=False)
+        U, Vh = U.to(X.device), Vh.to(X.device)
+    return (U @ Vh).to(G.dtype)
+
+
+@torch.no_grad()
+def lmo_step(chunk, method="ns5"):
     """Unit-radius LMO direction for one parameter.
 
     Matrices use the spectral-norm ball (Muon / Scion hidden layers); anything
     that is not 2-D uses the l_inf ball, whose LMO is sign(.), as the paper does
     for embedding and head layers.
+
+    `method` picks how the spectral LMO is evaluated: "ns5" is the quintic
+    Newton-Schulz approximation used for training, "svd" the exact U V^T.
+
+    The result keeps the input dtype (bf16 in the pipeline); `svd_orth` upcasts
+    internally only because torch.linalg.svd has no bf16 kernel.
     """
     if chunk.ndim == 2:
         scale = 1
-        return newton_schulz5(chunk.float()).float() * scale
-    return torch.sign(chunk.float())
+        if method == "svd":
+            return svd_orth(chunk) * scale
+        return newton_schulz5(chunk).to(chunk.dtype) * scale
+    return torch.sign(chunk)
 
 
 class ServerState:
     """Per-layer momentum.  No error buffer and no per-client state."""
 
     def __init__(self, shapes, compressor, ratio, momentum, device,
-                 dtype=torch.float32):
+                 dtype=BUF_DTYPE):
         self.compressor = compressor
         self.ratio = ratio
         self.momentum = momentum
         self.shapes = shapes
+        self.dtype = dtype
         self.round_sum = {n: torch.zeros(s, device=device, dtype=dtype)
                           for n, s in shapes.items()}
         self.moment = {n: torch.zeros(s, device=device, dtype=dtype)
                        for n, s in shapes.items()}
         self.uplink_bits = 0
-        self.dense_bits = sum(int(torch.tensor(s).prod()) * 32 for s in shapes.values())
+        # both the "dense" reference and the sparse payloads are bf16 values
+        self.dense_bits = sum(int(torch.tensor(s).prod()) * VALUE_BITS
+                              for s in shapes.values())
 
     def state_bytes(self):
-        return 4 * 2 * sum(int(torch.tensor(s).prod()) for s in self.shapes.values())
+        elem = torch.empty(0, dtype=self.dtype).element_size()
+        return elem * 2 * sum(int(torch.tensor(s).prod()) for s in self.shapes.values())
 
     def start_round(self):
         for t in self.round_sum.values():
@@ -124,10 +175,10 @@ class ServerState:
         """Compress this client's gradient tensor by tensor and add it in."""
         bits = 0
         for name, buf in self.round_sum.items():
-            g = model_grad[name].float()
+            g = model_grad[name].to(self.dtype)
             c, nnz = compress(g, self.compressor, self.ratio)
             buf += c
-            bits += compressed_bits(nnz, g.numel())
+            bits += compressed_bits(nnz, g.numel(), value_bits=VALUE_BITS)
         self.uplink_bits = bits   # identical for every client
 
     @torch.no_grad()
@@ -207,10 +258,11 @@ def federated_ef14muon(model, loss_name, criterion, train_graphs, device, train_
         if chunk.count_nonzero() == 0:
             empty += 1
             continue
-        step = server_lr * lmo_step(chunk)
+        step = server_lr * lmo_step(chunk, "svd")
+        # norms are printed diagnostics only, so they are reduced in fp32
         update_norm += step.float().norm().item() ** 2
         step, nnz = compress(step, compressor, ratio)
-        s2w_bits += compressed_bits(nnz, step.numel())
+        s2w_bits += compressed_bits(nnz, step.numel(), value_bits=VALUE_BITS)
         sent_norm += step.float().norm().item() ** 2
         param.data -= step.to(param.dtype)
 

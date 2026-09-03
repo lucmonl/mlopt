@@ -286,7 +286,10 @@ def add_adapters_riemannion(model_name, model, lora_rank, opt_params, lora_freez
         if hasattr(module, "lora_dropout") and server_name in getattr(module, "lora_dropout", {}):
             module.lora_dropout[server_name] = torch.nn.Identity()
             n_dropout += 1
-        if hasattr(module, "scaling") and server_name in getattr(module, "scaling", {}):
+        scaling = getattr(module, "scaling", None)
+        # LlamaAttention also has a `scaling` attribute (a float), so check the
+        # type -- only LoraLayer.scaling is a {adapter_name: float} dict.
+        if isinstance(scaling, dict) and server_name in scaling:
             assert abs(module.scaling[server_name] - 1.0) < 1e-9, \
                 "riemannion needs adapter scaling 1, got {}".format(module.scaling[server_name])
     print("[riemannion] adapter width {} (manifold rank {}), dropout disabled on {} modules".format(
