@@ -348,9 +348,11 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                              model_params, server_epoch)
         return
 
-    if opt_params["fedlora_avg"] == "ef14muon":
+    if opt_params["fedlora_avg"] in ("ef14muon", "ef21muon"):
         # dense weights of the LoRA target modules (run with --lora_rank -1);
-        # must be checked before the lora_rank <= 0 branch below
+        # must be checked before the lora_rank <= 0 branch below. ef21muon takes
+        # the same path with the error feedback of Gruntkowska et al.'s
+        # Algorithm 1 switched on; it reads fedlora_avg to tell the two apart
         from optimizer.ef14muon import federated_ef14muon
         federated_ef14muon(model, loss_name, criterion, train_graphs, device, train_loaders,
                            server_optimizer, server_lr_scheduler, client_lr, opt_params,
@@ -1835,7 +1837,9 @@ if __name__ == "__main__":
     parser.add_argument("--client_weight_decay", type=float, default=0.0, help="momentum of clients")
     parser.add_argument("--client_epoch", type=int, default=200, help="total epochs of client training")
     parser.add_argument("--sketch_size", type=float, default=-1, help="compression budget; for ef14muon a value in (0,1) is a fraction of EACH tensor's entries (0.02 = 2% per layer), >=1 is an absolute count per tensor, -1 disables. Other methods use it as an absolute sketch dimension")
-    parser.add_argument("--compressor", type=str, default="topk", choices=["topk", "randk", "none"], help="layer-wise sparsifier used by fedlora_avg=ef14muon, applied per client and again to the server error buffer")
+    parser.add_argument("--compressor", type=str, default="topk", choices=["topk", "randk", "none"], help="layer-wise sparsifier used by fedlora_avg=ef14muon/ef21muon, applied per client and again to the server error buffer")
+    parser.add_argument("--ef21_state_dir", type=str, default="", help="ef21muon: where to page the per-client (M_j, G_j) store. Defaults to the run's checkpoint directory; point it at scratch/project space, since it needs client_num * 2 * d * 2 bytes")
+    parser.add_argument("--ef21_s2w", type=str, default="same", choices=["same", "none"], help="ef21muon: server-to-worker compressor C^k. 'same' uses --compressor in both directions (Algorithm 1); 'none' sets C^k=I, the setting Theorems 4/6 and the paper's experiments assume")
     parser.add_argument("--riemann_alpha", type=float, default=-1.0, help="riemannion: scale of the initial manifold point; <=0 uses 0.01/sqrt(rank)")
     parser.add_argument("--riemann_retract", type=str, default="literal", choices=["literal", "accumulate"], help="riemannion line 12: 'literal' reproduces the printed retraction (step only); 'accumulate' carries the current point forward as in Algorithm 6")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
@@ -1846,7 +1850,7 @@ if __name__ == "__main__":
                                                              "muonlora_v4", "muonlora_v5", "muonlora_v6",  "muonlora_v7", "muonlora_v8",
                                                              "muonlora_v9", "muonlora_v10", "muonlora_v11", "muonlora_v12",
                                                              "muonlora_v13", "muonlora_v14", "ef14muon",
-                                                             "riemannion"], default="avg",
+                                                             "ef21muon", "riemannion"], default="avg",
                                                              help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
     parser.add_argument("--uba_mode", type=str, default='none', choices=["ada", "none"], help="ada means adaptive uba")
@@ -1989,6 +1993,8 @@ if __name__ == "__main__":
     # read exclusively by ef14muon (resolved against the trainable dimension).
     opt_params["sketch_size"]      = args.sketch_size if 0 < args.sketch_size < 1 else int(args.sketch_size)
     opt_params["compressor"]       = args.compressor
+    opt_params["ef21_s2w"]         = args.ef21_s2w
+    opt_params["ef21_state_dir"]   = args.ef21_state_dir
     opt_params["fedlora_avg"]      = args.fedlora_avg
     opt_params["riemann_retract"]  = args.riemann_retract
     if opt_params["fedlora_avg"] == "riemannion":
@@ -2727,8 +2733,10 @@ if __name__ == "__main__":
                 model_params = model_params | {"fedlora_uba": opt_params["fedlora_uba"]}
             if opt_params["fedlora_avg"] == "flasc":
                 model_params = model_params | {"dl_density": args.dl_density, "ul_density": args.ul_density}
-            if opt_params["fedlora_avg"] == "ef14muon":
+            if opt_params["fedlora_avg"] in ("ef14muon", "ef21muon"):
                 model_params = model_params | {"compressor": args.compressor, "sketch_size": args.sketch_size}
+            if opt_params["fedlora_avg"] == "ef21muon" and args.ef21_s2w != "same":
+                model_params = model_params | {"ef21_s2w": args.ef21_s2w}
             if opt_params["muonlora_scaled"]:
                 model_params = model_params | {"muon": "scaled"}
             if opt_params["muonlora_switch_interval"] != -1:
@@ -2852,6 +2860,9 @@ if __name__ == "__main__":
         directory = get_directory(lr, dataset_name, loss_name, opt_params["opt_name"], model_name, momentum, weight_decay, batch_size, epochs, multi_run, **model_params)
         os.makedirs(directory, exist_ok=True)
         print(directory)
+        # ef21muon pages its per-client (M_j, G_j) here: 2 n d numbers that do
+        # not fit in device memory, read back one client at a time
+        opt_params["checkpoint_dir"] = directory
 
         import pickle
 
@@ -2914,7 +2925,11 @@ if __name__ == "__main__":
                 if lr_scheduler is not None:
                     torch.save(lr_scheduler.state_dict(), f"{directory}/lr_scheduler.ckpt")
 
-                _skip_keys = {"server_params", "device", "accelerator"}
+                # ef14/ef21 server state holds device tensors (and, for ef21, a
+                # handle on the on-disk client store); none of it is picklable
+                # metadata, and the ef21 buffers already live under `directory`
+                _skip_keys = {"server_params", "device", "accelerator",
+                              "ef14_state", "ef21_state"}
                 opt_params_to_save = {k: v for k, v in opt_params.items() if k not in _skip_keys}
                 pickle.dump(opt_params_to_save, open(f"{directory}/opt_params.pk", "wb"))
                 
