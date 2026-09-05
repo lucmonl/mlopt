@@ -57,6 +57,30 @@ import torch
 from optimizer.federated_train_single_step import collect_client_grads
 
 
+# The manifold state and every matrix product run in bf16, matching the model
+# dtype, so nothing is silently promoted.  Exactly three things are not bf16,
+# and each is forced rather than chosen:
+#
+# * QR and SVD.  There is no bf16 kernel for either, on CPU or CUDA
+#   ("geqrf_cpu"/"linalg_svd_cpu" not implemented for 'BFloat16'), the same
+#   constraint that makes `svd_orth` upcast in optimizer/ef14muon.py.  The
+#   helpers below take the fp32 detour and hand back bf16.
+# * The sum over clients.  Adding n gradients into one accumulator is the
+#   textbook bf16 failure -- with an 8-bit mantissa, terms below 2^-9 of the
+#   running total vanish -- and is exactly what federated_train guards against
+#   by accumulating in fp32.  The two thin factors cost (m+n)r per layer, so
+#   fp32 there is ~18 MB for the whole model; see `_accumulate`.
+# * Printed diagnostics.  Scalar reductions over millions of entries stay in
+#   fp32, and the step norm differences two nearly equal matrices, which
+#   cancels catastrophically at bf16 precision.
+BUF_DTYPE = torch.bfloat16
+
+
+def _qr_q(X):
+    """Q of a thin QR.  fp32 internally (no bf16 geqrf), result in X's dtype."""
+    return torch.linalg.qr(X.float(), mode='reduced')[0].to(X.dtype)
+
+
 # ---------------------------------------------------------------------------
 # Manifold primitives (Algorithms 1 and 2 of the paper, plus the retraction).
 #
@@ -76,16 +100,21 @@ def ortho_lr(A_L, B_R, Adot, Bdot):
     Two typos in the printed algorithm are corrected here: the QR is taken of
     the n x 2r matrix (not its transpose), and the left/right blocks are paired
     as (Adot <-> B_R, A_L <-> Bdot) to match Eq. (5).
+
+    All of QR, SVD and the products between them run in fp32 -- neither
+    factorization has a bf16 kernel -- and the result comes back in the input
+    dtype.  The concatenations are bf16 and cost nothing to promote.
     """
-    left = torch.cat([Adot, A_L], dim=1)    # (m, 2r)
-    right = torch.cat([B_R, Bdot], dim=1)   # (n, 2r)
+    dtype = Adot.dtype
+    left = torch.cat([Adot, A_L], dim=1).float()    # (m, 2r)
+    right = torch.cat([B_R, Bdot], dim=1).float()   # (n, 2r)
 
     Q_L, T_L = torch.linalg.qr(left, mode='reduced')    # (m,2r), (2r,2r)
     Q_R, T_R = torch.linalg.qr(right, mode='reduced')   # (n,2r), (2r,2r)
 
     core = T_L @ T_R.T                                  # (2r, 2r)
     U_c, _, Vh_c = torch.linalg.svd(core)               # discard the singular values
-    return Q_L @ U_c, Q_R @ Vh_c.T                      # (m,2r), (n,2r)
+    return (Q_L @ U_c).to(dtype), (Q_R @ Vh_c.T).to(dtype)   # (m,2r), (n,2r)
 
 
 @torch.no_grad()
@@ -108,13 +137,17 @@ def retraction_lr(left, right, rank):
     """Rank-`rank` truncated SVD of left @ right.T, computed through the factors
     in O((m+n)r^2 + r^3).  Returns (U, S, V) with U orthonormal (m x r),
     S (r,) and V (n x r), so that trunc_SVD(left @ right.T) = U diag(S) V.T.
+
+    Returned in **fp32**, unlike the other primitives: S carries the singular
+    values of the new point, and the caller folds it into V before rounding, so
+    that a small singular value is not quantized twice.
     """
-    Q_L, T_L = torch.linalg.qr(left, mode='reduced')
-    Q_R, T_R = torch.linalg.qr(right, mode='reduced')
+    Q_L, T_L = torch.linalg.qr(left.float(), mode='reduced')
+    Q_R, T_R = torch.linalg.qr(right.float(), mode='reduced')
     U_c, S, Vh_c = torch.linalg.svd(T_L @ T_R.T)
     U = Q_L @ U_c[:, :rank]
     V = Q_R @ Vh_c.T[:, :rank]
-    return U, S[:rank], V
+    return U.to(left.dtype), S[:rank].to(left.dtype), V.to(left.dtype)
 
 
 # ---------------------------------------------------------------------------
@@ -152,19 +185,22 @@ def write_point(params, name_A, name_B, A_L, B, B_R, rank):
 
 
 @torch.no_grad()
-def init_point(m, n, rank, alpha, device, dtype=torch.float32, generator=None):
+def init_point(m, n, rank, alpha, device, dtype=BUF_DTYPE, generator=None):
     """Manifold init without LOI: A_L a random orthonormal frame, B a small
     random frame scaled by alpha.  The paper reports that a small ||dW^(0)||
     helps; its LOI default is alpha = 0.01/sqrt(r).
 
     B is deliberately not left at zero: dW = 0 is not on M_r and qr(0) would
     give an arbitrary tangent frame.
+
+    Drawn and orthonormalized in fp32 (no bf16 geqrf), then rounded once: alpha
+    is applied before the cast so that a small radius does not lose bits twice.
     """
-    A_L = torch.linalg.qr(torch.randn(m, rank, device=device, dtype=dtype,
+    A_L = torch.linalg.qr(torch.randn(m, rank, device=device, dtype=torch.float32,
                                       generator=generator), mode='reduced')[0]
-    B = torch.linalg.qr(torch.randn(n, rank, device=device, dtype=dtype,
+    B = torch.linalg.qr(torch.randn(n, rank, device=device, dtype=torch.float32,
                                     generator=generator), mode='reduced')[0] * alpha
-    return A_L, B
+    return A_L.to(dtype), B.to(dtype)
 
 
 # ---------------------------------------------------------------------------
@@ -199,22 +235,29 @@ def federated_riemannion(model, loss_name, criterion, train_graphs, device, trai
             assert two_r == 2 * rank, (
                 "adapter width {} != 2*riemann_rank {} for {}".format(two_r, 2 * rank, base))
             A_L, B = init_point(m, n, rank, opt_params["riemann_alpha"],
-                                device=pB.device)
-            B_R = torch.linalg.qr(B, mode='reduced')[0]
+                                device=pB.device, dtype=BUF_DTYPE)
+            B_R = _qr_q(B)
             state[base] = {"A_L": A_L, "B": B,
-                           "A_HB": torch.zeros(m, 2 * rank, device=pB.device),
-                           "B_HB": torch.zeros(n, 2 * rank, device=pB.device)}
+                           "A_HB": torch.zeros(m, 2 * rank, device=pB.device,
+                                               dtype=BUF_DTYPE),
+                           "B_HB": torch.zeros(n, 2 * rank, device=pB.device,
+                                               dtype=BUF_DTYPE)}
             write_point(params, name_A, name_B, A_L, B, B_R, rank)
-            # line 3: W' = W - dW^(0), so the initial forward is unchanged
+            # line 3: W' = W - dW^(0), so the initial forward is unchanged.
+            # dW is formed in fp32: it is subtracted from a weight of its own
+            # magnitude, so a bf16 product would round away the small radius.
             base_w = params.get(base + ".weight")
             if base_w is None:
                 raise KeyError("no base weight for {}".format(base))
             base_w.data -= (A_L @ B.T).to(base_w.dtype)
-            total += 4 * rank * (m + n)
+            # A_L (m,r) + B (n,r) + A_HB (m,2r) + B_HB (n,2r) = 3r(m+n)
+            total += 3 * rank * (m + n)
         opt_params["riemann_state"] = state
+        elem = torch.empty(0, dtype=BUF_DTYPE).element_size()
         print("[riemannion] {} layers, manifold rank {}, adapter width {}, "
-              "server state {:.3f} GB, per-client state 0 GB".format(
-                  len(layers), rank, 2 * rank, total * 4 / 1024 ** 3))
+              "server state {:.3f} GB ({}), per-client state 0 GB".format(
+                  len(layers), rank, 2 * rank, total * elem / 1024 ** 3,
+                  str(BUF_DTYPE).replace("torch.", "")))
         print("[riemannion] beta={} gamma={} retraction={}".format(beta, gamma, retract_mode))
     state = opt_params["riemann_state"]
 
@@ -232,9 +275,15 @@ def federated_riemannion(model, loss_name, criterion, train_graphs, device, trai
         # uplink: only the two halves that carry information, (m+n)*r floats.
         # grad_lora_B[:, r:] and grad_lora_A[:r, :] are never used (the latter
         # is identically zero because the Z1 block of lora_B is zero).
+        #
+        # fp32 here and only here: this is a sum of client_num bf16 gradients,
+        # the one reduction long enough for an 8-bit mantissa to matter. The
+        # accumulator is two thin factors, (m+n)r per layer, so the whole model
+        # costs ~18 MB more than the bf16 version. It is rounded back to bf16
+        # after the division by client_num below.
         for base, (name_A, name_B) in layers.items():
-            grad_A[base] = grad_A[base] + model_grad[name_B][:, :rank].float()
-            grad_B[base] = grad_B[base] + model_grad[name_A][rank:, :].T.float()
+            grad_A[base] = grad_A[base] + model_grad[name_B][:, :rank]
+            grad_B[base] = grad_B[base] + model_grad[name_A][rank:, :].T
 
     client_num = collect_client_grads(
         model, loss_name, criterion, train_graphs, device, train_loaders,
@@ -249,10 +298,11 @@ def federated_riemannion(model, loss_name, criterion, train_graphs, device, trai
         st = state[base]
         A_L, B = st["A_L"], st["B"]
 
-        B_R = torch.linalg.qr(B, mode='reduced')[0]                     # line 6
+        B_R = _qr_q(B)                                                  # line 6
 
-        Adot = grad_A[base] / client_num                                # line 7
-        Bdot = grad_B[base] / client_num                                # line 8
+        # back to bf16 once the fp32 client sum has been averaged
+        Adot = (grad_A[base] / client_num).to(BUF_DTYPE)                # line 7
+        Bdot = (grad_B[base] / client_num).to(BUF_DTYPE)                # line 8
 
         # line 9: vector transport of the stored momentum to T_X M_r
         Adot_prev, Bdot_prev = project_lr(st["A_HB"], st["B_HB"], A_L, B_R)
@@ -276,6 +326,8 @@ def federated_riemannion(model, loss_name, criterion, train_graphs, device, trai
             right = torch.cat([B_R, -eta * (Bdot + gamma * B_R)], dim=1)
         elif retract_mode == "accumulate":
             right = torch.cat([B_R, B - eta * (Bdot + gamma * B)], dim=1)
+        elif retract_mode == "gemini":
+            right = torch.cat([B_R, -eta * (Bdot + gamma * B)], dim=1)
         else:
             raise NotImplementedError("riemann_retract: {}".format(retract_mode))
         U, S, V = retraction_lr(left, right, rank)
@@ -284,15 +336,21 @@ def federated_riemannion(model, loss_name, criterion, train_graphs, device, trai
         st["A_HB"] = torch.cat([Adot, A_L], dim=1)
         st["B_HB"] = torch.cat([B_R, Bdot], dim=1)
 
-        # line 14: the new point
-        A_L_new = U
-        B_new = V * S.unsqueeze(0)
-        step_norm += ((A_L_new @ B_new.T) - (A_L @ B.T)).norm().item() ** 2
+        # line 14: the new point.  retraction_lr returns fp32; fold S into V
+        # before rounding so a small singular value is not quantized twice.
+        A_L_new = U.to(BUF_DTYPE)
+        B_new = (V * S.unsqueeze(0)).to(BUF_DTYPE)
+        # fp32 for the diagnostic: the two products are nearly equal (the step
+        # is small next to the point), so the difference cancels away most of a
+        # bf16 mantissa. This is also the only O(mn) work in the file.
+        step_norm += ((A_L_new.float() @ B_new.float().T)
+                      - (A_L.float() @ B.float().T)).norm().item() ** 2
         st["A_L"], st["B"] = A_L_new, B_new
 
-        B_R_new = torch.linalg.qr(B_new, mode='reduced')[0]
+        B_R_new = _qr_q(B_new)
         write_point(params, name_A, name_B, A_L_new, B_new, B_R_new, rank)
-        point_norm += B_new.norm().item() ** 2   # = ||dW||_F since A_L is orthonormal
+        # = ||dW||_F since A_L is orthonormal; fp32 like every printed reduction
+        point_norm += B_new.float().norm().item() ** 2
 
     print("[riemannion] eta={:.3e} ||dW||_F={:.6f} ||step||_F={:.6f}".format(
         eta, point_norm ** 0.5, step_norm ** 0.5))

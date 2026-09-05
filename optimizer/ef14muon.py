@@ -3,7 +3,10 @@
 ``federated_ef14muon`` runs one round of either of two variants, selected by
 ``--fedlora_avg``.  They share everything -- the client loop, the layer-wise
 compressors, the LMO, the bit accounting -- and differ only in what they
-remember; ``ServerState.error_feedback`` is the switch.
+remember.  ``ServerState`` carries two independent switches, ``client_ef``
+(the w2s recursion of Algorithm 1) and ``server_ef`` (the s2w recursion of
+EF21-P), so the uplink and downlink feedbacks can be enabled separately -- see
+``federated_ef14muon`` for the reachable combinations.
 
 Uplink
 ------
@@ -237,36 +240,47 @@ class ClientStore:
 class ServerState:
     """Server buffers for both variants.
 
-    EF14 (`error_feedback=False`): a round accumulator and per-layer momentum,
-    O(d), no per-client state.
+    Two independent switches, because the two error feedbacks are independent
+    mechanisms:
 
-    EF21 (`error_feedback=True`): the true iterate X and the estimator G, plus
-    per-client (M_j, G_j) paged through a `ClientStore`.  W is deliberately not
-    stored -- it *is* the model, so the client backward pass differentiates the
-    shifted iterate, which is what the s2w error feedback of EF21-P maintains.
-    Peak resident state stays O(d): X, G, the model, and one loaded pair.
+    `client_ef` (w2s, Algorithm 1 lines 9-11).  On: the estimator G plus a
+    per-client (M_j, G_j) pair paged through a `ClientStore`; each client sends
+    the compressed residual M_j - G_j.  Off: a round accumulator and per-layer
+    server momentum -- each client's gradient is compressed memorylessly, and
+    there is no per-client state at all, so nothing is paged.
+
+    `server_ef` (s2w, EF21-P).  On: the true iterate X is kept here and only
+    C(X - W) goes on the wire.  W is deliberately *not* stored -- it *is* the
+    model, so the client backward pass differentiates the shifted iterate.
+    Off: the sparsified LMO step is written straight to the weights and what
+    the compressor drops is gone.
+
+    Peak resident state is O(d) either way: at most X, G, the model, and one
+    loaded (M_j, G_j) pair.
     """
 
     def __init__(self, named, compressor, ratio, momentum, device,
-                 error_feedback=False, s2w_compressor=None, store_root=None,
-                 dtype=BUF_DTYPE):
+                 client_ef=False, server_ef=False, s2w_compressor=None,
+                 store_root=None, dtype=BUF_DTYPE):
         self.compressor = compressor
         self.s2w_compressor = compressor if s2w_compressor is None else s2w_compressor
         self.ratio = ratio
         self.momentum = momentum
-        self.error_feedback = error_feedback
+        self.client_ef = client_ef
+        self.server_ef = server_ef
         self.shapes = {n: tuple(p.shape) for n, p in named}
         self.dtype = dtype
         self.uplink_bits = 0
         # both the "dense" reference and the sparse payloads are bf16 values
         self.dense_bits = sum(int(torch.tensor(s).prod()) * VALUE_BITS
                               for s in self.shapes.values())
-        if error_feedback:
+        if server_ef:
+            # X^0 = W^0 = the current model weights
+            self.iterate = {n: p.detach().to(dtype).clone() for n, p in named}
+        if client_ef:
             # beta in (0, 1] of Algorithm 1; --momentum 0.9 is its EMA decay
             self.beta = 1.0 - momentum
             assert 0 < self.beta <= 1, "ef21muon needs --momentum in [0, 1)"
-            # X^0 = W^0 = the current model weights
-            self.iterate = {n: p.detach().to(dtype).clone() for n, p in named}
             self.estimator = {n: torch.zeros(s, device=device, dtype=dtype)
                               for n, s in self.shapes.items()}
             # beta == 1 makes M_j^{k+1} = grad f_j(W^{k+1}): nothing to carry
@@ -274,21 +288,25 @@ class ServerState:
                                      store_moment=self.beta < 1, dtype=dtype)
             self.initialized = False
         else:
+            # memoryless uplink with server-side momentum: no per-client state,
+            # so nothing is paged. This is EF14's w2s half, reused verbatim.
             self.round_sum = {n: torch.zeros(s, device=device, dtype=dtype)
                               for n, s in self.shapes.items()}
             self.moment = {n: torch.zeros(s, device=device, dtype=dtype)
                            for n, s in self.shapes.items()}
 
     def state_bytes(self):
-        """Resident device state: (round_sum, m) for EF14, (X, G, M_j, G_j) for EF21."""
+        """Resident device state: X (server EF) + either (G, M_j, G_j) with
+        client EF or (round_sum, momentum) without it."""
         elem = torch.empty(0, dtype=self.dtype).element_size()
         d = sum(int(torch.tensor(s).prod()) for s in self.shapes.values())
-        return elem * (4 if self.error_feedback else 2) * d
+        return elem * (int(self.server_ef) + 3 * int(self.client_ef)
+                       + 2 * int(not self.client_ef)) * d
 
     def start_round(self):
-        # EF21's G is *persistent* -- it is the whole point of the recursion
-        # G^{k+1} = G^k + mean_j R_j and must not be cleared between rounds.
-        if not self.error_feedback:
+        # G is *persistent* under client EF -- it is the whole point of the
+        # recursion G^{k+1} = G^k + mean_j R_j -- and must not be cleared.
+        if not self.client_ef:
             for t in self.round_sum.values():
                 t.zero_()
 
@@ -308,7 +326,7 @@ class ServerState:
         not participate leaves its G_j, hence its share, unchanged.
         """
         bits = 0
-        if not self.error_feedback:
+        if not self.client_ef:
             for name, buf in self.round_sum.items():
                 g = model_grad[name].to(self.dtype)
                 c, nnz = compress(g, self.compressor, self.ratio)
@@ -352,7 +370,7 @@ class ServerState:
         has no server momentum -- the momentum is client-side, inside M_j -- so
         the estimator is already G^k.
         """
-        if self.error_feedback:
+        if self.client_ef:
             return self.estimator
         for name, m in self.moment.items():
             m.mul_(self.momentum).add_(self.round_sum[name] / client_num)
@@ -388,7 +406,7 @@ class ServerState:
             step = radius * lmo_step(chunk, "svd")
             # norms are printed diagnostics only, so they are reduced in fp32
             step_norm += step.float().norm().item() ** 2
-            if self.error_feedback:
+            if self.server_ef:
                 self.iterate[name] -= step.to(self.dtype)
                 message, nnz = compress(
                     self.iterate[name] - param.detach().to(self.dtype),
@@ -406,12 +424,28 @@ class ServerState:
 def federated_ef14muon(model, loss_name, criterion, train_graphs, device, train_loaders,
                        server_optimizer, server_lr_scheduler, client_lr, opt_params,
                        model_params, server_epoch):
-    """One round of EF14-Muon, or of EF21-Muon when fedlora_avg is "ef21muon"."""
+    """One round of EF14-Muon, or of EF21-Muon when fedlora_avg is "ef21muon".
+
+    The two error feedbacks are independent switches, so three of the four
+    combinations are reachable:
+
+        fedlora_avg   --ef21_w2s   w2s (client G_j)   s2w (server X - W)
+        ef14muon      --           off                off
+        ef21muon      ef21         on  (Algorithm 1)  on  (EF21-P)
+        ef21muon      none         off                on
+
+    The last row isolates the primal mechanism: it keeps the server iterate X
+    and broadcasts C(X - W), but compresses each client's gradient memorylessly
+    with server-side momentum, exactly as EF14 does.  That removes every
+    per-client buffer, hence the ClientStore and all of its paging.
+    """
     from utilities import get_gpu_memory
 
-    error_feedback = opt_params.get("fedlora_avg") == "ef21muon"
-    tag = "ef21muon" if error_feedback else "ef14muon"
-    state_key = "ef21_state" if error_feedback else "ef14_state"
+    is_ef21 = opt_params.get("fedlora_avg") == "ef21muon"
+    server_ef = is_ef21
+    client_ef = is_ef21 and opt_params.get("ef21_w2s", "ef21") != "none"
+    tag = "ef21muon" if is_ef21 else "ef14muon"
+    state_key = "ef21_state" if is_ef21 else "ef14_state"
 
     # clients differentiate the shared model (W under EF21) and never step
     opt_params["local_update_ON"] = False
@@ -425,12 +459,12 @@ def federated_ef14muon(model, loss_name, criterion, train_graphs, device, train_
         compressor = "none"
     # C^k in the paper is a free choice; Theorems 4 and 6 need C^k = I, and the
     # reported experiments run with it, so the s2w side can be turned off alone.
-    s2w_compressor = ("none" if error_feedback and opt_params.get("ef21_s2w") == "none"
+    s2w_compressor = ("none" if is_ef21 and opt_params.get("ef21_s2w") == "none"
                       else compressor)
 
     if state_key not in opt_params:
         store_root = None
-        if error_feedback:
+        if client_ef:
             # --ef21_state_dir first: the client store is far larger than the
             # checkpoints it sits next to and usually belongs on scratch
             root = opt_params.get("ef21_state_dir") or opt_params.get("checkpoint_dir")
@@ -441,7 +475,7 @@ def federated_ef14muon(model, loss_name, criterion, train_graphs, device, train_
                       "state to {}".format(tag, root))
             store_root = os.path.join(root, "ef21_state")
         state = ServerState(named, compressor, ratio, opt_params["server_momentum"],
-                            device, error_feedback=error_feedback,
+                            device, client_ef=client_ef, server_ef=server_ef,
                             s2w_compressor=s2w_compressor, store_root=store_root)
         opt_params[state_key] = state
         opt_params[tag + "_bits"] = 0
@@ -455,7 +489,10 @@ def federated_ef14muon(model, loss_name, criterion, train_graphs, device, train_
                                               s2w_compressor))
         print("[{}] {} trainable tensors, {} coordinates, resident server state "
               "{:.2f} GB".format(tag, len(named), d, state.state_bytes() / 1024 ** 3))
-        if error_feedback:
+        print("[{}] error feedback: w2s {}, s2w {}".format(
+            tag, "EF21 (per-client G_j)" if client_ef else "off (memoryless)",
+            "EF21-P (X - W)" if server_ef else "off (memoryless)"))
+        if client_ef:
             # size this now, not after the first round has half-filled the disk
             per = state.store.bytes_per_client()
             n = opt_params["client_num"]
@@ -484,7 +521,7 @@ def federated_ef14muon(model, loss_name, criterion, train_graphs, device, train_
         exclude_from_copy=(state_key,))
     get_gpu_memory()
 
-    if error_feedback and not state.initialized:
+    if client_ef and not state.initialized:
         state.initialized = True
         print("[{}] initialized M_j = G_j = grad f_j(X^0) for {} client(s); "
               "client state on disk: {:.2f} GB".format(

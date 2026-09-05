@@ -3,6 +3,11 @@ import torch.optim as optim
 #import warmup_scheduler
 import sys
 
+# fedlora_avg values whose clients differentiate the shared model and never take
+# a local step, so the client-side optimizer hyperparameters are inert. Keep in
+# sync with the methods that set opt_params["local_update_ON"] = False.
+GRAD_ONLY_FEDLORA = ("ef14muon", "ef21muon", "riemannion")
+
 def load_optimizer_param(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, warm_start, model_params, **kwargs):
     if kwargs['cls_lr'] == -1:
         return load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, warm_start, model_params, **kwargs)
@@ -55,14 +60,22 @@ def load_optimizer(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs
             model_params = model_params | {"use_ef": kwargs['use_ef']}
         #opt_name = "sgd" if kwargs["server_opt_name"] == "clip_sgd" else kwargs["server_opt_name"] 
         #weight_decay = 0.0
-        if kwargs["use_model_grad"]:
+        # Methods whose clients only differentiate the shared model and never
+        # take a local step -- collect_client_grads asserts local_update_ON is
+        # False for all of them -- never read the client optimizer, its lr,
+        # momentum or weight decay. Putting those in the run directory would
+        # split runs that are in fact identical, and imply a knob that does
+        # nothing, so they are dropped exactly as for --use_model_grad.
+        if kwargs["use_model_grad"] or kwargs.get("fedlora_avg") in GRAD_ONLY_FEDLORA:
             model_params = model_params | {
                 'server_opt': kwargs['server_opt_name'],
                 'client_num': kwargs['client_num'],
                 'client_round': kwargs['client_early_stop'],
                 'sketch_size': kwargs['sketch_size'],
-                'use_model_grad': "true",
             }
+            if kwargs["use_model_grad"]:
+                # keep the marker tied to the flag, so existing paths are stable
+                model_params = model_params | {'use_model_grad': "true"}
             kwargs["local_update_ON"] = False
         else:
             model_params = model_params | {'server_opt': kwargs['server_opt_name'], 'client_opt': kwargs['client_opt_name'],

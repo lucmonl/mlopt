@@ -1839,9 +1839,10 @@ if __name__ == "__main__":
     parser.add_argument("--sketch_size", type=float, default=-1, help="compression budget; for ef14muon a value in (0,1) is a fraction of EACH tensor's entries (0.02 = 2% per layer), >=1 is an absolute count per tensor, -1 disables. Other methods use it as an absolute sketch dimension")
     parser.add_argument("--compressor", type=str, default="topk", choices=["topk", "randk", "none"], help="layer-wise sparsifier used by fedlora_avg=ef14muon/ef21muon, applied per client and again to the server error buffer")
     parser.add_argument("--ef21_state_dir", type=str, default="", help="ef21muon: where to page the per-client (M_j, G_j) store. Defaults to the run's checkpoint directory; point it at scratch/project space, since it needs client_num * 2 * d * 2 bytes")
+    parser.add_argument("--ef21_w2s", type=str, default="ef21", choices=["ef21", "none"], help="ef21muon: worker-to-server error feedback. 'ef21' keeps the per-client estimators G_j and sends C(M_j - G_j) (Algorithm 1); 'none' compresses each client gradient memorylessly with server-side momentum, as ef14muon does, which removes ALL per-client state and hence all disk paging -- an ablation of the s2w (EF21-P) mechanism alone")
     parser.add_argument("--ef21_s2w", type=str, default="same", choices=["same", "none"], help="ef21muon: server-to-worker compressor C^k. 'same' uses --compressor in both directions (Algorithm 1); 'none' sets C^k=I, the setting Theorems 4/6 and the paper's experiments assume")
     parser.add_argument("--riemann_alpha", type=float, default=-1.0, help="riemannion: scale of the initial manifold point; <=0 uses 0.01/sqrt(rank)")
-    parser.add_argument("--riemann_retract", type=str, default="literal", choices=["literal", "accumulate"], help="riemannion line 12: 'literal' reproduces the printed retraction (step only); 'accumulate' carries the current point forward as in Algorithm 6")
+    parser.add_argument("--riemann_retract", type=str, default="literal", choices=["literal", "accumulate", "gemini"], help="riemannion line 12: 'literal' reproduces the printed retraction (step only); 'accumulate' carries the current point forward as in Algorithm 6")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
     parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch",
@@ -1994,6 +1995,7 @@ if __name__ == "__main__":
     opt_params["sketch_size"]      = args.sketch_size if 0 < args.sketch_size < 1 else int(args.sketch_size)
     opt_params["compressor"]       = args.compressor
     opt_params["ef21_s2w"]         = args.ef21_s2w
+    opt_params["ef21_w2s"]         = args.ef21_w2s
     opt_params["ef21_state_dir"]   = args.ef21_state_dir
     opt_params["fedlora_avg"]      = args.fedlora_avg
     opt_params["riemann_retract"]  = args.riemann_retract
@@ -2737,6 +2739,16 @@ if __name__ == "__main__":
                 model_params = model_params | {"compressor": args.compressor, "sketch_size": args.sketch_size}
             if opt_params["fedlora_avg"] == "ef21muon" and args.ef21_s2w != "same":
                 model_params = model_params | {"ef21_s2w": args.ef21_s2w}
+            if opt_params["fedlora_avg"] == "ef21muon" and args.ef21_w2s != "ef21":
+                model_params = model_params | {"ef21_w2s": args.ef21_w2s}
+            if opt_params["fedlora_avg"] == "riemannion":
+                # both change the trajectory, so two runs differing only in one
+                # of them must not land in the same directory. riemann_rank and
+                # riemann_gamma need no entry: they are --lora_rank and
+                # --weight_decay, already in the path.
+                model_params = model_params | {"riemann_alpha": opt_params["riemann_alpha"]}
+                if args.riemann_retract != "literal":
+                    model_params = model_params | {"riemann_retract": args.riemann_retract}
             if opt_params["muonlora_scaled"]:
                 model_params = model_params | {"muon": "scaled"}
             if opt_params["muonlora_switch_interval"] != -1:
