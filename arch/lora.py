@@ -297,6 +297,48 @@ def add_adapters_riemannion(model_name, model, lora_rank, opt_params, lora_freez
     return model, output_layer_name, Lora_config
 
 
+def add_riemann_probe_adapter(model, width, probe_name, server_name):
+    """Temporary width-`width` LoRA adapter used only by LOI (Algorithm 3).
+
+    The BackPropRSVD probes evaluate grad_W L(W) @ N and grad_W L(W).T @ M for
+    N, M with k = 2r + p columns, so the probe adapter must be 2k wide -- wider
+    than the 2r the optimizer trains with. Rather than allocate the training
+    adapter at that width and pay for it on every step, LOI builds this one,
+    uses it for 2(q+1) backward passes, and deletes it.
+
+    The config is cloned from the server adapter so the target modules match
+    exactly; only the width changes, and the dropout is disabled and the scaling
+    forced to 1 for the same reason as in add_adapters_riemannion.
+    """
+    import copy
+    from peft.tuners.lora import LoraModel
+
+    assert isinstance(model, LoraModel), "riemannion probe needs the LoraModel wrapper"
+    assert probe_name not in model.peft_config, "{} already exists".format(probe_name)
+    cfg = copy.deepcopy(model.peft_config[server_name])
+    cfg.r = width
+    cfg.lora_alpha = width          # scaling = lora_alpha / r = 1
+    cfg.lora_dropout = 0.0
+    # peft 0.14 has no LoraModel.add_adapter; registering the config and
+    # injecting is the supported path for a second adapter
+    model.peft_config[probe_name] = cfg
+    model.inject_adapter(model.model, probe_name)
+    for module in model.modules():
+        scaling = getattr(module, "scaling", None)
+        if isinstance(scaling, dict) and probe_name in scaling:
+            assert abs(scaling[probe_name] - 1.0) < 1e-9, \
+                "probe adapter needs scaling 1, got {}".format(scaling[probe_name])
+    return model
+
+
+def drop_riemann_probe_adapter(model, probe_name, server_name):
+    """Delete the LOI probe adapter and hand the model back to the server one."""
+    model.delete_adapter(probe_name)
+    model.peft_config.pop(probe_name, None)
+    model.set_adapter(server_name)
+    return model
+
+
 def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_params, lora_freeze_a=False):
     if opt_params["fedlora_avg"] == "riemannion":
         assert lora_rank > 0, "riemannion needs --lora_rank > 0 (the manifold rank)"

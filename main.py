@@ -1841,7 +1841,10 @@ if __name__ == "__main__":
     parser.add_argument("--ef21_state_dir", type=str, default="", help="ef21muon: where to page the per-client (M_j, G_j) store. Defaults to the run's checkpoint directory; point it at scratch/project space, since it needs client_num * 2 * d * 2 bytes")
     parser.add_argument("--ef21_w2s", type=str, default="ef21", choices=["ef21", "none"], help="ef21muon: worker-to-server error feedback. 'ef21' keeps the per-client estimators G_j and sends C(M_j - G_j) (Algorithm 1); 'none' compresses each client gradient memorylessly with server-side momentum, as ef14muon does, which removes ALL per-client state and hence all disk paging -- an ablation of the s2w (EF21-P) mechanism alone")
     parser.add_argument("--ef21_s2w", type=str, default="same", choices=["same", "none"], help="ef21muon: server-to-worker compressor C^k. 'same' uses --compressor in both directions (Algorithm 1); 'none' sets C^k=I, the setting Theorems 4/6 and the paper's experiments assume")
-    parser.add_argument("--riemann_alpha", type=float, default=-1.0, help="riemannion: scale of the initial manifold point; <=0 uses 0.01/sqrt(rank)")
+    parser.add_argument("--riemann_alpha", type=float, default=None, help="riemannion: scale of the initial manifold point, dW^(0) = alpha * U_1r V_r2r^T so |alpha| is its spectral norm. Default follows Appendix F: -0.01/sqrt(rank) for --riemann_init loi, +0.01/sqrt(rank) for random (where the sign is absorbed by the random frame). Negative values are allowed")
+    parser.add_argument("--riemann_init", type=str, default="random", choices=["random", "loi"], help="riemannion: initial point on M_r. 'random' is a random orthonormal frame at radius alpha; 'loi' is the Locally Optimal Initialization of Section 5, computed with BackPropRSVD (Algorithm 3) through a temporary wide adapter -- costs 2(q+1) extra federated rounds, once")
+    parser.add_argument("--riemann_loi_oversample", type=int, default=16, help="riemannion LOI: randomized-SVD oversampling p, sketch width is k = 2*rank + p (paper Appendix F uses 16)")
+    parser.add_argument("--riemann_loi_power", type=int, default=1, help="riemannion LOI: randomized-SVD power steps q; the probe costs 2(q+1) backward passes (paper Appendix F uses 1)")
     parser.add_argument("--riemann_retract", type=str, default="literal", choices=["literal", "accumulate", "gemini"], help="riemannion line 12: 'literal' reproduces the printed retraction (step only); 'accumulate' carries the current point forward as in Algorithm 6")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
@@ -2004,8 +2007,17 @@ if __name__ == "__main__":
         # that one backward yields both tangent-space gradient factors.
         opt_params["riemann_rank"] = args.lora_rank
         opt_params["riemann_gamma"] = args.weight_decay   # gamma in Algorithm 5 line 12
-        opt_params["riemann_alpha"] = (args.riemann_alpha if args.riemann_alpha > 0
-                                       else 0.01 / (args.lora_rank ** 0.5))
+        opt_params["riemann_init"] = args.riemann_init
+        opt_params["riemann_loi_oversample"] = args.riemann_loi_oversample
+        opt_params["riemann_loi_power"] = args.riemann_loi_power
+        if args.riemann_alpha is not None:
+            opt_params["riemann_alpha"] = args.riemann_alpha
+        else:
+            # Appendix F: alpha = -0.01/sqrt(r). The sign is only meaningful for
+            # LOI, where U and V are fixed gradient directions; the random frame
+            # absorbs it, so that path keeps the historical positive default.
+            mag = 0.01 / (args.lora_rank ** 0.5)
+            opt_params["riemann_alpha"] = -mag if args.riemann_init == "loi" else mag
     opt_params["server_lr"]        = args.lr
     opt_params["server_momentum"]  = args.momentum
     opt_params["client_momentum"]  = args.client_momentum
@@ -2749,6 +2761,12 @@ if __name__ == "__main__":
                 model_params = model_params | {"riemann_alpha": opt_params["riemann_alpha"]}
                 if args.riemann_retract != "literal":
                     model_params = model_params | {"riemann_retract": args.riemann_retract}
+                if args.riemann_init != "random":
+                    model_params = model_params | {"riemann_init": args.riemann_init}
+                    if args.riemann_loi_oversample != 16:
+                        model_params = model_params | {"loi_p": args.riemann_loi_oversample}
+                    if args.riemann_loi_power != 1:
+                        model_params = model_params | {"loi_q": args.riemann_loi_power}
             if opt_params["muonlora_scaled"]:
                 model_params = model_params | {"muon": "scaled"}
             if opt_params["muonlora_switch_interval"] != -1:

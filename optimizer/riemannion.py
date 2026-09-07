@@ -138,9 +138,8 @@ def retraction_lr(left, right, rank):
     in O((m+n)r^2 + r^3).  Returns (U, S, V) with U orthonormal (m x r),
     S (r,) and V (n x r), so that trunc_SVD(left @ right.T) = U diag(S) V.T.
 
-    Returned in **fp32**, unlike the other primitives: S carries the singular
-    values of the new point, and the caller folds it into V before rounding, so
-    that a small singular value is not quantized twice.
+    QR and SVD run in fp32 (neither has a bf16 kernel); the result is returned
+    in the input dtype, so S is already rounded when the caller folds it into V.
     """
     Q_L, T_L = torch.linalg.qr(left.float(), mode='reduced')
     Q_R, T_R = torch.linalg.qr(right.float(), mode='reduced')
@@ -204,6 +203,193 @@ def init_point(m, n, rank, alpha, device, dtype=BUF_DTYPE, generator=None):
 
 
 # ---------------------------------------------------------------------------
+# Locally Optimal Initialization (Section 5 + Algorithms 3 and 5 lines 1-3)
+# ---------------------------------------------------------------------------
+#
+# LOI picks the starting point X^(0) in M_r whose tangent space is best aligned
+# with the Euclidean gradient at the pretrained weights (problem (16)).  By
+# Theorem 5.1 the solution used in practice is
+#
+#     dW^(0) = alpha * U_{1,r} V_{r,2r}^T,
+#
+# where grad_W L(W) = [U_{1,r} U_{r,2r} U_perp] Sigma [V_{1,r} V_{r,2r} V_perp]^T.
+# Note the deliberate mismatch -- the *first* r left singular vectors paired with
+# the *second* block of r right ones.  That is what makes the whole rank-2r
+# truncation land inside the tangent space: writing
+#
+#     truncSVD(grad, 2r) = U_{1,r} Sigma_{1,r} V_{1,r}^T + U_{r,2r} Sigma_{r,2r} V_{r,2r}^T,
+#
+# the first term is A_L Bdot^T and the second is Adot B_R^T with Adot^T A_L = 0,
+# i.e. exactly the tangent parametrization (5).  So the very first Riemannian
+# gradient equals the best rank-2r approximation of the full gradient.
+#
+# Getting the 2r-truncated SVD of grad_W L(W) without ever forming it is
+# Algorithm 3 (BackPropRSVD): a randomized SVD whose only interaction with the
+# loss is through the products grad @ N and grad^T @ M, each of which the
+# single-backward trick (18) delivers for free.  Two notes on the printed
+# algorithm, in the spirit of the corrections already made to Algorithm 1:
+#
+#   * line 4 prints qr([grad_B L]^T).Q, but grad_B L is already (n, k); the
+#     transpose there would make the QR (k, n) and break the next line.  The
+#     transpose belongs to line 6 only, where it forms the small Q^T grad.
+#   * `Y` names two different things: the (m, k) range basis from lines 2/5 and
+#     the (k, n) small matrix from line 6.  Line 8's "Y U" means the former.
+#
+# The probes need N, M with k = 2r + p columns, so the probe adapter is 2k wide,
+# wider than the 2r the optimizer trains with.  It is therefore built here and
+# deleted before the first optimizer step; see arch/lora.add_riemann_probe_adapter.
+
+
+@torch.no_grad()
+def _probe_write(params, probe_layers, k, N=None, M=None):
+    """Load the probe adapter as lora_B = [0 | M], lora_A = [N^T ; 0].
+
+    The forward contribution is 0 @ N^T + M @ 0 = 0, so the loss is evaluated at
+    the pretrained W exactly, while one ordinary backward yields
+
+        grad_lora_B[:, :k] = grad_W L @ N        (m, k)
+        grad_lora_A[k:, :] = M^T grad_W L        (k, n)
+
+    which is (18) with Z1 = Z2 = 0.
+    """
+    for base, (name_A, name_B) in probe_layers.items():
+        pB, pA = params[name_B], params[name_A]
+        pB.data.zero_()
+        pA.data.zero_()
+        if M is not None:
+            pB.data[:, k:] = M[base].to(pB.dtype)
+        if N is not None:
+            pA.data[:k, :] = N[base].T.to(pA.dtype)
+
+
+def _probe(model, loss_name, criterion, train_graphs, device, train_loaders, client_lr,
+           opt_params, model_params, server_epoch, params, probe_layers, k,
+           N=None, M=None):
+    """One federated round of the probe: returns (grad @ N, grad^T @ M) averaged
+    over the participating clients, as dicts keyed by base layer.
+
+    Averaging in fp32 for the same reason as `_accumulate`: this is a sum over
+    client_num bf16 gradients.
+    """
+    _probe_write(params, probe_layers, k, N=N, M=M)
+    outN = {base: 0 for base in probe_layers} if N is not None else None
+    outM = {base: 0 for base in probe_layers} if M is not None else None
+
+    def _accumulate(client_id, model_grad):
+        for base, (name_A, name_B) in probe_layers.items():
+            if outN is not None:
+                outN[base] = outN[base] + model_grad[name_B][:, :k].float()
+            if outM is not None:
+                outM[base] = outM[base] + model_grad[name_A][k:, :].T.float()
+
+    client_num = collect_client_grads(
+        model, loss_name, criterion, train_graphs, device, train_loaders,
+        client_lr, opt_params, model_params, server_epoch, _accumulate)
+    if outN is not None:
+        outN = {b: v / client_num for b, v in outN.items()}
+    if outM is not None:
+        outM = {b: v / client_num for b, v in outM.items()}
+    return outN, outM
+
+
+@torch.no_grad()
+def tangent_residual(U, S, V, A_L, B_R):
+    """Relative ||Z - P_T(Z)||_F for Z = U diag(S) V^T, the quantity Theorem 5.1
+    drives to zero.  Computed through the factors, never forming Z:
+
+        Z - P_T(Z) = (I - A_L A_L^T) Z (I - B_R B_R^T) = L R^T,
+
+    and ||L R^T||_F = ||T_L T_R^T||_F via the two thin QRs.
+    """
+    L = (U * S.unsqueeze(0)).float()
+    L = L - A_L.float() @ (A_L.float().T @ L)
+    R = V.float() - B_R.float() @ (B_R.float().T @ V.float())
+    T_L = torch.linalg.qr(L, mode='reduced')[1]
+    T_R = torch.linalg.qr(R, mode='reduced')[1]
+    denom = (U * S.unsqueeze(0)).float().norm().item()
+    return (T_L @ T_R.T).norm().item() / max(denom, 1e-30)
+
+
+def loi_init(model, loss_name, criterion, train_graphs, device, train_loaders, client_lr,
+             opt_params, model_params, server_epoch, rank, alpha,
+             oversample=16, power_steps=1, probe_name="loi_probe"):
+    """Algorithm 3 + Algorithm 5 lines 1-2.  Returns {base: (A_L, B)}.
+
+    Costs 2(power_steps + 1) federated rounds -- 4 with the paper's q = 1 --
+    and is run exactly once, before the first optimizer step.
+    """
+    from arch.lora import add_riemann_probe_adapter, drop_riemann_probe_adapter
+
+    server_name = opt_params["server_name"]
+    k = 2 * rank + oversample          # Algorithm 3 line 1, called with 2r
+    print("[riemannion] LOI: sketch width k = 2r + p = {}, probe adapter width "
+          "{}, {} power step(s) -> {} probe rounds".format(
+              k, 2 * k, power_steps, 2 * (power_steps + 1)))
+
+    grad_state = {n: p.requires_grad for n, p in model.named_parameters()}
+    add_riemann_probe_adapter(model, 2 * k, probe_name, server_name)
+    model.set_adapter(probe_name)      # only the probe contributes and trains
+    for n, p in model.named_parameters():
+        p.requires_grad = (".{}.".format(probe_name) in n)
+
+    params = dict(model.named_parameters())
+    probe_layers = riemann_layers(model, probe_name)
+    run = lambda N, M: _probe(model, loss_name, criterion, train_graphs, device,
+                              train_loaders, client_lr, opt_params, model_params,
+                              server_epoch, params, probe_layers, k, N=N, M=M)
+    try:
+        # line 1: Omega ~ N(0, 1), one per layer, shaped (n, k)
+        omega = {}
+        for base, (name_A, name_B) in probe_layers.items():
+            pA = params[name_A]
+            omega[base] = torch.randn(pA.shape[1], k, device=pA.device,
+                                      dtype=torch.float32)
+        # line 2: Q = qr(grad @ Omega).Q, an orthonormal basis for range(grad)
+        gN, _ = run(omega, None)
+        Q = {b: _qr_q(v) for b, v in gN.items()}
+        # lines 3-5: q power steps, alternating grad^T and grad
+        for _ in range(power_steps):
+            _, gM = run(None, Q)
+            Qt = {b: _qr_q(v) for b, v in gM.items()}
+            gN, _ = run(Qt, None)
+            Q = {b: _qr_q(v) for b, v in gN.items()}
+        # line 6: the small (k, n) matrix Q^T grad
+        _, gM = run(None, Q)
+    finally:
+        drop_riemann_probe_adapter(model, probe_name, server_name)
+        for n, p in model.named_parameters():
+            if n in grad_state:
+                p.requires_grad = grad_state[n]
+
+    # lines 7-8 and Algorithm 5 line 2
+    point = {}
+    residuals, gaps = [], []
+    for base in probe_layers:
+        small = gM[base].T                                  # (k, n) = Q^T grad
+        U_s, S, Vh = torch.linalg.svd(small, full_matrices=False)
+        U = Q[base] @ U_s[:, :2 * rank]                     # (m, 2r)
+        V = Vh[:2 * rank].T                                 # (n, 2r)
+        A_L = U[:, :rank]                                   # U_{1,r}
+        B = alpha * V[:, rank:2 * rank]                     # alpha * V_{r,2r}
+        # B_R = qr(B).Q = V_{r,2r} already: alpha only scales an orthonormal frame
+        residuals.append(tangent_residual(U, S[:2 * rank], V, A_L, V[:, rank:2 * rank]))
+        if S.numel() > 2 * rank:
+            # Theorem 5.1 needs sigma_2r != sigma_{2r+1}; a tight gap makes the
+            # U_{1,r} / U_{r,2r} split of a *randomized* SVD arbitrary
+            gaps.append((S[2 * rank - 1] / max(S[2 * rank].item(), 1e-30)).item())
+        point[base] = (A_L.to(BUF_DTYPE), B.to(BUF_DTYPE))
+
+    print("[riemannion] LOI: alpha={:.6g}, tangent residual "
+          "||Z-P_T(Z)||/||Z|| max {:.2e} mean {:.2e} (0 = Theorem 5.1 exact)".format(
+              alpha, max(residuals), sum(residuals) / len(residuals)))
+    if gaps:
+        print("[riemannion] LOI: sigma_2r / sigma_2r+1 min {:.3f} mean {:.3f}"
+              " (needs > 1; near 1 makes the r / 2r split arbitrary)".format(
+                  min(gaps), sum(gaps) / len(gaps)))
+    return point
+
+
+# ---------------------------------------------------------------------------
 # Federated Riemannion
 # ---------------------------------------------------------------------------
 
@@ -226,6 +412,19 @@ def federated_riemannion(model, loss_name, criterion, train_graphs, device, trai
 
     # ---- one-time setup: put every layer on the manifold and set W' --------
     if "riemann_state" not in opt_params:
+        init_mode = opt_params.get("riemann_init", "random")
+        loi_point = None
+        if init_mode == "loi":
+            # Algorithm 5 lines 1-2. Must run before write_point: the probes
+            # need the adapter to contribute nothing, which is true only while
+            # the server lora_B is still PEFT's zero initialization.
+            loi_point = loi_init(
+                model, loss_name, criterion, train_graphs, device, train_loaders,
+                client_lr, opt_params, model_params, server_epoch, rank,
+                opt_params["riemann_alpha"],
+                oversample=opt_params.get("riemann_loi_oversample", 16),
+                power_steps=opt_params.get("riemann_loi_power", 1))
+            params = dict(model.named_parameters())   # probe adapter is gone
         state = {}
         total = 0
         for base, (name_A, name_B) in layers.items():
@@ -234,8 +433,11 @@ def federated_riemannion(model, loss_name, criterion, train_graphs, device, trai
             _, n = pA.shape
             assert two_r == 2 * rank, (
                 "adapter width {} != 2*riemann_rank {} for {}".format(two_r, 2 * rank, base))
-            A_L, B = init_point(m, n, rank, opt_params["riemann_alpha"],
-                                device=pB.device, dtype=BUF_DTYPE)
+            if loi_point is not None:
+                A_L, B = loi_point[base]
+            else:
+                A_L, B = init_point(m, n, rank, opt_params["riemann_alpha"],
+                                    device=pB.device, dtype=BUF_DTYPE)
             B_R = _qr_q(B)
             state[base] = {"A_L": A_L, "B": B,
                            "A_HB": torch.zeros(m, 2 * rank, device=pB.device,
@@ -243,9 +445,10 @@ def federated_riemannion(model, loss_name, criterion, train_graphs, device, trai
                            "B_HB": torch.zeros(n, 2 * rank, device=pB.device,
                                                dtype=BUF_DTYPE)}
             write_point(params, name_A, name_B, A_L, B, B_R, rank)
-            # line 3: W' = W - dW^(0), so the initial forward is unchanged.
-            # dW is formed in fp32: it is subtracted from a weight of its own
-            # magnitude, so a bf16 product would round away the small radius.
+            # line 3: W' = W - dW^(0), so the initial forward is unchanged --
+            # exactly in real arithmetic, and up to bf16 rounding here: dW^(0)
+            # is ~1e-4 of ||W||, so most of this subtraction is below the
+            # mantissa and the effective start is W + O(alpha*sqrt(r)).
             base_w = params.get(base + ".weight")
             if base_w is None:
                 raise KeyError("no base weight for {}".format(base))
@@ -258,7 +461,8 @@ def federated_riemannion(model, loss_name, criterion, train_graphs, device, trai
               "server state {:.3f} GB ({}), per-client state 0 GB".format(
                   len(layers), rank, 2 * rank, total * elem / 1024 ** 3,
                   str(BUF_DTYPE).replace("torch.", "")))
-        print("[riemannion] beta={} gamma={} retraction={}".format(beta, gamma, retract_mode))
+        print("[riemannion] init={} beta={} gamma={} retraction={}".format(
+            init_mode, beta, gamma, retract_mode))
     state = opt_params["riemann_state"]
 
     server_lr = 0
@@ -336,8 +540,7 @@ def federated_riemannion(model, loss_name, criterion, train_graphs, device, trai
         st["A_HB"] = torch.cat([Adot, A_L], dim=1)
         st["B_HB"] = torch.cat([B_R, Bdot], dim=1)
 
-        # line 14: the new point.  retraction_lr returns fp32; fold S into V
-        # before rounding so a small singular value is not quantized twice.
+        # line 14: the new point
         A_L_new = U.to(BUF_DTYPE)
         B_new = (V * S.unsqueeze(0)).to(BUF_DTYPE)
         # fp32 for the diagnostic: the two products are nearly equal (the step
