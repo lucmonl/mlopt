@@ -75,8 +75,8 @@ from optimizer.federated_train_single_step import (
 # * Printed diagnostics.  Scalar reductions over millions of entries stay in
 #   fp32, and the step norm differences two nearly equal matrices, which
 #   cancels catastrophically at bf16 precision.
-#BUF_DTYPE = torch.bfloat16
-BUF_DTYPE = torch.float
+BUF_DTYPE = torch.bfloat16
+#BUF_DTYPE = torch.float
 
 
 def _qr_q(X):
