@@ -7,6 +7,44 @@ import numpy as np
 from optimizer.load_optimizer import load_optimizer
 
 
+def select_client_ids(opt_params):
+    """Choose the participating clients for one federated gradient."""
+    if opt_params["client_partial"] < 1:
+        client_num = int(opt_params["client_partial"] * opt_params["client_num"])
+        return np.random.choice(opt_params["client_num"], client_num, replace=False)
+    return np.arange(opt_params["client_num"])
+
+
+def snapshot_iterator_batches(train_graphs, train_loaders, client_num):
+    """Consume and retain one streaming batch for each client.
+
+    BackPropRSVD needs several products with the *same* stochastic gradient.
+    The LLM pipelines expose ``train_loaders[0]`` as a streaming iterator, so
+    this helper advances it once per client and lets callers replay the exact
+    batches in every probe pass. It deliberately does not support a plain
+    DataLoader: there, a client call currently means a full loader traversal,
+    and a correct snapshot would have to retain that complete traversal.
+    """
+    source = train_loaders[0]
+    if iter(source) is not source:
+        raise ValueError(
+            "fixed-batch LOI requires train_loaders[0] to be a streaming "
+            "iterator; plain DataLoader LOI is not implemented")
+
+    batches = []
+    for _ in range(client_num):
+        try:
+            batch = next(source)
+        except StopIteration:
+            print("\nData Iterator is reloaded")
+            train_loaders[0] = iter(train_loaders[1])
+            source = train_loaders[0]
+            batch = next(source)
+        train_graphs.loader_iter += 1
+        batches.append(batch)
+    return batches
+
+
 def collect_client_grads(
     model,
     loss_name,
@@ -20,6 +58,8 @@ def collect_client_grads(
     server_epoch,
     on_client_grad,
     exclude_from_copy=(),
+    client_selected=None,
+    fixed_client_batches=None,
 ):
     """Run one federated round and hand each client's gradients to a callback.
 
@@ -35,6 +75,12 @@ def collect_client_grads(
     `exclude_from_copy` names opt_params keys to keep out of the per-client
     deepcopy -- large server-side state that must not be duplicated.
 
+    ``fixed_client_batches`` replays one batch per client instead of consuming
+    ``train_loaders[0]``. It is used only by LOI's BackPropRSVD, whose matrix
+    products must all use the same stochastic gradient. Supplying explicit
+    ``client_selected`` also keeps a partial-client sample fixed across those
+    products.
+
     Returns the number of participating clients.
     """
     from main import train
@@ -42,12 +88,15 @@ def collect_client_grads(
     client_opt_name = opt_params["client_opt_name"]
     client_epoch = opt_params["client_epoch"]
 
-    if opt_params["client_partial"] < 1:
-        client_num = int(opt_params["client_partial"] * opt_params["client_num"])
-        client_selected = np.random.choice(opt_params["client_num"], client_num, replace=False)
-    else:
-        client_num = opt_params["client_num"]
-        client_selected = np.arange(client_num)
+    if client_selected is None:
+        client_selected = select_client_ids(opt_params)
+    client_selected = list(client_selected)
+    client_num = len(client_selected)
+    if fixed_client_batches is not None:
+        if client_epoch != 1:
+            raise ValueError("fixed-client batches require --client_epoch 1")
+        if len(fixed_client_batches) != client_num:
+            raise ValueError("need one fixed batch for each selected client")
 
     assert opt_params.get("local_update_ON") is False, \
         "collect_client_grads needs local_update_ON=False so clients do not step"
@@ -58,7 +107,7 @@ def collect_client_grads(
     client_opt_params["train_stats"] = False
 
     training_time_accumulated = 0
-    for client_id in client_selected:
+    for client_index, client_id in enumerate(client_selected):
         client_model = model  # alias -- no deepcopy
         client_model.train()
         optimizer, lr_scheduler, _ = load_optimizer(
@@ -75,6 +124,21 @@ def collect_client_grads(
         )
 
         for epoch in range(client_epoch):
+            if fixed_client_batches is not None:
+                # A one-element list is a re-iterable, one-batch loader for ``train``.
+                # Do not clone it: HF's device transfer mutates BatchEncoding in
+                # place, and replaying the now-device-resident tensors is still
+                # the same sample and avoids an extra host-device copy.
+                fixed_loader = [fixed_client_batches[client_index]]
+                start_time = time.time()
+                _, model_grad = train(
+                    client_model, loss_name, criterion, device, fixed_loader,
+                    optimizer, lr_scheduler, server_epoch, client_opt_params,
+                )
+                end_time = time.time()
+                training_time_accumulated += end_time - start_time
+                print(f"Time taken for client {client_id}: {end_time - start_time:.3f}s")
+                continue
             try:
                 train_graphs.loader_iter += 1
                 # train_loaders[0] is an iterator in the LLM pipelines (hence the

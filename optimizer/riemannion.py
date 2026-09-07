@@ -54,7 +54,9 @@ LoRA dropout to be 0; both are enforced at setup time.
 
 import torch
 
-from optimizer.federated_train_single_step import collect_client_grads
+from optimizer.federated_train_single_step import (
+    collect_client_grads, select_client_ids, snapshot_iterator_batches,
+)
 
 
 # The manifold state and every matrix product run in bf16, matching the model
@@ -73,7 +75,8 @@ from optimizer.federated_train_single_step import collect_client_grads
 # * Printed diagnostics.  Scalar reductions over millions of entries stay in
 #   fp32, and the step norm differences two nearly equal matrices, which
 #   cancels catastrophically at bf16 precision.
-BUF_DTYPE = torch.bfloat16
+#BUF_DTYPE = torch.bfloat16
+BUF_DTYPE = torch.float
 
 
 def _qr_q(X):
@@ -264,7 +267,7 @@ def _probe_write(params, probe_layers, k, N=None, M=None):
 
 def _probe(model, loss_name, criterion, train_graphs, device, train_loaders, client_lr,
            opt_params, model_params, server_epoch, params, probe_layers, k,
-           N=None, M=None):
+           N=None, M=None, client_selected=None, fixed_client_batches=None):
     """One federated round of the probe: returns (grad @ N, grad^T @ M) averaged
     over the participating clients, as dicts keyed by base layer.
 
@@ -284,7 +287,8 @@ def _probe(model, loss_name, criterion, train_graphs, device, train_loaders, cli
 
     client_num = collect_client_grads(
         model, loss_name, criterion, train_graphs, device, train_loaders,
-        client_lr, opt_params, model_params, server_epoch, _accumulate)
+        client_lr, opt_params, model_params, server_epoch, _accumulate,
+        client_selected=client_selected, fixed_client_batches=fixed_client_batches)
     if outN is not None:
         outN = {b: v / client_num for b, v in outN.items()}
     if outM is not None:
@@ -326,6 +330,12 @@ def loi_init(model, loss_name, criterion, train_graphs, device, train_loaders, c
           "{}, {} power step(s) -> {} probe rounds".format(
               k, 2 * k, power_steps, 2 * (power_steps + 1)))
 
+    client_selected = select_client_ids(opt_params)
+    fixed_client_batches = snapshot_iterator_batches(
+        train_graphs, train_loaders, len(client_selected))
+    print("[riemannion] LOI: reusing {} fixed client batches across all probe passes".format(
+        len(fixed_client_batches)))
+
     grad_state = {n: p.requires_grad for n, p in model.named_parameters()}
     add_riemann_probe_adapter(model, 2 * k, probe_name, server_name)
     model.set_adapter(probe_name)      # only the probe contributes and trains
@@ -336,7 +346,9 @@ def loi_init(model, loss_name, criterion, train_graphs, device, train_loaders, c
     probe_layers = riemann_layers(model, probe_name)
     run = lambda N, M: _probe(model, loss_name, criterion, train_graphs, device,
                               train_loaders, client_lr, opt_params, model_params,
-                              server_epoch, params, probe_layers, k, N=N, M=M)
+                              server_epoch, params, probe_layers, k, N=N, M=M,
+                              client_selected=client_selected,
+                              fixed_client_batches=fixed_client_batches)
     try:
         # line 1: Omega ~ N(0, 1), one per layer, shaped (n, k)
         omega = {}
