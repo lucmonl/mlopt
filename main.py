@@ -348,6 +348,16 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                              model_params, server_epoch)
         return
 
+    if opt_params["fedlora_avg"] == "polora":
+        # Algorithm 1 of the PoLoRA paper, run on the averaged factor gradients.
+        # The clients never take a local step, so this must precede the
+        # use_model_grad branch below
+        from optimizer.polora import federated_polora
+        federated_polora(model, loss_name, criterion, train_graphs, device, train_loaders,
+                         server_optimizer, server_lr_scheduler, client_lr, opt_params,
+                         model_params, server_epoch)
+        return
+
     if opt_params["fedlora_avg"] in ("ef14muon", "ef21muon"):
         # dense weights of the LoRA target modules (run with --lora_rank -1);
         # must be checked before the lora_rank <= 0 branch below. ef21muon takes
@@ -1846,6 +1856,13 @@ if __name__ == "__main__":
     parser.add_argument("--riemann_loi_oversample", type=int, default=16, help="riemannion LOI: randomized-SVD oversampling p, sketch width is k = 2*rank + p (paper Appendix F uses 16)")
     parser.add_argument("--riemann_loi_power", type=int, default=1, help="riemannion LOI: randomized-SVD power steps q; the probe costs 2(q+1) backward passes (paper Appendix F uses 1)")
     parser.add_argument("--riemann_retract", type=str, default="literal", choices=["literal", "accumulate", "gemini"], help="riemannion line 12: 'literal' reproduces the printed retraction (step only); 'accumulate' carries the current point forward as in Algorithm 6")
+    parser.add_argument("--polora_beta1", type=float, default=0.9, help="polora: momentum decay beta1 of Algorithm 1 line 1 (paper Appendix A uses 0.9). The server optimizer's --momentum is unused by polora")
+    parser.add_argument("--polora_beta2", type=float, default=0.99, help="polora: curvature decay beta2 of the preconditioner EMA, Algorithm 1 lines 7-8 (paper Appendix A uses 0.99)")
+    parser.add_argument("--polora_msign", type=str, default="gram", choices=["gram", "svd"], help="polora: how the matrix sign of Algorithm 1 lines 3-4 is evaluated. 'gram' is the Gram Newton-Schulz iteration used for training; 'svd' is the exact U V^T, a slower reference for how far the polynomial iteration is from the true polar factor. The curvature inverse square roots stay on the Gram iteration either way")
+    parser.add_argument("--polora_ns_steps", type=int, default=8, help="polora: Gram Newton-Schulz iterations K per matrix sign / inverse square root (Appendix E.2)")
+    parser.add_argument("--polora_power_iters", type=int, default=8, help="polora: power iterations per spectral-norm estimate (Appendix E.1)")
+    parser.add_argument("--polora_delta", type=float, default=1e-4, help="polora: relative damping delta, capping the condition number of each damped curvature matrix at about 1/delta (Appendix E)")
+    parser.add_argument("--polora_eps", type=float, default=1e-12, help="polora: numerical-stability constant eps, also the initial value of the curvature vectors p and q (Appendix E)")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
     parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch",
@@ -1854,7 +1871,7 @@ if __name__ == "__main__":
                                                              "muonlora_v4", "muonlora_v5", "muonlora_v6",  "muonlora_v7", "muonlora_v8",
                                                              "muonlora_v9", "muonlora_v10", "muonlora_v11", "muonlora_v12",
                                                              "muonlora_v13", "muonlora_v14", "ef14muon",
-                                                             "ef21muon", "riemannion"], default="avg",
+                                                             "ef21muon", "riemannion", "polora"], default="avg",
                                                              help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
     parser.add_argument("--uba_mode", type=str, default='none', choices=["ada", "none"], help="ada means adaptive uba")
@@ -2018,6 +2035,17 @@ if __name__ == "__main__":
             # absorbs it, so that path keeps the historical positive default.
             mag = 0.01 / (args.lora_rank ** 0.5)
             opt_params["riemann_alpha"] = -mag if args.riemann_init == "loi" else mag
+    if opt_params["fedlora_avg"] == "polora":
+        # every client sends one factor gradient of the shared adapter, so a
+        # local epoch would be a local step -- which Algorithm 1 does not have
+        assert args.client_epoch == 1, "polora needs --client_epoch 1"
+        opt_params["polora_beta1"] = args.polora_beta1
+        opt_params["polora_beta2"] = args.polora_beta2
+        opt_params["polora_msign"] = args.polora_msign
+        opt_params["polora_ns_steps"] = args.polora_ns_steps
+        opt_params["polora_power_iters"] = args.polora_power_iters
+        opt_params["polora_delta"] = args.polora_delta
+        opt_params["polora_eps"] = args.polora_eps
     opt_params["server_lr"]        = args.lr
     opt_params["server_momentum"]  = args.momentum
     opt_params["client_momentum"]  = args.client_momentum
@@ -2753,6 +2781,19 @@ if __name__ == "__main__":
                 model_params = model_params | {"ef21_s2w": args.ef21_s2w}
             if opt_params["fedlora_avg"] == "ef21muon" and args.ef21_w2s != "ef21":
                 model_params = model_params | {"ef21_w2s": args.ef21_w2s}
+            if opt_params["fedlora_avg"] == "polora":
+                # beta1/beta2 change the trajectory; the numerical settings are
+                # kept out of the path unless moved off their paper defaults
+                model_params = model_params | {"polora_beta1": args.polora_beta1,
+                                               "polora_beta2": args.polora_beta2}
+                if args.polora_msign != "gram":
+                    model_params = model_params | {"polora_msign": args.polora_msign}
+                if args.polora_ns_steps != 8:
+                    model_params = model_params | {"polora_ns": args.polora_ns_steps}
+                if args.polora_power_iters != 8:
+                    model_params = model_params | {"polora_pow": args.polora_power_iters}
+                if args.polora_delta != 1e-4:
+                    model_params = model_params | {"polora_delta": args.polora_delta}
             if opt_params["fedlora_avg"] == "riemannion":
                 # both change the trajectory, so two runs differing only in one
                 # of them must not land in the same directory. riemann_rank and

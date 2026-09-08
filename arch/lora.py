@@ -390,6 +390,21 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
             opt_params["fedlora_avg"])
         return model, output_layer_name, Lora_config
 
+    if opt_params["fedlora_avg"] == "polora":
+        # PoLoRA steps the server adapter itself: every client differentiates
+        # that one adapter in place and uploads its factor gradients, so there
+        # are no per-client adapters to create or synchronize.  Dropout is
+        # turned off to match the paper's configuration (Table 3).
+        assert lora_rank > 0, "polora needs --lora_rank > 0"
+        n_dropout = 0
+        for module in model.modules():
+            if hasattr(module, "lora_dropout") and opt_params["server_name"] in getattr(module, "lora_dropout", {}):
+                module.lora_dropout[opt_params["server_name"]] = torch.nn.Identity()
+                n_dropout += 1
+        print("[polora] rank {}, scaling {} (paper uses lora_alpha = rank), "
+              "dropout disabled on {} modules".format(
+                  lora_rank, lora_alpha / lora_rank, n_dropout))
+        return model, output_layer_name, Lora_config
 
     use_model_grad = True
     if opt_params["fedlora_avg"] == "avg":
