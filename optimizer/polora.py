@@ -55,19 +55,31 @@ from optimizer.federated_train_single_step import collect_client_grads
 from optimizer.riemannion import riemann_layers as adapter_layers
 
 
-# Momentum buffers, factors and every product with a d_in/d_out side run in the
-# adapter's own dtype (bf16 in the LLM runs), so nothing is silently promoted.
-# Three things are fp32, and each is forced rather than chosen:
+# Dtype policy: everything with a d_in or d_out side -- the factors, the
+# momentum buffers, every product against them -- stays in the adapter's own
+# dtype (bf16 in the LLM runs).  No d-sized tensor is ever materialized in fp32.
+# What is fp32 is only ever r x r, a vector, or a scalar, and each case is
+# forced rather than chosen:
 #
-# * The r x r work -- the two curvature matrices, both Newton-Schulz iterations
-#   and the inverse square roots.  Appendix E.2 asks for exactly this, and it is
-#   cheap: the matrices are r x r regardless of the layer width.
+# * The r x r Newton-Schulz work: both Gram iterations and the inverse square
+#   roots.  Appendix E.2 asks for exactly this ("we run the Gram Newton-Schulz
+#   iteration in fp32, which is inexpensive because every matrix is only
+#   r x r").  The Grams that feed it are accumulated in fp32 as well, but a
+#   chunk of rows at a time (`weighted_gram`), so the promotion is bounded by
+#   GRAM_CHUNK x r and no d-sided matrix is ever promoted whole.  Leaving that
+#   accumulation in bf16 does not merely blur the result, it diverges -- the
+#   docstring there has the measurement.  `svd_msign` is the one exception to
+#   the no-d-sided-fp32 rule, and only because torch.linalg.svd has no bf16
+#   kernel on CPU or CUDA.
 # * The sum over clients.  Adding n bf16 gradients into one accumulator is the
 #   textbook bf16 failure (with an 8-bit mantissa, terms below 2^-9 of the
 #   running total vanish), and is what federated_train guards against too.  The
-#   accumulator is r(din + dout) per layer and is rounded back after averaging.
-# * The curvature vectors p, q and the scalar reductions.  p and q are sums of
-#   squares decayed over thousands of rounds; they cost only din + dout each.
+#   accumulator is r(din + dout) per layer, added into in place -- so the bf16
+#   client gradients are never copied -- and rounded back after averaging.
+# * The curvature vectors p, q, and every reduction: squared norms are summed
+#   with an fp32 accumulator over a bf16 input (`sum(dtype=torch.float32)`),
+#   which costs no copy.  p and q are EMAs of sums of squares decayed over
+#   thousands of rounds and cost only din + dout each.
 
 # PolarExpress coefficients (Amsel et al., arXiv:2505.16932): the per-iteration
 # quintic p_t(s) = a s + b s^3 + c s^5 of Eq. (33), fit so that the composition
@@ -86,9 +98,43 @@ POLAR_EXPRESS = (
 )
 
 
+# Rows of the reduced dimension promoted at a time in `weighted_gram`.  At
+# r = 256 one chunk is a 4 MB fp32 buffer; at the r = 16 this repo usually runs,
+# 256 KB.
+GRAM_CHUNK = 4096
+
+
 # ---------------------------------------------------------------------------
 # Numerical subroutines (Appendix E)
 # ---------------------------------------------------------------------------
+
+@torch.no_grad()
+def weighted_gram(M, w=None, chunk=GRAM_CHUNK):
+    """M^T diag(w) M, accumulated in fp32 over chunks of M's d rows.
+
+    This is the one place a d-sided quantity has to be promoted, and the reason
+    is definiteness rather than precision: the r x r result feeds a
+    Newton-Schulz iteration that assumes eigenvalues in (0, 1].  Forming the
+    Gram with a bf16 matmul rounds the result by ~4e-3 relative, enough to push
+    a small eigenvalue negative, and the quintic then amplifies that eigenvalue
+    by about a^K (8.3^8 ~ 1e7) instead of driving it to 1 -- the iterate
+    overflows rather than merely blurring.  Measured on the synthetic problem:
+    an eigenvalue of -1.7e-4 relative in the line-4 matrix sign takes B to
+    non-finite on the second step.  The two curvature Grams are damped by delta
+    and survive bf16, but with little margin; the matrix-sign Gram has no
+    damping at all.
+
+    Only `chunk` rows are promoted at a time, so the fp32 footprint is
+    chunk x r instead of d x r, and M itself is never copied whole.  The result
+    is symmetrized, which the callers' iteration assumes.
+    """
+    d, r = M.shape
+    out = torch.zeros(r, r, device=M.device, dtype=torch.float32)
+    for i in range(0, d, chunk):
+        blk = M[i:i + chunk].float()
+        out += blk.T @ blk if w is None else (blk * w[i:i + chunk].unsqueeze(1)).T @ blk
+    return (out + out.T) / 2
+
 
 @torch.no_grad()
 def gram_newton_schulz(S, gamma, steps):
@@ -102,6 +148,7 @@ def gram_newton_schulz(S, gamma, steps):
 
     Runs in fp32 (Appendix E.2, "Stability and precision").
     """
+    print("using gram_newton_schulz msign")
     R = S.float() / gamma
     eye = torch.eye(R.shape[0], device=R.device, dtype=R.dtype)
     Z = eye.clone()
@@ -133,6 +180,7 @@ def svd_msign(X):
     would inject arbitrary orthonormal vectors into the update.  The Gram
     iteration lifts them only partially and is conservative in the same way.
     """
+    print("using svd msign")
     X_f = X.float()
     try:
         U, S, Vh = torch.linalg.svd(X_f, full_matrices=False)
@@ -155,8 +203,11 @@ def msign(X, steps, method="svd"):
 
     The Gram path uses msign(X) = (X X^T)^-1/2 X on the short side, so the
     Newton-Schulz work is r x r rather than r x d (Appendix F: a factor d/(2r)
-    per iteration).  The Gram is formed in fp32; the two products with X stay in
-    X's dtype.
+    per iteration).  X is never copied: the products against it run in its own
+    dtype and only the r x r Gram and iterate are fp32 (`weighted_gram` explains
+    why that one cannot be bf16).  The svd path is fp32 because
+    torch.linalg.svd has no bf16 kernel, and unlike the Gram path it does have
+    to promote a d-sided matrix.
 
     X = 0 has no polar factor -- the paper's convention is X/||X|| := 0 -- and
     it does occur, at the first round where B = 0 makes G_A = M_A = 0.
@@ -172,8 +223,10 @@ def msign(X, steps, method="svd"):
     if method == "svd":
         out = svd_msign(Y)
     elif method == "gram":
-        Y_f = Y.float()
-        Z = gram_newton_schulz(Y_f @ Y_f.T, gamma, steps)
+        # Y Y^T, accumulated in fp32 a chunk at a time; Y itself is never
+        # copied.  This Gram carries no damping, so it is the one most exposed
+        # to a rounded-negative eigenvalue -- see `weighted_gram`.
+        Z = gram_newton_schulz(weighted_gram(Y.T), gamma, steps)
         out = (Z.to(Y.dtype) @ Y) / gamma ** 0.5
     else:
         raise NotImplementedError("polora msign method: {}".format(method))
@@ -188,6 +241,10 @@ def damped_inv_sqrt(C, delta, eps, steps, cache, key, iters):
     with tiny singular values -- B at initialization is exactly zero -- cannot
     blow the update up.  gamma = Tr(Chat) >= lambda_max(Chat) is the bound
     Algorithm 3 needs.
+
+    C arrives as the fp32 r x r Gram from `weighted_gram`, so the damping floor
+    delta = 1e-4 sits far above its rounding and Chat is positive definite by
+    construction -- which is what the Newton-Schulz iteration assumes.
     """
     lam = spectral_norm(C, cache, key, iters)          # C is PSD: ||C||_2 = lambda_max
     Chat = C.float() + max(delta * lam, eps) * torch.eye(
@@ -207,20 +264,23 @@ def spectral_norm(M, cache, key, iters, eps=1e-12):
     is larger.  Iterates the smaller of the two Grams.
     """
     X = M if M.shape[0] <= M.shape[1] else M.T
-    lower = X.float().norm(dim=1).max().item()
+    # every reduction below accumulates in fp32 over the bf16 input, so no fp32
+    # copy of X (or of any matrix-vector product) is ever made
+    lower = X.pow(2).sum(dim=1, dtype=torch.float32).max().sqrt().item()
     v = cache.get(key)
     if (v is None or v.shape[0] != X.shape[0] or v.dtype != X.dtype
-            or not bool(torch.isfinite(v).all()) or v.float().norm().item() == 0):
+            or not bool(torch.isfinite(v).all())
+            or v.pow(2).sum(dtype=torch.float32).item() == 0):
         v = X @ torch.ones(X.shape[1], device=X.device, dtype=X.dtype)
     for _ in range(iters):
         Xw = X @ (X.T @ v)
-        norm = Xw.float().norm().item()
+        norm = Xw.pow(2).sum(dtype=torch.float32).sqrt().item()
         if norm <= eps:
             cache.pop(key, None)
             return lower
         v = Xw / norm
     cache[key] = v
-    return max((X.T @ v).float().norm().item(), lower)
+    return max((X.T @ v).pow(2).sum(dtype=torch.float32).sqrt().item(), lower)
 
 
 # ---------------------------------------------------------------------------
@@ -287,24 +347,26 @@ def polora_step(A, B, G_A, G_B, st, eta, scaling, beta1, beta2, eps, delta,
     # vectors and the products with them are elementwise scalings.  The damping
     # of Appendix E is simply +delta once the largest entry is 1.
     q, p = st["q"], st["p"]
-    Q_diag = q / q.max().clamp_min(eps) + delta          # (din,)
-    P_diag = p / p.max().clamp_min(eps) + delta          # (dout,)
-    A_f, B_f = A.float(), B.float()
-    C_B = (B_f * P_diag.unsqueeze(1)).T @ B_f            # (r, r)
-    C_A = (A_f * Q_diag.unsqueeze(0)) @ A_f.T            # (r, r)
+    Q_diag = q / q.max().clamp_min(eps) + delta          # (din,) fp32
+    P_diag = p / p.max().clamp_min(eps) + delta          # (dout,) fp32
+    # Both Grams accumulate in fp32 a chunk of rows at a time, so neither factor
+    # is copied whole (A.T is a view).  Their eigenvalues feed an inverse square
+    # root, which is why the accumulation cannot be left in bf16.
+    C_B = weighted_gram(B, P_diag)                       # B^T P B     (r, r)
+    C_A = weighted_gram(A.T, Q_diag)                     # A Q A^T     (r, r)
 
-    CB_isqrt = damped_inv_sqrt(C_B, delta, eps, ns_steps, cache, "C_B", pow_iters)
-    CA_isqrt = damped_inv_sqrt(C_A, delta, eps, ns_steps, cache, "C_A", pow_iters)
+    # the inverse square roots are the r x r fp32 work of Appendix E.2; they are
+    # cast down once here and used only in bf16 products from this point on
+    CB_isqrt = damped_inv_sqrt(C_B, delta, eps, ns_steps, cache, "C_B", pow_iters).to(A.dtype)
+    CA_isqrt = damped_inv_sqrt(C_A, delta, eps, ns_steps, cache, "C_A", pow_iters).to(B.dtype)
     Q_isqrt = Q_diag.rsqrt().to(A.dtype)                 # (din,)
     P_isqrt = P_diag.rsqrt().to(B.dtype).unsqueeze(1)    # (dout, 1)
-    CB_isqrt_b = CB_isqrt.to(A.dtype)
-    CA_isqrt_b = CA_isqrt.to(B.dtype)
 
     # lines 3 and 4: the preconditioned polar step, Eq. (19)
-    D_A = (CB_isqrt_b @ msign((CB_isqrt_b @ Mh_A) * Q_isqrt,
-                              ns_steps, msign_method)) * Q_isqrt
-    D_B = P_isqrt * (msign((P_isqrt * Mh_B) @ CA_isqrt_b,
-                           ns_steps, msign_method) @ CA_isqrt_b)
+    D_A = (CB_isqrt @ msign((CB_isqrt @ Mh_A) * Q_isqrt,
+                            ns_steps, msign_method)) * Q_isqrt
+    D_B = P_isqrt * (msign((P_isqrt * Mh_B) @ CA_isqrt,
+                           ns_steps, msign_method) @ CA_isqrt)
 
     # line 5: one update size for both factors, bounding the *merged* update by
     # eta.  What the layer sees is s(B dA + dB A), hence the extra /s.
@@ -321,14 +383,16 @@ def polora_step(A, B, G_A, G_B, st, eta, scaling, beta1, beta2, eps, delta,
     # lines 7 and 8: the coupled curvature estimator (32), from the *raw* factor
     # gradients and reusing the curvature matrices formed for line 2.
     #   diag(G_A^T C_B^-1 G_A) = column-wise squared norms of C_B^-1/2 G_A
-    Z_A = CB_isqrt @ G_A.float()                         # (r, din)
-    Z_B = G_B.float() @ CA_isqrt                         # (dout, r)
-    q.mul_(beta2).add_(Z_A.pow(2).sum(dim=0) / r, alpha=1 - beta2)
-    p.mul_(beta2).add_(Z_B.pow(2).sum(dim=1) / r, alpha=1 - beta2)
+    # Z stays in the factor dtype; only the squared column/row sums that land in
+    # p and q are accumulated in fp32, which is where the EMA needs the range.
+    Z_A = CB_isqrt @ G_A                                 # (r, din)
+    Z_B = G_B @ CA_isqrt                                 # (dout, r)
+    q.mul_(beta2).add_(Z_A.pow(2).sum(dim=0, dtype=torch.float32) / r, alpha=1 - beta2)
+    p.mul_(beta2).add_(Z_B.pow(2).sum(dim=1, dtype=torch.float32) / r, alpha=1 - beta2)
 
-    # ||dA||_F^2 + ||dB||_F^2, in fp32 like every printed reduction
-    delta_sq = ((step_A * D_A.float()).pow(2).sum().item()
-                + (step_B * D_B.float()).pow(2).sum().item())
+    # ||dA||_F^2 + ||dB||_F^2, fp32-accumulated like every printed reduction
+    delta_sq = (step_A ** 2 * D_A.pow(2).sum(dtype=torch.float32).item()
+                + step_B ** 2 * D_B.pow(2).sum(dtype=torch.float32).item())
     return rho, norm_B / max(norm_A, eps), delta_sq
 
 
@@ -386,16 +450,19 @@ def federated_polora(model, loss_name, criterion, train_graphs, device, train_lo
         eta = group["lr"]
 
     # ---- client loop: every client differentiates the same adapter ---------
-    grad_A = {base: 0 for base in layers}   # -> B^T G   (r, din)
-    grad_B = {base: 0 for base in layers}   # -> G A^T   (dout, r)
+    # fp32 here and only here: this is the one reduction long enough for an
+    # 8-bit mantissa to matter.  The buffers are allocated once and added into
+    # in place, so no client gradient is ever copied to fp32; they are rounded
+    # back to the factor dtype after the division by client_num below.
+    grad_A = {base: torch.zeros_like(params[names[0]], dtype=torch.float32)
+              for base, names in layers.items()}          # -> B^T G   (r, din)
+    grad_B = {base: torch.zeros_like(params[names[1]], dtype=torch.float32)
+              for base, names in layers.items()}          # -> G A^T   (dout, r)
 
     def _accumulate(client_id, model_grad):
-        # fp32 here and only here: this is the one reduction long enough for an
-        # 8-bit mantissa to matter.  It is rounded back to bf16 after the
-        # division by client_num below.
         for base, (name_A, name_B) in layers.items():
-            grad_A[base] = grad_A[base] + model_grad[name_A].float()
-            grad_B[base] = grad_B[base] + model_grad[name_B].float()
+            grad_A[base].add_(model_grad[name_A])
+            grad_B[base].add_(model_grad[name_B])
 
     client_num = collect_client_grads(
         model, loss_name, criterion, train_graphs, device, train_loaders,
