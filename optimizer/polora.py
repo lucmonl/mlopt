@@ -71,15 +71,10 @@ from optimizer.riemannion import riemann_layers as adapter_layers
 #   docstring there has the measurement.  `svd_msign` is the one exception to
 #   the no-d-sided-fp32 rule, and only because torch.linalg.svd has no bf16
 #   kernel on CPU or CUDA.
-# * The sum over clients.  Adding n bf16 gradients into one accumulator is the
-#   textbook bf16 failure (with an 8-bit mantissa, terms below 2^-9 of the
-#   running total vanish), and is what federated_train guards against too.  The
-#   accumulator is r(din + dout) per layer, added into in place -- so the bf16
-#   client gradients are never copied -- and rounded back after averaging.
-# * The curvature vectors p, q, and every reduction: squared norms are summed
-#   with an fp32 accumulator over a bf16 input (`sum(dtype=torch.float32)`),
-#   which costs no copy.  p and q are EMAs of sums of squares decayed over
-#   thousands of rounds and cost only din + dout each.
+# * The sum over clients, the curvature vectors p and q, and scalar reductions
+#   remain in bf16 too.  This keeps the optimizer state and all d-sided working
+#   buffers in bf16; only the small Gram / Newton--Schulz numerical kernels
+#   below are fp32.
 
 # PolarExpress coefficients (Amsel et al., arXiv:2505.16932): the per-iteration
 # quintic p_t(s) = a s + b s^3 + c s^5 of Eq. (33), fit so that the composition
@@ -264,23 +259,23 @@ def spectral_norm(M, cache, key, iters, eps=1e-12):
     is larger.  Iterates the smaller of the two Grams.
     """
     X = M if M.shape[0] <= M.shape[1] else M.T
-    # every reduction below accumulates in fp32 over the bf16 input, so no fp32
-    # copy of X (or of any matrix-vector product) is ever made
-    lower = X.pow(2).sum(dim=1, dtype=torch.float32).max().sqrt().item()
+    # Keep power-iteration reductions in bf16 too; no d-sided fp32 copy is
+    # materialized.
+    lower = X.pow(2).sum(dim=1, dtype=torch.bfloat16).max().sqrt().item()
     v = cache.get(key)
     if (v is None or v.shape[0] != X.shape[0] or v.dtype != X.dtype
             or not bool(torch.isfinite(v).all())
-            or v.pow(2).sum(dtype=torch.float32).item() == 0):
+            or v.pow(2).sum(dtype=torch.bfloat16).item() == 0):
         v = X @ torch.ones(X.shape[1], device=X.device, dtype=X.dtype)
     for _ in range(iters):
         Xw = X @ (X.T @ v)
-        norm = Xw.pow(2).sum(dtype=torch.float32).sqrt().item()
+        norm = Xw.pow(2).sum(dtype=torch.bfloat16).sqrt().item()
         if norm <= eps:
             cache.pop(key, None)
             return lower
         v = Xw / norm
     cache[key] = v
-    return max((X.T @ v).pow(2).sum(dtype=torch.float32).sqrt().item(), lower)
+    return max((X.T @ v).pow(2).sum(dtype=torch.bfloat16).sqrt().item(), lower)
 
 
 # ---------------------------------------------------------------------------
@@ -316,18 +311,18 @@ def init_state(params, layers, eps):
         state[base] = {
             "M_A": torch.zeros(r, din, device=pA.device, dtype=pA.dtype),
             "M_B": torch.zeros(dout, r, device=pB.device, dtype=pB.dtype),
-            "q": torch.full((din,), eps, device=pA.device, dtype=torch.float32),
-            "p": torch.full((dout,), eps, device=pB.device, dtype=torch.float32),
+            "q": torch.full((din,), eps, device=pA.device, dtype=torch.bfloat16),
+            "p": torch.full((dout,), eps, device=pB.device, dtype=torch.bfloat16),
             "norm_cache": {},
         }
         total += r * (din + dout) * pA.element_size()   # M_A + M_B
-        total += (din + dout) * 4                       # p + q, fp32
+        total += (din + dout) * 2                       # p + q, bf16
     return state, total
 
 
 @torch.no_grad()
 def polora_step(A, B, G_A, G_B, st, eta, scaling, beta1, beta2, eps, delta,
-                ns_steps, pow_iters, msign_method="svd"):
+                ns_steps, pow_iters, msign_method="gram"):
     """One PoLoRA step (Algorithm 1) for a single LoRA pair, in place on A and B.
 
     `st` is that pair's state -- momentum buffers M_A, M_B, curvature vectors
@@ -338,17 +333,21 @@ def polora_step(A, B, G_A, G_B, st, eta, scaling, beta1, beta2, eps, delta,
     r = A.shape[0]
 
     # line 1: buffer, then the look-ahead read off the updated buffer
-    st["M_A"].mul_(beta1).add_(G_A, alpha=1 - beta1)
-    st["M_B"].mul_(beta1).add_(G_B, alpha=1 - beta1)
-    Mh_A = beta1 * st["M_A"] + (1 - beta1) * G_A
-    Mh_B = beta1 * st["M_B"] + (1 - beta1) * G_B
+    # st["M_A"].mul_(beta1).add_(G_A, alpha=1 - beta1)
+    # st["M_B"].mul_(beta1).add_(G_B, alpha=1 - beta1)
+    # Mh_A = beta1 * st["M_A"] + (1 - beta1) * G_A
+    # Mh_B = beta1 * st["M_B"] + (1 - beta1) * G_B
+    st["M_A"].mul_(beta1).add_(G_A)
+    st["M_B"].mul_(beta1).add_(G_B)
+    Mh_A = st["M_A"] 
+    Mh_B = st["M_B"]
 
     # line 2.  P and Q are diagonal (Adafactor-style), so they are held as
     # vectors and the products with them are elementwise scalings.  The damping
     # of Appendix E is simply +delta once the largest entry is 1.
     q, p = st["q"], st["p"]
-    Q_diag = q / q.max().clamp_min(eps) + delta          # (din,) fp32
-    P_diag = p / p.max().clamp_min(eps) + delta          # (dout,) fp32
+    Q_diag = q / q.max().clamp_min(eps) + delta          # (din,) bf16
+    P_diag = p / p.max().clamp_min(eps) + delta          # (dout,) bf16
     # Both Grams accumulate in fp32 a chunk of rows at a time, so neither factor
     # is copied whole (A.T is a view).  Their eigenvalues feed an inverse square
     # root, which is why the accumulation cannot be left in bf16.
@@ -383,16 +382,15 @@ def polora_step(A, B, G_A, G_B, st, eta, scaling, beta1, beta2, eps, delta,
     # lines 7 and 8: the coupled curvature estimator (32), from the *raw* factor
     # gradients and reusing the curvature matrices formed for line 2.
     #   diag(G_A^T C_B^-1 G_A) = column-wise squared norms of C_B^-1/2 G_A
-    # Z stays in the factor dtype; only the squared column/row sums that land in
-    # p and q are accumulated in fp32, which is where the EMA needs the range.
+    # Z and the curvature EMA both stay in bf16.
     Z_A = CB_isqrt @ G_A                                 # (r, din)
     Z_B = G_B @ CA_isqrt                                 # (dout, r)
-    q.mul_(beta2).add_(Z_A.pow(2).sum(dim=0, dtype=torch.float32) / r, alpha=1 - beta2)
-    p.mul_(beta2).add_(Z_B.pow(2).sum(dim=1, dtype=torch.float32) / r, alpha=1 - beta2)
+    q.mul_(beta2).add_(Z_A.pow(2).sum(dim=0, dtype=torch.bfloat16) / r, alpha=1 - beta2)
+    p.mul_(beta2).add_(Z_B.pow(2).sum(dim=1, dtype=torch.bfloat16) / r, alpha=1 - beta2)
 
-    # ||dA||_F^2 + ||dB||_F^2, fp32-accumulated like every printed reduction
-    delta_sq = (step_A ** 2 * D_A.pow(2).sum(dtype=torch.float32).item()
-                + step_B ** 2 * D_B.pow(2).sum(dtype=torch.float32).item())
+    # ||dA||_F^2 + ||dB||_F^2, bf16 like the rest of the d-sided state.
+    delta_sq = (step_A ** 2 * D_A.pow(2).sum(dtype=torch.bfloat16).item()
+                + step_B ** 2 * D_B.pow(2).sum(dtype=torch.bfloat16).item())
     return rho, norm_B / max(norm_A, eps), delta_sq
 
 
@@ -450,13 +448,11 @@ def federated_polora(model, loss_name, criterion, train_graphs, device, train_lo
         eta = group["lr"]
 
     # ---- client loop: every client differentiates the same adapter ---------
-    # fp32 here and only here: this is the one reduction long enough for an
-    # 8-bit mantissa to matter.  The buffers are allocated once and added into
-    # in place, so no client gradient is ever copied to fp32; they are rounded
-    # back to the factor dtype after the division by client_num below.
-    grad_A = {base: torch.zeros_like(params[names[0]], dtype=torch.float32)
+    # Keep the federated sum in bf16 as well.  The buffers are allocated once
+    # and added into in place.
+    grad_A = {base: torch.zeros_like(params[names[0]], dtype=torch.bfloat16)
               for base, names in layers.items()}          # -> B^T G   (r, din)
-    grad_B = {base: torch.zeros_like(params[names[1]], dtype=torch.float32)
+    grad_B = {base: torch.zeros_like(params[names[1]], dtype=torch.bfloat16)
               for base, names in layers.items()}          # -> G A^T   (dout, r)
 
     def _accumulate(client_id, model_grad):

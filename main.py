@@ -1858,9 +1858,9 @@ if __name__ == "__main__":
     parser.add_argument("--riemann_retract", type=str, default="literal", choices=["literal", "accumulate", "gemini"], help="riemannion line 12: 'literal' reproduces the printed retraction (step only); 'accumulate' carries the current point forward as in Algorithm 6")
     parser.add_argument("--polora_beta1", type=float, default=0.9, help="polora: momentum decay beta1 of Algorithm 1 line 1 (paper Appendix A uses 0.9). The server optimizer's --momentum is unused by polora")
     parser.add_argument("--polora_beta2", type=float, default=0.99, help="polora: curvature decay beta2 of the preconditioner EMA, Algorithm 1 lines 7-8 (paper Appendix A uses 0.99)")
-    parser.add_argument("--polora_msign", type=str, default="svd", choices=["gram", "svd"], help="polora: how the matrix sign of Algorithm 1 lines 3-4 is evaluated. 'gram' is the Gram Newton-Schulz iteration used for training; 'svd' is the exact U V^T, a slower reference for how far the polynomial iteration is from the true polar factor. The curvature inverse square roots stay on the Gram iteration either way")
-    parser.add_argument("--polora_ns_steps", type=int, default=8, help="polora: Gram Newton-Schulz iterations K per matrix sign / inverse square root (Appendix E.2)")
-    parser.add_argument("--polora_power_iters", type=int, default=8, help="polora: power iterations per spectral-norm estimate (Appendix E.1)")
+    parser.add_argument("--polora_msign", type=str, default="gram", choices=["gram", "svd"], help="polora: how the matrix sign of Algorithm 1 lines 3-4 is evaluated. 'gram' is the Gram Newton-Schulz iteration used for training; 'svd' is the exact U V^T, a slower fp32 reference for how far the polynomial iteration is from the true polar factor. The curvature inverse square roots stay on the Gram iteration either way")
+    parser.add_argument("--polora_ns_steps", type=int, default=3, help="polora: Gram Newton-Schulz iterations K per matrix sign / inverse square root (Appendix E.2)")
+    parser.add_argument("--polora_power_iters", type=int, default=3, help="polora: power iterations per spectral-norm estimate (Appendix E.1)")
     parser.add_argument("--polora_delta", type=float, default=1e-4, help="polora: relative damping delta, capping the condition number of each damped curvature matrix at about 1/delta (Appendix E)")
     parser.add_argument("--polora_eps", type=float, default=1e-12, help="polora: numerical-stability constant eps, also the initial value of the curvature vectors p and q (Appendix E)")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
@@ -2788,9 +2788,9 @@ if __name__ == "__main__":
                                                "polora_beta2": args.polora_beta2}
                 if args.polora_msign != "gram":
                     model_params = model_params | {"polora_msign": args.polora_msign}
-                if args.polora_ns_steps != 8:
+                if args.polora_ns_steps != 3:
                     model_params = model_params | {"polora_ns": args.polora_ns_steps}
-                if args.polora_power_iters != 8:
+                if args.polora_power_iters != 3:
                     model_params = model_params | {"polora_pow": args.polora_power_iters}
                 if args.polora_delta != 1e-4:
                     model_params = model_params | {"polora_delta": args.polora_delta}
