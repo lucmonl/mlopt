@@ -916,6 +916,31 @@ def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, dev
         elif output_layer_name in name:
             param.data = opt_params["server_params"][name]
 
+def _qr_transfer_from_B(B_weight, A_weight, gamma):
+    """Recondition B while preserving the represented product B @ A."""
+    if gamma == 0:
+        raise ValueError("muonlora_v15 requires a nonzero lora_init_scale")
+    Q_B, R_B = torch.linalg.qr(B_weight, mode="reduced")
+    return gamma * Q_B, (R_B @ A_weight) / gamma
+
+
+def _qr_transfer_from_A(B_weight, A_weight, gamma):
+    """Recondition A.T while preserving the represented product B @ A."""
+    if gamma == 0:
+        raise ValueError("muonlora_v15 requires a nonzero lora_init_scale")
+    Q_A, R_A = torch.linalg.qr(A_weight.T, mode="reduced")
+    return (B_weight @ R_A.T) / gamma, gamma * Q_A.T
+
+
+def _damped_pinv_from_svd(U, S, Vh, relative_damping=1e-3):
+    """Return a smooth Tikhonov pseudoinverse from a matrix's reduced SVD."""
+    if relative_damping <= 0:
+        raise ValueError("relative_damping must be positive")
+    damping = (relative_damping * S.max()).clamp_min(torch.finfo(S.dtype).eps)
+    damped_reciprocal = S / (S.square() + damping.square())
+    return (Vh.T * damped_reciprocal) @ U.T, damping
+
+
 def get_muonlora_hparams(fedlora_avg_name):
     if fedlora_avg_name == 'muonlora_v1':
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = False, True, False, False, True
@@ -936,7 +961,7 @@ def get_muonlora_hparams(fedlora_avg_name):
     elif fedlora_avg_name == 'muonlora_v9':
         """directly adding momentum to the lora adapters."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, True, True
-    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11', 'muonlora_v12', 'muonlora_v13', 'muonlora_v14']:
+    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11', 'muonlora_v12', 'muonlora_v13', 'muonlora_v14', 'muonlora_v15']:
         """split muon update: fuse singular-vector-aligned part into server adapter, keep residual as muon update; alternates A/B sides across epochs."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, False, True
     else:
@@ -957,10 +982,14 @@ def get_muonlora_hparams(fedlora_avg_name):
     elif fedlora_avg_name == 'muonlora_v14':
         """v13 + re-orthonormalize the updated LoRA factor after each partial merge (Sec 3.7)."""
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
+    elif fedlora_avg_name == 'muonlora_v15':
+        """v14-style reconditioning with a product-preserving QR gauge transfer."""
+        partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
     else:
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = False, False, False, False
+    use_damped_inv = fedlora_avg_name == 'muonlora_v15'
     return use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
-            orth_then_merge, alternate_update, aligned_momentum
+            orth_then_merge, alternate_update, aligned_momentum, use_damped_inv
 
 def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
@@ -970,7 +999,9 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     from utilities import get_gpu_memory
 
     use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
-        orth_then_merge, alternate_update, aligned_momentum = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
+        orth_then_merge, alternate_update, aligned_momentum, use_damped_inv = get_muonlora_hparams(
+            fedlora_avg_name=opt_params["fedlora_avg"]
+        )
     if use_model_grad:
         opt_params["local_update_ON"] = False
     else:
@@ -1111,7 +1142,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             old_mom = opt_params["momentum"][name].to(torch.float64)
                             new_grad = param.grad.to(torch.float64)
                             if 'lora_B' in name:
-                                if not opt_params["update_B"]:
+                                if not opt_params["update_B"] or opt_params["fedlora_avg"] == "muonlora_v15":
                                     # B is (m, r): right-multiply old momentum by (r×r) change-of-basis
                                     # C = pinv(B_{t-1}^T @ B_{t-1}) @ B_{t-1}^T @ B_t
                                     prev_factor_name = name.replace("lora_B", "lora_A")  # lora_B key
@@ -1128,7 +1159,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                                     aligned_mom = old_mom
                             else:
                                 assert 'lora_A' in name
-                                if opt_params["update_B"]:
+                                if opt_params["update_B"] or opt_params["fedlora_avg"] == "muonlora_v15":
                                     # A is (r, n): left-multiply old momentum by (r×r) change-of-basis
                                     # C = new_grad @ old_raw^T @ pinv(old_raw @ old_raw^T)
                                     prev_factor_name = name.replace("lora_A", "lora_B")
@@ -1259,7 +1290,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             B_param = original_params_data[grad_param_name_B].to(torch.float64) #m*r
             
             proj_G = B_param.T @ grad_B #r*r
-            _, S_G, _ = torch.linalg.svd(proj_G, full_matrices=False)
+            U_G, S_G, Vh_G = torch.linalg.svd(proj_G, full_matrices=False)
             print("proj_G SVD: ", S_G)
             #proj_G_inv = torch.linalg.pinv(proj_G, atol=1e-6) #r*r
             """
@@ -1270,7 +1301,10 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             else:
                 raise NotImplementedError(f"Choose how to inverse the matrix for {opt_params['fedlora_avg']}")
             """
-            if use_rtol_inv:
+            if use_damped_inv:
+                proj_G_inv, inverse_damping = _damped_pinv_from_svd(U_G, S_G, Vh_G)
+                print("proj_G inverse damping: ", inverse_damping.item())
+            elif use_rtol_inv:
                 proj_G_inv = torch.linalg.pinv(proj_G, rtol=1e-3)
             else:
                 proj_G_inv = torch.linalg.pinv(proj_G)
@@ -1420,6 +1454,15 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             opt_params["orth_corrections"][base_name] = (B_corr, A_corr)
                             server_param_updates[grad_param_name_B] = gamma_orth * Q_B
                             print(f"v14 B-side orth: ||B_new-gamma*Q||={B_corr.norm().item():.4f}")
+                        elif opt_params["fedlora_avg"] == "muonlora_v15":
+                            B_new = server_param_updates[grad_param_name_B]  # (m, r), float64
+                            gamma_orth = float(opt_params.get("lora_init_scale", 1.0))
+                            B_retracted, A_transferred = _qr_transfer_from_B(
+                                B_new, A_param.T, gamma_orth
+                            )
+                            server_param_updates[grad_param_name_B] = B_retracted
+                            server_param_updates[grad_param_name_A] = A_transferred
+                            print("v15 B-side product-preserving QR transfer applied")
                     else:
                         # A-side fusion: fuse V into A, keep B=U_svd fixed
                         # B_server_new @ A_server_new = U_svd @ (S @ Vh_svd + V) = W + U_svd @ V
@@ -1453,6 +1496,15 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             opt_params["orth_corrections"][base_name] = (B_corr, A_corr)
                             server_param_updates[grad_param_name_A] = gamma_orth * Q_A.T
                             print(f"v14 A-side orth: ||A_new-gamma*Q||={A_corr.norm().item():.4f}")
+                        elif opt_params["fedlora_avg"] == "muonlora_v15":
+                            A_weight_new = server_param_updates[grad_param_name_A]  # (r, n), float64
+                            gamma_orth = float(opt_params.get("lora_init_scale", 1.0))
+                            B_transferred, A_retracted = _qr_transfer_from_A(
+                                B_param, A_weight_new, gamma_orth
+                            )
+                            server_param_updates[grad_param_name_B] = B_transferred
+                            server_param_updates[grad_param_name_A] = A_retracted
+                            print("v15 A-side product-preserving QR transfer applied")
                 else:
                     #scale either side is ok
                     inv_s = opt_params["lora_rank"] / opt_params["lora_alpha"]
@@ -2259,4 +2311,4 @@ def privacy_lora_svd(model, loss_name, criterion, lora_rank, device, train_loade
     synchronize_lora(model, opt_params["server_name"], truncate_last=False)
 
     from arch.lora import get_lora_norm, get_weight_norm
-    get_lora_norm(adapter_weights) 
+    get_lora_norm(adapter_weights)
