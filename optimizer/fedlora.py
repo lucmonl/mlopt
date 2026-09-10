@@ -919,7 +919,7 @@ def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, dev
 def _qr_transfer_from_B(B_weight, A_weight, gamma):
     """Recondition B while preserving the represented product B @ A."""
     if gamma == 0:
-        raise ValueError("muonlora_v15 requires a nonzero lora_init_scale")
+        raise ValueError("muonlora_v15/v16 requires a nonzero lora_init_scale")
     Q_B, R_B = torch.linalg.qr(B_weight, mode="reduced")
     return gamma * Q_B, (R_B @ A_weight) / gamma
 
@@ -927,7 +927,7 @@ def _qr_transfer_from_B(B_weight, A_weight, gamma):
 def _qr_transfer_from_A(B_weight, A_weight, gamma):
     """Recondition A.T while preserving the represented product B @ A."""
     if gamma == 0:
-        raise ValueError("muonlora_v15 requires a nonzero lora_init_scale")
+        raise ValueError("muonlora_v15/v16 requires a nonzero lora_init_scale")
     Q_A, R_A = torch.linalg.qr(A_weight.T, mode="reduced")
     return (B_weight @ R_A.T) / gamma, gamma * Q_A.T
 
@@ -939,6 +939,68 @@ def _damped_pinv_from_svd(U, S, Vh, relative_damping=1e-3):
     damping = (relative_damping * S.max()).clamp_min(torch.finfo(S.dtype).eps)
     damped_reciprocal = S / (S.square() + damping.square())
     return (Vh.T * damped_reciprocal) @ U.T, damping
+
+
+def _truncate_low_rank_product(left, right, max_rank, storage_dtype=torch.float32):
+    """Compress left @ right without materializing the full matrix."""
+    if max_rank <= 0:
+        raise ValueError("max_rank must be positive")
+    Q_left, R_left = torch.linalg.qr(left, mode="reduced")
+    Q_right, R_right = torch.linalg.qr(right.T, mode="reduced")
+    U, S, Vh = torch.linalg.svd(R_left @ R_right.T, full_matrices=False)
+    rank = min(max_rank, S.numel())
+    sqrt_S = S[:rank].clamp_min(0).sqrt()
+    compressed_left = (Q_left @ U[:, :rank]) * sqrt_S.unsqueeze(0)
+    compressed_right = sqrt_S.unsqueeze(1) * (Vh[:rank] @ Q_right.T)
+    return compressed_left.to(storage_dtype), compressed_right.to(storage_dtype)
+
+
+def _transport_B_momentum_with_error_feedback(
+    old_momentum, A_prev, A_cur, beta, error, max_rank
+):
+    """Transport B momentum through A's row space and retain a rank-capped residual."""
+    prev_lift = torch.linalg.pinv(A_prev @ A_prev.T, rcond=1e-6) @ A_prev
+    left_parts = [beta * old_momentum]
+    right_parts = [prev_lift]
+    if error is not None:
+        error_left, error_right = error
+        left_parts.append(beta * error_left.to(old_momentum))
+        right_parts.append(error_right.to(old_momentum))
+    lifted_left = torch.cat(left_parts, dim=1)
+    lifted_right = torch.cat(right_parts, dim=0)
+
+    aligned_momentum = lifted_left @ (lifted_right @ A_cur.T)
+    cur_lift = torch.linalg.pinv(A_cur @ A_cur.T, rcond=1e-6) @ A_cur
+    residual_left = torch.cat((lifted_left, -aligned_momentum), dim=1)
+    residual_right = torch.cat((lifted_right, cur_lift), dim=0)
+    new_error = _truncate_low_rank_product(
+        residual_left, residual_right, max_rank=max_rank
+    )
+    return aligned_momentum, new_error
+
+
+def _transport_A_momentum_with_error_feedback(
+    old_momentum, B_prev, B_cur, beta, error, max_rank
+):
+    """Transport A momentum through B's column space and retain a rank-capped residual."""
+    prev_lift = B_prev @ torch.linalg.pinv(B_prev.T @ B_prev, rcond=1e-6)
+    left_parts = [beta * prev_lift]
+    right_parts = [old_momentum]
+    if error is not None:
+        error_left, error_right = error
+        left_parts.append(beta * error_left.to(old_momentum))
+        right_parts.append(error_right.to(old_momentum))
+    lifted_left = torch.cat(left_parts, dim=1)
+    lifted_right = torch.cat(right_parts, dim=0)
+
+    aligned_momentum = (B_cur.T @ lifted_left) @ lifted_right
+    cur_lift = B_cur @ torch.linalg.pinv(B_cur.T @ B_cur, rcond=1e-6)
+    residual_left = torch.cat((lifted_left, -cur_lift), dim=1)
+    residual_right = torch.cat((lifted_right, aligned_momentum), dim=0)
+    new_error = _truncate_low_rank_product(
+        residual_left, residual_right, max_rank=max_rank
+    )
+    return aligned_momentum, new_error
 
 
 def get_muonlora_hparams(fedlora_avg_name):
@@ -961,7 +1023,7 @@ def get_muonlora_hparams(fedlora_avg_name):
     elif fedlora_avg_name == 'muonlora_v9':
         """directly adding momentum to the lora adapters."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, True, True
-    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11', 'muonlora_v12', 'muonlora_v13', 'muonlora_v14', 'muonlora_v15']:
+    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11', 'muonlora_v12', 'muonlora_v13', 'muonlora_v14', 'muonlora_v15', 'muonlora_v16']:
         """split muon update: fuse singular-vector-aligned part into server adapter, keep residual as muon update; alternates A/B sides across epochs."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, False, True
     else:
@@ -985,11 +1047,15 @@ def get_muonlora_hparams(fedlora_avg_name):
     elif fedlora_avg_name == 'muonlora_v15':
         """v14-style reconditioning with a product-preserving QR gauge transfer."""
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
+    elif fedlora_avg_name == 'muonlora_v16':
+        """v15 + rank-capped effective-weight-space momentum error feedback."""
+        partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
     else:
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = False, False, False, False
-    use_damped_inv = fedlora_avg_name == 'muonlora_v15'
+    use_damped_inv = False #fedlora_avg_name in ['muonlora_v15', 'muonlora_v16']
+    use_momentum_error_feedback = fedlora_avg_name == 'muonlora_v16'
     return use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
-            orth_then_merge, alternate_update, aligned_momentum, use_damped_inv
+            orth_then_merge, alternate_update, aligned_momentum, use_damped_inv, use_momentum_error_feedback
 
 def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
@@ -999,9 +1065,8 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     from utilities import get_gpu_memory
 
     use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
-        orth_then_merge, alternate_update, aligned_momentum, use_damped_inv = get_muonlora_hparams(
-            fedlora_avg_name=opt_params["fedlora_avg"]
-        )
+        orth_then_merge, alternate_update, aligned_momentum, use_damped_inv, \
+        use_momentum_error_feedback = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
     if use_model_grad:
         opt_params["local_update_ON"] = False
     else:
@@ -1137,47 +1202,64 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                         opt_params["momentum"] = {}
                     if aligned_momentum and "prev_factor" not in opt_params:
                         opt_params["prev_factor"] = {}
+                    if use_momentum_error_feedback and "momentum_alignment_error" not in opt_params:
+                        opt_params["momentum_alignment_error"] = {}
                     if name in opt_params["momentum"]:
                         if aligned_momentum:
                             old_mom = opt_params["momentum"][name].to(torch.float64)
                             new_grad = param.grad.to(torch.float64)
-                            if 'lora_B' in name:
-                                if not opt_params["update_B"] or opt_params["fedlora_avg"] == "muonlora_v15":
-                                    # B is (m, r): right-multiply old momentum by (r×r) change-of-basis
-                                    # C = pinv(B_{t-1}^T @ B_{t-1}) @ B_{t-1}^T @ B_t
-                                    prev_factor_name = name.replace("lora_B", "lora_A")  # lora_B key
-                                    prev_factor = opt_params["prev_factor"][prev_factor_name].to(torch.float64)   # A_{t-1} r * n
-                                    core = prev_factor @ prev_factor.T  # (r, r)
-                                    
-                                    C = torch.linalg.pinv(core, rcond=1e-6) @ prev_factor @ cur_adapter_weights[prev_factor_name].T.to(torch.float64)  # (r, r)
-                                    aligned_mom = old_mom @ C  # (m, r)
-                                    #print(f"A was updated in the last iteration. \n"
-                                    #      f"Retrive factor size: {prev_factor.shape}. Old momentum shape: {old_mom.shape} New momentum shape: {aligned_mom.shape}")
-                                    #print((aligned_mom - old_mom).norm().item())
-                                    #opt_params["prev_factor"][prev_factor_name] = cur_adapter_weights[prev_factor_name]
+                            if use_momentum_error_feedback:
+                                error = opt_params["momentum_alignment_error"].get(name)
+                                if 'lora_B' in name:
+                                    prev_factor_name = name.replace("lora_B", "lora_A")
+                                    A_prev = opt_params["prev_factor"][prev_factor_name].to(torch.float64)
+                                    A_cur = cur_adapter_weights[prev_factor_name].to(torch.float64)
+                                    aligned_mom, new_error = _transport_B_momentum_with_error_feedback(
+                                        old_mom,
+                                        A_prev,
+                                        A_cur,
+                                        opt_params["server_momentum"],
+                                        error,
+                                        opt_params["lora_rank"],
+                                    )
                                 else:
-                                    aligned_mom = old_mom
-                            else:
-                                assert 'lora_A' in name
-                                if opt_params["update_B"] or opt_params["fedlora_avg"] == "muonlora_v15":
-                                    # A is (r, n): left-multiply old momentum by (r×r) change-of-basis
-                                    # C = new_grad @ old_raw^T @ pinv(old_raw @ old_raw^T)
+                                    assert 'lora_A' in name
                                     prev_factor_name = name.replace("lora_A", "lora_B")
-                                    prev_factor = opt_params["prev_factor"][prev_factor_name].to(torch.float64) # B_{t-1} m * r, dtype->fp64
-                                    core = prev_factor.T @ prev_factor  # (r, r)
-                                    # C = new_grad @ (old_raw @ old_raw^T)^{-1} @ old_raw ... rearranged:
-                                    # C^T = old_raw^T @ pinv(old_raw @ old_raw^T)^T @ new_grad^T
-                                    #      => solve core.T @ C^T = old_raw^T @ new_grad^T  (but core is sym)
-                                    # Solve: core @ X = old_raw @ new_grad^T, then C = X^T ... hmm
-                                    # Directly: C = new_grad @ old_raw.T @ pinv(core)
-                                    C = cur_adapter_weights[prev_factor_name].to(torch.float64).T @ prev_factor @ torch.linalg.pinv(core, rcond=1e-6)  # (r, r)
-                                    aligned_mom = C @ old_mom  # (r, n)
-                                    #print(f"B was updated in the last iteration. \n"
-                                    #       f"Retrive factor size: {prev_factor.shape}. Old momentum shape: {old_mom.shape} New momentum shape: {aligned_mom.shape}")
-                                    #print((aligned_mom - old_mom).norm().item())
+                                    B_prev = opt_params["prev_factor"][prev_factor_name].to(torch.float64)
+                                    B_cur = cur_adapter_weights[prev_factor_name].to(torch.float64)
+                                    aligned_mom, new_error = _transport_A_momentum_with_error_feedback(
+                                        old_mom,
+                                        B_prev,
+                                        B_cur,
+                                        opt_params["server_momentum"],
+                                        error,
+                                        opt_params["lora_rank"],
+                                    )
+                                opt_params["momentum_alignment_error"][name] = new_error
+                                params_grads[name] = aligned_mom + new_grad
+                            else:
+                                if 'lora_B' in name:
+                                    if not opt_params["update_B"] or opt_params["fedlora_avg"] in ["muonlora_v15", "muonlora_v16"]:
+                                        # B is (m, r): right-multiply old momentum by (r×r) change-of-basis
+                                        prev_factor_name = name.replace("lora_B", "lora_A")
+                                        prev_factor = opt_params["prev_factor"][prev_factor_name].to(torch.float64)
+                                        core = prev_factor @ prev_factor.T
+                                        C = torch.linalg.pinv(core, rcond=1e-6) @ prev_factor @ cur_adapter_weights[prev_factor_name].T.to(torch.float64)
+                                        aligned_mom = old_mom @ C
+                                    else:
+                                        aligned_mom = old_mom
                                 else:
-                                    aligned_mom = old_mom
-                            params_grads[name] = (opt_params["server_momentum"] * aligned_mom + new_grad) #.to(param.grad.dtype) # keep it fp64
+                                    assert 'lora_A' in name
+                                    if opt_params["update_B"] or opt_params["fedlora_avg"] in ["muonlora_v15", "muonlora_v16"]:
+                                        # A is (r, n): left-multiply old momentum by (r×r) change-of-basis
+                                        prev_factor_name = name.replace("lora_A", "lora_B")
+                                        prev_factor = opt_params["prev_factor"][prev_factor_name].to(torch.float64)
+                                        core = prev_factor.T @ prev_factor
+                                        C = cur_adapter_weights[prev_factor_name].to(torch.float64).T @ prev_factor @ torch.linalg.pinv(core, rcond=1e-6)
+                                        aligned_mom = C @ old_mom
+                                    else:
+                                        aligned_mom = old_mom
+                                params_grads[name] = opt_params["server_momentum"] * aligned_mom + new_grad
                         else:
                             params_grads[name] = opt_params["server_momentum"] * opt_params["momentum"][name] + param.grad.to(torch.float64)
                     else:
@@ -1454,7 +1536,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             opt_params["orth_corrections"][base_name] = (B_corr, A_corr)
                             server_param_updates[grad_param_name_B] = gamma_orth * Q_B
                             print(f"v14 B-side orth: ||B_new-gamma*Q||={B_corr.norm().item():.4f}")
-                        elif opt_params["fedlora_avg"] == "muonlora_v15":
+                        elif opt_params["fedlora_avg"] in ["muonlora_v15", "muonlora_v16"]:
                             B_new = server_param_updates[grad_param_name_B]  # (m, r), float64
                             gamma_orth = float(opt_params.get("lora_init_scale", 1.0))
                             B_retracted, A_transferred = _qr_transfer_from_B(
@@ -1462,7 +1544,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             )
                             server_param_updates[grad_param_name_B] = B_retracted
                             server_param_updates[grad_param_name_A] = A_transferred
-                            print("v15 B-side product-preserving QR transfer applied")
+                            print(f"{opt_params['fedlora_avg']} B-side product-preserving QR transfer applied")
                     else:
                         # A-side fusion: fuse V into A, keep B=U_svd fixed
                         # B_server_new @ A_server_new = U_svd @ (S @ Vh_svd + V) = W + U_svd @ V
@@ -1496,7 +1578,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             opt_params["orth_corrections"][base_name] = (B_corr, A_corr)
                             server_param_updates[grad_param_name_A] = gamma_orth * Q_A.T
                             print(f"v14 A-side orth: ||A_new-gamma*Q||={A_corr.norm().item():.4f}")
-                        elif opt_params["fedlora_avg"] == "muonlora_v15":
+                        elif opt_params["fedlora_avg"] in ["muonlora_v15", "muonlora_v16"]:
                             A_weight_new = server_param_updates[grad_param_name_A]  # (r, n), float64
                             gamma_orth = float(opt_params.get("lora_init_scale", 1.0))
                             B_transferred, A_retracted = _qr_transfer_from_A(
@@ -1504,7 +1586,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             )
                             server_param_updates[grad_param_name_B] = B_transferred
                             server_param_updates[grad_param_name_A] = A_retracted
-                            print("v15 A-side product-preserving QR transfer applied")
+                            print(f"{opt_params['fedlora_avg']} A-side product-preserving QR transfer applied")
                 else:
                     #scale either side is ok
                     inv_s = opt_params["lora_rank"] / opt_params["lora_alpha"]
