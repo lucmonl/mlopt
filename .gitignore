@@ -23,6 +23,7 @@ analysis/adapter_diff.py
 results_old
 plots
 environment.yml
+*.orig
 #results/**/*.ckpt
 #results/**/*.json
 #results/**/*.pt

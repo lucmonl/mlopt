@@ -919,7 +919,7 @@ def federated_lora_het(model, loss_name, criterion, lora_rank, train_graphs, dev
 def _qr_transfer_from_B(B_weight, A_weight, gamma):
     """Recondition B while preserving the represented product B @ A."""
     if gamma == 0:
-        raise ValueError("muonlora_v15/v16 requires a nonzero lora_init_scale")
+        raise ValueError("QR gauge transfer requires a nonzero lora_init_scale")
     Q_B, R_B = torch.linalg.qr(B_weight, mode="reduced")
     return gamma * Q_B, (R_B @ A_weight) / gamma
 
@@ -927,7 +927,7 @@ def _qr_transfer_from_B(B_weight, A_weight, gamma):
 def _qr_transfer_from_A(B_weight, A_weight, gamma):
     """Recondition A.T while preserving the represented product B @ A."""
     if gamma == 0:
-        raise ValueError("muonlora_v15/v16 requires a nonzero lora_init_scale")
+        raise ValueError("QR gauge transfer requires a nonzero lora_init_scale")
     Q_A, R_A = torch.linalg.qr(A_weight.T, mode="reduced")
     return (B_weight @ R_A.T) / gamma, gamma * Q_A.T
 
@@ -1019,10 +1019,10 @@ def _balanced_probe_tracking_step(
     effective Muon update.
     """
     if gamma <= 0:
-        raise ValueError("muonlora_v17 requires a positive lora_init_scale")
+        raise ValueError("muonlora_v18 requires a positive lora_init_scale")
     if max_correction_ratio <= 0:
         raise ValueError(
-            "muonlora_v17 requires a positive "
+            "muonlora_v18 requires a positive "
             "muonlora_max_correction_ratio"
         )
 
@@ -1151,7 +1151,7 @@ def get_muonlora_hparams(fedlora_avg_name):
     elif fedlora_avg_name == 'muonlora_v9':
         """directly adding momentum to the lora adapters."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, True, True
-    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11', 'muonlora_v12', 'muonlora_v13', 'muonlora_v14', 'muonlora_v15', 'muonlora_v16', 'muonlora_v17']:
+    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11', 'muonlora_v12', 'muonlora_v13', 'muonlora_v14', 'muonlora_v15', 'muonlora_v16', 'muonlora_v17', 'muonlora_v18']:
         """split muon update: fuse singular-vector-aligned part into server adapter, keep residual as muon update; alternates A/B sides across epochs."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, False, True
     else:
@@ -1179,17 +1179,21 @@ def get_muonlora_hparams(fedlora_avg_name):
         """v15 + rank-capped effective-weight-space momentum error feedback."""
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
     elif fedlora_avg_name == 'muonlora_v17':
+        """v16 without the product-preserving QR gauge transfer."""
+        partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
+    elif fedlora_avg_name == 'muonlora_v18':
         """v16 + simultaneous balanced probe tracking with exact base compensation."""
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
     else:
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = False, False, False, False
     use_damped_inv = False #fedlora_avg_name in ['muonlora_v15', 'muonlora_v16']
-    use_momentum_error_feedback = fedlora_avg_name in ['muonlora_v16', 'muonlora_v17']
-    # Toggle this off to make v17 use v16's alternating QR merge path.
-    use_balanced_probe_tracking = fedlora_avg_name == 'muonlora_v17'
+    use_momentum_error_feedback = fedlora_avg_name in ['muonlora_v16', 'muonlora_v17', 'muonlora_v18']
+    use_product_preserving_qr_gauge = fedlora_avg_name in ['muonlora_v15', 'muonlora_v16']
+    # Toggle this off to make v18 use the legacy alternating merge path.
+    use_balanced_probe_tracking = fedlora_avg_name == 'muonlora_v18'
     return use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
             orth_then_merge, alternate_update, aligned_momentum, use_damped_inv, use_momentum_error_feedback, \
-            use_balanced_probe_tracking
+            use_balanced_probe_tracking, use_product_preserving_qr_gauge
 
 def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
@@ -1200,12 +1204,19 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
 
     use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
         orth_then_merge, alternate_update, aligned_momentum, use_damped_inv, \
-        use_momentum_error_feedback, use_balanced_probe_tracking = get_muonlora_hparams(
+        use_momentum_error_feedback, use_balanced_probe_tracking, \
+        use_product_preserving_qr_gauge = get_muonlora_hparams(
             fedlora_avg_name=opt_params["fedlora_avg"])
     if use_model_grad:
         opt_params["local_update_ON"] = False
     else:
         opt_params["local_update_ON"] = True
+
+    print(f"[riemannion] use_model_grad={use_model_grad}, use_rtol_inv={use_rtol_inv}, use_norm_grad={use_norm_grad}, "
+        f"apply_momentum={apply_momentum}, moment_on_factor={moment_on_factor}, partial_merge={partial_merge}, "
+        f"orth_then_merge={orth_then_merge}, alternate_update={alternate_update}, "
+        f"aligned_momentum={aligned_momentum}, use_damped_inv={use_damped_inv}, "
+        f"use_momentum_error_feedback={use_momentum_error_feedback}")
 
     adapter_names = []
     adapter_weights = {}
@@ -1374,7 +1385,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                                 params_grads[name] = aligned_mom + new_grad
                             else:
                                 if 'lora_B' in name:
-                                    if not opt_params["update_B"] or opt_params["fedlora_avg"] in ["muonlora_v15", "muonlora_v16", "muonlora_v17"]:
+                                    if not opt_params["update_B"] or use_product_preserving_qr_gauge:
                                         # B is (m, r): right-multiply old momentum by (r×r) change-of-basis
                                         prev_factor_name = name.replace("lora_B", "lora_A")
                                         prev_factor = opt_params["prev_factor"][prev_factor_name].to(torch.float64)
@@ -1385,7 +1396,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                                         aligned_mom = old_mom
                                 else:
                                     assert 'lora_A' in name
-                                    if opt_params["update_B"] or opt_params["fedlora_avg"] in ["muonlora_v15", "muonlora_v16", "muonlora_v17"]:
+                                    if opt_params["update_B"] or use_product_preserving_qr_gauge:
                                         # A is (r, n): left-multiply old momentum by (r×r) change-of-basis
                                         prev_factor_name = name.replace("lora_A", "lora_B")
                                         prev_factor = opt_params["prev_factor"][prev_factor_name].to(torch.float64)
@@ -1622,11 +1633,11 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             muon_update_name_B, muon_update_name_A,
                         )
                         print(
-                            "muonlora_v17 balanced probe tracking: "
+                            "muonlora_v18 balanced probe tracking: "
                             f"beta={probe_beta:.6f} fraction={tracking_fraction:.6f} "
                             f"||compensation||2={correction_norm.item():.6e}"
                         )
-                        # v17 has already constructed both adapter updates and
+                        # v18 has already constructed both adapter updates and
                         # the exact base compensation. Do not fall through to
                         # the legacy alternating A/B fusion, which relies on
                         # opt_params["update_B"].
@@ -1736,7 +1747,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             opt_params["orth_corrections"][base_name] = (B_corr, A_corr)
                             server_param_updates[grad_param_name_B] = gamma_orth * Q_B
                             print(f"v14 B-side orth: ||B_new-gamma*Q||={B_corr.norm().item():.4f}")
-                        elif opt_params["fedlora_avg"] in ["muonlora_v15", "muonlora_v16", "muonlora_v17"]:
+                        elif use_product_preserving_qr_gauge:
                             B_new = server_param_updates[grad_param_name_B]  # (m, r), float64
                             gamma_orth = float(opt_params.get("lora_init_scale", 1.0))
                             B_retracted, A_transferred = _qr_transfer_from_B(
@@ -1778,7 +1789,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             opt_params["orth_corrections"][base_name] = (B_corr, A_corr)
                             server_param_updates[grad_param_name_A] = gamma_orth * Q_A.T
                             print(f"v14 A-side orth: ||A_new-gamma*Q||={A_corr.norm().item():.4f}")
-                        elif opt_params["fedlora_avg"] in ["muonlora_v15", "muonlora_v16", "muonlora_v17"]:
+                        elif use_product_preserving_qr_gauge:
                             A_weight_new = server_param_updates[grad_param_name_A]  # (r, n), float64
                             gamma_orth = float(opt_params.get("lora_init_scale", 1.0))
                             B_transferred, A_retracted = _qr_transfer_from_A(
