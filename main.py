@@ -1870,7 +1870,7 @@ if __name__ == "__main__":
                                                              "sb", "fr", "fr_v2", "muonlora_v1", "muonlora_v2", "muonlora_v3",
                                                              "muonlora_v4", "muonlora_v5", "muonlora_v6",  "muonlora_v7", "muonlora_v8",
                                                              "muonlora_v9", "muonlora_v10", "muonlora_v11", "muonlora_v12",
-                                                             "muonlora_v13", "muonlora_v14", "muonlora_v15", "muonlora_v16", "ef14muon",
+                                                             "muonlora_v13", "muonlora_v14", "muonlora_v15", "muonlora_v16", "muonlora_v17", "ef14muon",
                                                              "ef21muon", "riemannion", "polora"], default="avg",
                                                              help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
@@ -1883,6 +1883,8 @@ if __name__ == "__main__":
     parser.add_argument("--marina_prob", type=float, default=-1.0, help="the probability of transmitting full gradient")
     parser.add_argument("--muonlora_switch_interval", type=int, default=-1.0, help="the probability of transmitting full gradient")
     parser.add_argument("--muonlora_merge_alpha", type=float, default=1.0, help="merging alpha, larger alpha means faster change in B and A")
+    parser.add_argument("--muonlora_probe_beta", type=float, default=0.9, help="EMA weight on the current probe subspace; must be in [0, 1)")
+    parser.add_argument("--muonlora_max_correction_ratio", type=float, default=15.0, help="maximum base-compensation spectral norm relative to the intended Muon update")
     parser.add_argument("--muonlora_scaled", action='store_true', help="scale every muon update by (I/J)**0.5")
     parser.add_argument("--dion_rank", type=int, default=-1, help="the rank of dion for projection")
     parser.add_argument("--use_model_grad", action='store_true', help="use model_grad-based federated_train (optimizer/federated_train.py) instead of the param-diff-based one")
@@ -2065,6 +2067,8 @@ if __name__ == "__main__":
     opt_params["use_model_grad"]   = args.use_model_grad
     opt_params["muonlora_switch_interval"] = args.muonlora_switch_interval
     opt_params["muonlora_merge_alpha"] = args.muonlora_merge_alpha
+    opt_params["muonlora_probe_beta"] = args.muonlora_probe_beta
+    opt_params["muonlora_max_correction_ratio"] = args.muonlora_max_correction_ratio
     opt_params["muonlora_scaled"]  = args.muonlora_scaled
     opt_params["privacy_clip"]     = args.privacy_clip
     opt_params["privacy_noise"]    = args.privacy_noise
@@ -2810,7 +2814,12 @@ if __name__ == "__main__":
                         model_params = model_params | {"loi_q": args.riemann_loi_power}
             if opt_params["muonlora_scaled"]:
                 model_params = model_params | {"muon": "scaled"}
-            if opt_params["muonlora_switch_interval"] != -1:
+            if opt_params["fedlora_avg"] == "muonlora_v17":
+                model_params = model_params | {
+                    "muonlora_probe_beta": args.muonlora_probe_beta,
+                    "muonlora_max_correction_ratio": args.muonlora_max_correction_ratio,
+                }
+            elif opt_params["muonlora_switch_interval"] != -1:
                 model_params = model_params | {"muonlora_switch_interval": args.muonlora_switch_interval}
                 model_params = model_params | {"muonlora_merge_alpha": args.muonlora_merge_alpha}
         

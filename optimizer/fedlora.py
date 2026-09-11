@@ -932,6 +932,134 @@ def _qr_transfer_from_A(B_weight, A_weight, gamma):
     return (B_weight @ R_A.T) / gamma, gamma * Q_A.T
 
 
+def _projector_average_subspace(current_basis, target_basis, beta):
+    """Return the leading subspace of a weighted average of two projectors.
+
+    The computation stays low rank: the leading left singular vectors of
+    [sqrt(beta) * Q_current, sqrt(1-beta) * Q_target] are the leading
+    eigenvectors of beta * Q_current Q_current.T +
+    (1-beta) * Q_target Q_target.T.
+    """
+    if not 0 <= beta < 1:
+        raise ValueError("probe tracking beta must be in [0, 1)")
+    if current_basis.shape != target_basis.shape:
+        raise ValueError(
+            f"probe subspace shapes must match, got {current_basis.shape} and {target_basis.shape}"
+        )
+
+    current_basis = torch.linalg.qr(current_basis, mode="reduced")[0]
+    target_basis = torch.linalg.qr(target_basis, mode="reduced")[0]
+    combined = torch.cat(
+        (
+            math.sqrt(beta) * current_basis,
+            math.sqrt(1.0 - beta) * target_basis,
+        ),
+        dim=1,
+    )
+    Q_combined, R_combined = torch.linalg.qr(combined, mode="reduced")
+    U_core = torch.linalg.svd(R_combined, full_matrices=False)[0]
+    rank = current_basis.shape[1]
+    return Q_combined @ U_core[:, :rank]
+
+
+def _align_basis_for_interpolation(reference_basis, candidate_basis):
+    """Resolve basis-sign/rotation ambiguity before a Euclidean retraction."""
+    U, _, Vh = torch.linalg.svd(
+        candidate_basis.T @ reference_basis, full_matrices=False
+    )
+    return candidate_basis @ (U @ Vh)
+
+
+def _interpolate_orthonormal_basis(reference_basis, candidate_basis, fraction):
+    """Interpolate two subspaces and retract the result with reduced QR."""
+    if not 0 <= fraction <= 1:
+        raise ValueError("subspace interpolation fraction must be in [0, 1]")
+    candidate_basis = _align_basis_for_interpolation(
+        reference_basis, candidate_basis
+    )
+    blended = (1.0 - fraction) * reference_basis + fraction * candidate_basis
+    return torch.linalg.qr(blended, mode="reduced")[0]
+
+
+def _low_rank_product_spectral_norm(left, right):
+    """Compute ||left @ right||_2 through a small core SVD."""
+    if left.shape[1] != right.shape[0]:
+        raise ValueError(
+            f"incompatible low-rank factors {left.shape} and {right.shape}"
+        )
+    Q_left, R_left = torch.linalg.qr(left, mode="reduced")
+    Q_right, R_right = torch.linalg.qr(right.T, mode="reduced")
+    return torch.linalg.svdvals(R_left @ R_right.T)[0]
+
+
+def _probe_product_difference_spectral_norm(B_old, A_old, B_new, A_new):
+    """Compute ||B_old A_old - B_new A_new||_2 without a dense product."""
+    left = torch.cat((B_old, B_new), dim=1)
+    right = torch.cat((A_old, -A_new), dim=0)
+    return _low_rank_product_spectral_norm(left, right)
+
+
+def _balanced_probe_tracking_step(
+    B_old,
+    A_old,
+    target_B,
+    target_A,
+    gamma,
+    beta,
+    scaling,
+    desired_update_norm,
+    max_correction_ratio,
+):
+    """Track both Muon subspaces with balanced probes and a correction cap.
+
+    B_old is (m, r), A_old is (r, n), target_B is (m, r), and target_A is
+    (n, r). The returned probes satisfy B.T B = A A.T = gamma^2 I up to
+    numerical error. If necessary, their joint rotation is shortened so
+    that the base-weight compensation is bounded relative to the intended
+    effective Muon update.
+    """
+    if gamma <= 0:
+        raise ValueError("muonlora_v17 requires a positive lora_init_scale")
+    if max_correction_ratio <= 0:
+        raise ValueError(
+            "muonlora_v17 requires a positive "
+            "muonlora_max_correction_ratio"
+        )
+
+    Q_B_old = torch.linalg.qr(B_old, mode="reduced")[0]
+    Q_A_old = torch.linalg.qr(A_old.T, mode="reduced")[0]
+    Q_B_candidate = _projector_average_subspace(Q_B_old, target_B, beta)
+    Q_A_candidate = _projector_average_subspace(Q_A_old, target_A, beta)
+
+    max_correction_norm = max_correction_ratio * desired_update_norm
+    fraction = 1.0
+    B_new = gamma * Q_B_candidate
+    A_new = gamma * Q_A_candidate.T
+    correction_norm = scaling * _probe_product_difference_spectral_norm(
+        B_old, A_old, B_new, A_new
+    )
+
+    # Back off jointly on both sides if the probe reparameterization would
+    # require an excessively large low-precision base correction.
+    for _ in range(8):
+        if correction_norm <= max_correction_norm:
+            break
+        fraction *= 0.5
+        Q_B_new = _interpolate_orthonormal_basis(
+            Q_B_old, Q_B_candidate, fraction
+        )
+        Q_A_new = _interpolate_orthonormal_basis(
+            Q_A_old, Q_A_candidate, fraction
+        )
+        B_new = gamma * Q_B_new
+        A_new = gamma * Q_A_new.T
+        correction_norm = scaling * _probe_product_difference_spectral_norm(
+            B_old, A_old, B_new, A_new
+        )
+
+    return B_new, A_new, correction_norm, fraction
+
+
 def _damped_pinv_from_svd(U, S, Vh, relative_damping=1e-3):
     """Return a smooth Tikhonov pseudoinverse from a matrix's reduced SVD."""
     if relative_damping <= 0:
@@ -1023,7 +1151,7 @@ def get_muonlora_hparams(fedlora_avg_name):
     elif fedlora_avg_name == 'muonlora_v9':
         """directly adding momentum to the lora adapters."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, True, True
-    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11', 'muonlora_v12', 'muonlora_v13', 'muonlora_v14', 'muonlora_v15', 'muonlora_v16']:
+    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11', 'muonlora_v12', 'muonlora_v13', 'muonlora_v14', 'muonlora_v15', 'muonlora_v16', 'muonlora_v17']:
         """split muon update: fuse singular-vector-aligned part into server adapter, keep residual as muon update; alternates A/B sides across epochs."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, False, True
     else:
@@ -1050,12 +1178,18 @@ def get_muonlora_hparams(fedlora_avg_name):
     elif fedlora_avg_name == 'muonlora_v16':
         """v15 + rank-capped effective-weight-space momentum error feedback."""
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
+    elif fedlora_avg_name == 'muonlora_v17':
+        """v16 + simultaneous balanced probe tracking with exact base compensation."""
+        partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
     else:
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = False, False, False, False
     use_damped_inv = False #fedlora_avg_name in ['muonlora_v15', 'muonlora_v16']
-    use_momentum_error_feedback = fedlora_avg_name == 'muonlora_v16'
+    use_momentum_error_feedback = fedlora_avg_name in ['muonlora_v16', 'muonlora_v17']
+    # Toggle this off to make v17 use v16's alternating QR merge path.
+    use_balanced_probe_tracking = fedlora_avg_name == 'muonlora_v17'
     return use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
-            orth_then_merge, alternate_update, aligned_momentum, use_damped_inv, use_momentum_error_feedback
+            orth_then_merge, alternate_update, aligned_momentum, use_damped_inv, use_momentum_error_feedback, \
+            use_balanced_probe_tracking
 
 def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
@@ -1066,7 +1200,8 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
 
     use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
         orth_then_merge, alternate_update, aligned_momentum, use_damped_inv, \
-        use_momentum_error_feedback = get_muonlora_hparams(fedlora_avg_name=opt_params["fedlora_avg"])
+        use_momentum_error_feedback, use_balanced_probe_tracking = get_muonlora_hparams(
+            fedlora_avg_name=opt_params["fedlora_avg"])
     if use_model_grad:
         opt_params["local_update_ON"] = False
     else:
@@ -1239,7 +1374,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                                 params_grads[name] = aligned_mom + new_grad
                             else:
                                 if 'lora_B' in name:
-                                    if not opt_params["update_B"] or opt_params["fedlora_avg"] in ["muonlora_v15", "muonlora_v16"]:
+                                    if not opt_params["update_B"] or opt_params["fedlora_avg"] in ["muonlora_v15", "muonlora_v16", "muonlora_v17"]:
                                         # B is (m, r): right-multiply old momentum by (r×r) change-of-basis
                                         prev_factor_name = name.replace("lora_B", "lora_A")
                                         prev_factor = opt_params["prev_factor"][prev_factor_name].to(torch.float64)
@@ -1250,7 +1385,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                                         aligned_mom = old_mom
                                 else:
                                     assert 'lora_A' in name
-                                    if opt_params["update_B"] or opt_params["fedlora_avg"] in ["muonlora_v15", "muonlora_v16"]:
+                                    if opt_params["update_B"] or opt_params["fedlora_avg"] in ["muonlora_v15", "muonlora_v16", "muonlora_v17"]:
                                         # A is (r, n): left-multiply old momentum by (r×r) change-of-basis
                                         prev_factor_name = name.replace("lora_A", "lora_B")
                                         prev_factor = opt_params["prev_factor"][prev_factor_name].to(torch.float64)
@@ -1305,6 +1440,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     muon_updates = {}
     updated_base_weights = {}
     server_param_updates = {}  # for muonlora_v10 and onwards: stores updated server adapter params after fusion
+    balanced_probe_updates = {}
     """
     for name, param in model.named_parameters():
         if "muon_update" in name and 'lora_B' in name:
@@ -1335,7 +1471,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             print("gradA norm:", params_grads[grad_param_name_A].norm().item())
             print("gradA error: ", (recovered_grad.T @ B_param - params_grads[grad_param_name_A].T).norm().item())
     """
-    if partial_merge:
+    if partial_merge and not use_balanced_probe_tracking:
         if alternate_update == False:
             print("Keep update on A...")
             opt_params["update_B"] = False
@@ -1432,7 +1568,71 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                     print("Muon update is too large! Warning!")
                 """
                 if partial_merge == True:
-                    if orth_then_merge:
+                    if use_balanced_probe_tracking:
+                        # v17 treats the two server factors as balanced gradient
+                        # probes. The effective Muon step is merged into the base;
+                        # changing both probes is compensated exactly below.
+                        scaling = opt_params["lora_alpha"] / opt_params["lora_rank"]
+                        inv_s = 1.0 / scaling
+                        target_B = muon_updates[muon_update_name_B]
+                        target_A = muon_updates[muon_update_name_A].T
+
+                        if opt_params["muonlora_scaled"]:
+                            I_size = target_B.shape[0]
+                            J_size = target_A.shape[0]
+                            muon_scale = math.sqrt(I_size / J_size)
+                        else:
+                            muon_scale = 1.0
+
+                        # Keep one factor orthonormal in the temporary adapter;
+                        # merge_to_base's scaling then yields exactly
+                        # -server_lr * muon_scale * target_B @ target_A.T.
+                        muon_updates[muon_update_name_B] = (
+                            -server_lr * inv_s * muon_scale * target_B
+                        )
+                        muon_updates[muon_update_name_A] = target_A.T
+
+                        probe_beta = opt_params["muonlora_probe_beta"]
+                        gamma = float(opt_params.get("lora_init_scale", 1.0))
+                        desired_update_norm = server_lr * muon_scale
+                        B_new, A_new, correction_norm, tracking_fraction = (
+                            _balanced_probe_tracking_step(
+                                B_param,
+                                A_param.T,
+                                target_B,
+                                target_A,
+                                gamma,
+                                probe_beta,
+                                scaling,
+                                desired_update_norm,
+                                opt_params["muonlora_max_correction_ratio"],
+                            )
+                        )
+
+                        # Quantize now and use these exact stored values when the
+                        # base compensation is formed, avoiding a probe/base
+                        # mismatch caused by a later bf16/fp16 cast.
+                        B_new = B_new.to(original_params_data[grad_param_name_B].dtype)
+                        A_new = A_new.to(original_params_data[grad_param_name_A].dtype)
+                        server_param_updates[grad_param_name_B] = B_new
+                        server_param_updates[grad_param_name_A] = A_new
+                        balanced_probe_updates[base_name] = (
+                            B_param, A_param.T,
+                            B_new.to(torch.float64), A_new.to(torch.float64),
+                            muon_update_name_B, muon_update_name_A,
+                        )
+                        print(
+                            "muonlora_v17 balanced probe tracking: "
+                            f"beta={probe_beta:.6f} fraction={tracking_fraction:.6f} "
+                            f"||compensation||2={correction_norm.item():.6e}"
+                        )
+                        # v17 has already constructed both adapter updates and
+                        # the exact base compensation. Do not fall through to
+                        # the legacy alternating A/B fusion, which relies on
+                        # opt_params["update_B"].
+                        continue
+                    elif orth_then_merge:
+
                         if (server_epoch - 1) % opt_params["muonlora_switch_interval"]== 0:
                             # re-do SVD
                             #A_server = original_params_data[grad_param_name_A].to(torch.float64)  # (r, n)
@@ -1536,7 +1736,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             opt_params["orth_corrections"][base_name] = (B_corr, A_corr)
                             server_param_updates[grad_param_name_B] = gamma_orth * Q_B
                             print(f"v14 B-side orth: ||B_new-gamma*Q||={B_corr.norm().item():.4f}")
-                        elif opt_params["fedlora_avg"] in ["muonlora_v15", "muonlora_v16"]:
+                        elif opt_params["fedlora_avg"] in ["muonlora_v15", "muonlora_v16", "muonlora_v17"]:
                             B_new = server_param_updates[grad_param_name_B]  # (m, r), float64
                             gamma_orth = float(opt_params.get("lora_init_scale", 1.0))
                             B_retracted, A_transferred = _qr_transfer_from_B(
@@ -1578,7 +1778,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             opt_params["orth_corrections"][base_name] = (B_corr, A_corr)
                             server_param_updates[grad_param_name_A] = gamma_orth * Q_A.T
                             print(f"v14 A-side orth: ||A_new-gamma*Q||={A_corr.norm().item():.4f}")
-                        elif opt_params["fedlora_avg"] in ["muonlora_v15", "muonlora_v16"]:
+                        elif opt_params["fedlora_avg"] in ["muonlora_v15", "muonlora_v16", "muonlora_v17"]:
                             A_weight_new = server_param_updates[grad_param_name_A]  # (r, n), float64
                             gamma_orth = float(opt_params.get("lora_init_scale", 1.0))
                             B_transferred, A_retracted = _qr_transfer_from_A(
@@ -1663,11 +1863,41 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     #model.merge_adapter([opt_params["server_name"]])
     #print("I am merging muon_update adapter")
     #model.merge_adapter(["muon_update"])
-    merge_to_base(model,
-                adapter_name="muon_update",
-                lora_r=opt_params["lora_rank"],
-                lora_alpha=opt_params["lora_alpha"],
-                model_name=opt_params["model_name"])
+    if use_balanced_probe_tracking:
+        # Apply the desired Muon step and the exact adapter-reparameterization
+        # compensation in one cast to the base dtype:
+        #   dW_base = s * (U_step V_step + B_old A_old - B_new A_new).
+        scaling = opt_params["lora_alpha"] / opt_params["lora_rank"]
+        applied_probe_updates = 0
+        for name, param in model.named_parameters():
+            if name not in balanced_probe_updates:
+                continue
+            B_old, A_old, B_new, A_new, update_B_name, update_A_name = (
+                balanced_probe_updates[name]
+            )
+            effective_base_update = scaling * (
+                muon_updates[update_B_name] @ muon_updates[update_A_name]
+                + B_old @ A_old
+                - B_new @ A_new
+            )
+            if opt_params["model_name"] == "gpt2":
+                effective_base_update = effective_base_update.T
+            elif opt_params["model_name"] not in [
+                "meta-llama/Llama-3.1-8B-Instruct",
+                "meta-llama/Llama-3.1-8B",
+                "meta-llama/Llama-3.2-1B",
+                "meta-llama/Llama-3.2-3B",
+            ]:
+                raise NotImplementedError
+            param.data += effective_base_update.to(param.dtype)
+            applied_probe_updates += 1
+        assert applied_probe_updates == len(balanced_probe_updates)
+    else:
+        merge_to_base(model,
+                    adapter_name="muon_update",
+                    lora_r=opt_params["lora_rank"],
+                    lora_alpha=opt_params["lora_alpha"],
+                    model_name=opt_params["model_name"])
 
     print("="*10, " 7 ", "="*10)
     get_gpu_memory()
