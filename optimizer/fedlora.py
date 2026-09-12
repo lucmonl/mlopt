@@ -1355,34 +1355,65 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             old_mom = opt_params["momentum"][name].to(torch.float64)
                             new_grad = param.grad.to(torch.float64)
                             if use_momentum_error_feedback:
-                                error = opt_params["momentum_alignment_error"].get(name)
                                 if 'lora_B' in name:
-                                    prev_factor_name = name.replace("lora_B", "lora_A")
-                                    A_prev = opt_params["prev_factor"][prev_factor_name].to(torch.float64)
-                                    A_cur = cur_adapter_weights[prev_factor_name].to(torch.float64)
-                                    aligned_mom, new_error = _transport_B_momentum_with_error_feedback(
-                                        old_mom,
-                                        A_prev,
-                                        A_cur,
-                                        opt_params["server_momentum"],
-                                        error,
-                                        opt_params["lora_rank"],
-                                    )
+                                    if not opt_params["update_B"]:
+                                        error = opt_params["momentum_alignment_error"].get(name)
+                                        prev_factor_name = name.replace("lora_B", "lora_A")
+                                        A_prev = opt_params["prev_factor"][prev_factor_name].to(torch.float64)
+                                        A_cur = cur_adapter_weights[prev_factor_name].to(torch.float64)
+                                        aligned_mom, new_error = _transport_B_momentum_with_error_feedback(
+                                            old_mom,
+                                            A_prev,
+                                            A_cur,
+                                            opt_params["server_momentum"],
+                                            error,
+                                            opt_params["lora_rank"],
+                                        )
+                                        opt_params["momentum_alignment_error"][name] = new_error
+                                        params_grads[name] = aligned_mom + new_grad
+                                    else:
+                                        # This factor is the one being updated, so no transport
+                                        # runs. The retained error is a momentum-like quantity
+                                        # (the transport scales it by beta each round), so keep
+                                        # decaying it here or it would be re-injected at full
+                                        # magnitude once this factor is frozen again.
+                                        error = opt_params["momentum_alignment_error"].get(name)
+                                        if error is not None:
+                                            opt_params["momentum_alignment_error"][name] = (
+                                                opt_params["server_momentum"] * error[0],
+                                                error[1],
+                                            )
+                                        params_grads[name] = opt_params["server_momentum"] * old_mom + new_grad
                                 else:
                                     assert 'lora_A' in name
-                                    prev_factor_name = name.replace("lora_A", "lora_B")
-                                    B_prev = opt_params["prev_factor"][prev_factor_name].to(torch.float64)
-                                    B_cur = cur_adapter_weights[prev_factor_name].to(torch.float64)
-                                    aligned_mom, new_error = _transport_A_momentum_with_error_feedback(
-                                        old_mom,
-                                        B_prev,
-                                        B_cur,
-                                        opt_params["server_momentum"],
-                                        error,
-                                        opt_params["lora_rank"],
-                                    )
-                                opt_params["momentum_alignment_error"][name] = new_error
-                                params_grads[name] = aligned_mom + new_grad
+                                    if opt_params["update_B"]:
+                                        error = opt_params["momentum_alignment_error"].get(name)
+                                        prev_factor_name = name.replace("lora_A", "lora_B")
+                                        B_prev = opt_params["prev_factor"][prev_factor_name].to(torch.float64)
+                                        B_cur = cur_adapter_weights[prev_factor_name].to(torch.float64)
+                                        aligned_mom, new_error = _transport_A_momentum_with_error_feedback(
+                                            old_mom,
+                                            B_prev,
+                                            B_cur,
+                                            opt_params["server_momentum"],
+                                            error,
+                                            opt_params["lora_rank"],
+                                        )
+                                        opt_params["momentum_alignment_error"][name] = new_error
+                                        params_grads[name] = aligned_mom + new_grad
+                                    else:
+                                        # This factor is the one being updated, so no transport
+                                        # runs. The retained error is a momentum-like quantity
+                                        # (the transport scales it by beta each round), so keep
+                                        # decaying it here or it would be re-injected at full
+                                        # magnitude once this factor is frozen again.
+                                        error = opt_params["momentum_alignment_error"].get(name)
+                                        if error is not None:
+                                            opt_params["momentum_alignment_error"][name] = (
+                                                opt_params["server_momentum"] * error[0],
+                                                error[1],
+                                            )
+                                        params_grads[name] = opt_params["server_momentum"] * old_mom + new_grad
                             else:
                                 if 'lora_B' in name:
                                     if not opt_params["update_B"] or use_product_preserving_qr_gauge:
