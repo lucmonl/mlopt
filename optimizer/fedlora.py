@@ -1131,6 +1131,148 @@ def _transport_A_momentum_with_error_feedback(
     return aligned_momentum, new_error
 
 
+def _low_rank_concat(parts):
+    """Concatenate (left, right) factor pairs into a single pair without expanding."""
+    return (
+        torch.cat([left for left, _ in parts], dim=1),
+        torch.cat([right for _, right in parts], dim=0),
+    )
+
+
+def _low_rank_fro_norm(left, right):
+    """Frobenius norm of left @ right without forming the product."""
+    R = torch.linalg.qr(left, mode="reduced")[1]
+    return (R @ right).norm()
+
+
+def _shared_ambient_ef_state(opt_params, key):
+    """Fetch (or lazily create) one module's shared alignment-error state."""
+    if "shared_ambient_ef" not in opt_params:
+        opt_params["shared_ambient_ef"] = {}
+    return opt_params["shared_ambient_ef"].setdefault(key, {})
+
+
+def _ambient_momentum_norm(M_B, M_A, B):
+    """||M_B (B^T M_B)^+ M_A||_F, the implied ambient momentum magnitude.
+
+    Computed through an r x r QR so the (m, n) product is never formed.
+    """
+    X = M_B @ torch.linalg.pinv(B.T @ M_B, rcond=1e-6)      # (m, r)
+    R = torch.linalg.qr(X, mode="reduced")[1]                # (r, r)
+    return (R @ M_A).norm()
+
+
+def _shared_alignment_error_step(
+    B,
+    A_w,
+    M_B,
+    M_A,
+    drop,
+    state,
+    dense_buffer,
+    max_rank,
+    error_decay,
+    debt_cap,
+    storage_dtype=torch.float32,
+):
+    """Accumulate this round's momentum-alignment loss in one shared ambient buffer
+    and hand back what each factor can absorb.
+
+    ``drop`` is the ambient (m, n) mass that this round's momentum transport failed
+    to carry, passed as a low-rank (left, right) pair. ``M_B`` (m, r) and ``M_A``
+    (r, n) are the per-factor momenta the caller already maintains -- the ambient
+    momentum is never instantiated, it stays implicit in those two and in the
+    existing pseudo-gradient reconstruction M_B (B^T M_B)^+ M_A used downstream.
+
+    One buffer serves both factors, and both absorb from it every round. What binds
+    is the pseudo-gradient's reach: its column space lies in col(M_B) and its row
+    space in row(M_A), so M_B carries the column side of the debt and M_A the row
+    side. Using the same convention that defines the drop -- the ambient image of
+    M_A is B M_A and of M_B is M_B A -- the two absorbed pieces are B^+ E and E A^+,
+    and what neither can express is (I - P_B) E (I - Pi_A), the doubly-orthogonal
+    block, which is reachable only once the frames rotate.
+
+    Returns (delta_B, delta_A, stats), to be added to M_B and M_A respectively.
+    """
+    BtB_inv = torch.linalg.pinv(B.T @ B, rcond=1e-6)
+    AAt_inv = torch.linalg.pinv(A_w @ A_w.T, rcond=1e-6)
+
+    if dense_buffer:
+        drop_full = drop[0] @ drop[1]
+        error = state.get("error")
+        E = drop_full if error is None else error_decay * error.to(drop_full) + drop_full
+
+        delta_A = BtB_inv @ (B.T @ E)          # (r, n): ambient B delta_A = P_B E
+        delta_B = (E @ A_w.T) @ AAt_inv        # (m, r): ambient delta_B A = E Pi_A
+        overlap = BtB_inv @ (B.T @ E @ A_w.T) @ AAt_inv     # (r, r)
+        # inclusion-exclusion leaves exactly (I - P_B) E (I - Pi_A)
+        E = E - B @ delta_A - delta_B @ A_w + B @ overlap @ A_w
+
+        reference = _ambient_momentum_norm(M_B, M_A, B)
+        error_norm = E.norm()
+        clipped = False
+        if debt_cap > 0 and error_norm > debt_cap * reference and error_norm > 0:
+            E = E * (debt_cap * reference / error_norm)
+            error_norm = debt_cap * reference
+            clipped = True
+        state["error"] = E.to(storage_dtype)
+    else:
+        # Same recursion with the buffer kept rank-capped instead of dense.
+        error = state.get("error")
+        parts = [drop]
+        if error is not None:
+            parts.insert(0, (error_decay * error[0].to(B), error[1].to(B)))
+        E_left, E_right = _low_rank_concat(parts)
+
+        delta_A = BtB_inv @ ((B.T @ E_left) @ E_right)
+        delta_B = (E_left @ (E_right @ A_w.T)) @ AAt_inv
+        overlap = BtB_inv @ ((B.T @ E_left) @ (E_right @ A_w.T)) @ AAt_inv
+        E_left, E_right = _truncate_low_rank_product(
+            *_low_rank_concat([
+                (E_left, E_right),
+                (-B, delta_A),
+                (-delta_B, A_w),
+                (B @ overlap, A_w),
+            ]),
+            max_rank=max_rank,
+        )
+
+        reference = _ambient_momentum_norm(M_B, M_A, B)
+        error_norm = _low_rank_fro_norm(E_left.to(B), E_right.to(B))
+        clipped = False
+        if debt_cap > 0 and error_norm > debt_cap * reference and error_norm > 0:
+            E_left = E_left * (debt_cap * reference / error_norm).to(E_left)
+            error_norm = debt_cap * reference
+            clipped = True
+        state["error"] = (E_left.to(storage_dtype), E_right.to(storage_dtype))
+
+    stats = {
+        "error_norm": float(error_norm),
+        "reference_norm": float(reference),
+        "debt_ratio": float(error_norm / reference) if float(reference) > 0 else 0.0,
+        "clipped": clipped,
+    }
+    return delta_B, delta_A, stats
+
+
+def _advance_alternating_phase(opt_params, server_epoch, alternate_update):
+    """Pick which LoRA factor receives this round's update."""
+    if alternate_update == False:
+        print("Keep update on A...")
+        opt_params["update_B"] = False
+        return
+    assert opt_params["muonlora_switch_interval"] > 0
+    if (server_epoch - 1) % opt_params["muonlora_switch_interval"] == 0:
+        if "update_B" in opt_params:
+            # switch update parameter
+            opt_params["update_B"] = not opt_params["update_B"]
+            print("Switching update to {}...".format("B" if opt_params["update_B"] else "A"))
+        else:
+            #lazy initialize update_B
+            print("Init update on B...")
+            opt_params["update_B"] = True
+
+
 def get_muonlora_hparams(fedlora_avg_name):
     if fedlora_avg_name == 'muonlora_v1':
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = False, True, False, False, True
@@ -1151,7 +1293,7 @@ def get_muonlora_hparams(fedlora_avg_name):
     elif fedlora_avg_name == 'muonlora_v9':
         """directly adding momentum to the lora adapters."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, True, True
-    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11', 'muonlora_v12', 'muonlora_v13', 'muonlora_v14', 'muonlora_v15', 'muonlora_v16', 'muonlora_v17', 'muonlora_v18']:
+    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11', 'muonlora_v12', 'muonlora_v13', 'muonlora_v14', 'muonlora_v15', 'muonlora_v16', 'muonlora_v17', 'muonlora_v18', 'muonlora_v19']:
         """split muon update: fuse singular-vector-aligned part into server adapter, keep residual as muon update; alternates A/B sides across epochs."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, False, True
     else:
@@ -1179,10 +1321,15 @@ def get_muonlora_hparams(fedlora_avg_name):
         """v15 + rank-capped effective-weight-space momentum error feedback."""
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
     elif fedlora_avg_name == 'muonlora_v17':
-        """v16 without the product-preserving QR gauge transfer."""
+        """v16 with v14-style base-weight orthonormalization correction in place of
+        the product-preserving QR gauge transfer."""
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
     elif fedlora_avg_name == 'muonlora_v18':
         """v16 + simultaneous balanced probe tracking with exact base compensation."""
+        partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
+    elif fedlora_avg_name == 'muonlora_v19':
+        """v14 exactly, plus one shared ambient buffer that accumulates the momentum
+        alignment loss so the other factor's phase can absorb it."""
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
     else:
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = False, False, False, False
@@ -1191,9 +1338,16 @@ def get_muonlora_hparams(fedlora_avg_name):
     use_product_preserving_qr_gauge = fedlora_avg_name in ['muonlora_v15', 'muonlora_v16']
     # Toggle this off to make v18 use the legacy alternating merge path.
     use_balanced_probe_tracking = fedlora_avg_name == 'muonlora_v18'
+    # One ambient momentum + error buffer shared by A and B, replacing the
+    # per-factor momentum transport. Complementary reaches of the A/B phases let
+    # each factor retire the debt the other one banked.
+    use_shared_ambient_ef = fedlora_avg_name == 'muonlora_v19'
+    # Store that shared error dense, in base-weight shape, instead of rank-capped.
+    use_dense_ef_buffer = fedlora_avg_name == 'muonlora_v19'
     return use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
             orth_then_merge, alternate_update, aligned_momentum, use_damped_inv, use_momentum_error_feedback, \
-            use_balanced_probe_tracking, use_product_preserving_qr_gauge
+            use_balanced_probe_tracking, use_product_preserving_qr_gauge, use_shared_ambient_ef, \
+            use_dense_ef_buffer
 
 def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
@@ -1205,8 +1359,12 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
         orth_then_merge, alternate_update, aligned_momentum, use_damped_inv, \
         use_momentum_error_feedback, use_balanced_probe_tracking, \
-        use_product_preserving_qr_gauge = get_muonlora_hparams(
+        use_product_preserving_qr_gauge, use_shared_ambient_ef, \
+        use_dense_ef_buffer = get_muonlora_hparams(
             fedlora_avg_name=opt_params["fedlora_avg"])
+    # v14-style re-orthonormalization of the updated factor after each merge.
+    v14_style_reorth = opt_params["fedlora_avg"] in (
+        "muonlora_v14", "muonlora_v17", "muonlora_v19")
     if use_model_grad:
         opt_params["local_update_ON"] = False
     else:
@@ -1216,7 +1374,9 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
         f"apply_momentum={apply_momentum}, moment_on_factor={moment_on_factor}, partial_merge={partial_merge}, "
         f"orth_then_merge={orth_then_merge}, alternate_update={alternate_update}, "
         f"aligned_momentum={aligned_momentum}, use_damped_inv={use_damped_inv}, "
-        f"use_momentum_error_feedback={use_momentum_error_feedback}")
+        f"use_momentum_error_feedback={use_momentum_error_feedback}, "
+        f"use_shared_ambient_ef={use_shared_ambient_ef}, "
+        f"use_dense_ef_buffer={use_dense_ef_buffer}")
 
     adapter_names = []
     adapter_weights = {}
@@ -1324,7 +1484,13 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     if opt_params["train_stats"]:
         grad_norm = 0
 
+    if use_shared_ambient_ef:
+        # Both the transport gating below and the absorb step need this round's
+        # active factor, so the phase is advanced before params_grads is built.
+        _advance_alternating_phase(opt_params, server_epoch, alternate_update)
+
     params_grads = {}
+    alignment_drops = {}
     #print("adapter diff norm")
     cur_adapter_weights = {}
     for name, param in model.named_parameters():
@@ -1423,6 +1589,15 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                                         core = prev_factor @ prev_factor.T
                                         C = torch.linalg.pinv(core, rcond=1e-6) @ prev_factor @ cur_adapter_weights[prev_factor_name].T.to(torch.float64)
                                         aligned_mom = old_mom @ C
+                                        if use_shared_ambient_ef:
+                                            # beta * (M_B A_prev - aligned A_cur): the ambient
+                                            # mass this transport could not carry.
+                                            beta_ = opt_params["server_momentum"]
+                                            alignment_drops[name] = (
+                                                beta_ * torch.cat((old_mom, -aligned_mom), dim=1),
+                                                torch.cat((prev_factor,
+                                                           cur_adapter_weights[prev_factor_name].to(torch.float64)), dim=0),
+                                            )
                                     else:
                                         aligned_mom = old_mom
                                 else:
@@ -1434,6 +1609,15 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                                         core = prev_factor.T @ prev_factor
                                         C = cur_adapter_weights[prev_factor_name].to(torch.float64).T @ prev_factor @ torch.linalg.pinv(core, rcond=1e-6)
                                         aligned_mom = C @ old_mom
+                                        if use_shared_ambient_ef:
+                                            # beta * (B_prev M_A - B_cur aligned)
+                                            beta_ = opt_params["server_momentum"]
+                                            alignment_drops[name.replace("lora_A", "lora_B")] = (
+                                                beta_ * torch.cat(
+                                                    (prev_factor,
+                                                     -cur_adapter_weights[prev_factor_name].to(torch.float64)), dim=1),
+                                                torch.cat((old_mom, aligned_mom), dim=0),
+                                            )
                                     else:
                                         aligned_mom = old_mom
                                 params_grads[name] = opt_params["server_momentum"] * aligned_mom + new_grad
@@ -1462,6 +1646,37 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     #    train_graphs.grad_norm.append(grad_norm ** 0.5)
     #    print("grad norm:", train_graphs.grad_norm[-1])
     
+    if use_shared_ambient_ef:
+        ef_max_rank = int(opt_params.get("muonlora_ef_max_rank", 2 * opt_params["lora_rank"]))
+        ef_debt_cap = float(opt_params.get("muonlora_ef_debt_cap", 10.0))
+        # 1.0 = true accumulation (textbook error feedback). Set to server_momentum
+        # to age the debt at the same rate as the momentum it was dropped from.
+        ef_error_decay = float(opt_params.get("muonlora_ef_error_decay", 1.0))
+        for name_B, drop in alignment_drops.items():
+            name_A = name_B.replace("lora_B", "lora_A")
+            delta_B, delta_A, ef_stats = _shared_alignment_error_step(
+                cur_adapter_weights[name_B].to(torch.float64),   # B: (m, r)
+                cur_adapter_weights[name_A].to(torch.float64),   # A: (r, n)
+                params_grads[name_B],                            # M_B
+                params_grads[name_A],                            # M_A
+                drop,
+                _shared_ambient_ef_state(opt_params, name_B),
+                use_dense_ef_buffer,
+                ef_max_rank,
+                ef_error_decay,
+                ef_debt_cap,
+            )
+            # Both factors absorb: M_B carries the column side of the debt and M_A
+            # the row side, matching the pseudo-gradient's reach.
+            for nm, d in ((name_B, delta_B), (name_A, delta_A)):
+                params_grads[nm] = params_grads[nm] + d
+                opt_params["momentum"][nm] = params_grads[nm].clone()
+            print(f"shared alignment EF {name_B}: ||E||={ef_stats['error_norm']:.4e} "
+                  f"||E||/||M_ambient||={ef_stats['debt_ratio']:.3f} "
+                  f"absorbed_B={delta_B.norm().item():.4e} "
+                  f"absorbed_A={delta_A.norm().item():.4e}"
+                  + (" [clipped]" if ef_stats["clipped"] else ""))
+
     print("="*10, " 4 ", "="*10)
     get_gpu_memory()
 
@@ -1513,21 +1728,8 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
             print("gradA norm:", params_grads[grad_param_name_A].norm().item())
             print("gradA error: ", (recovered_grad.T @ B_param - params_grads[grad_param_name_A].T).norm().item())
     """
-    if partial_merge and not use_balanced_probe_tracking:
-        if alternate_update == False:
-            print("Keep update on A...")
-            opt_params["update_B"] = False
-        else:
-            assert opt_params["muonlora_switch_interval"] > 0
-            if (server_epoch - 1) % opt_params["muonlora_switch_interval"]== 0:
-                if "update_B" in opt_params:
-                    # switch update parameter
-                    opt_params["update_B"] = not opt_params["update_B"]
-                    print("Switching update to {}...".format("B" if opt_params["update_B"] else "A"))
-                else:
-                    #lazy initialize update_B
-                    print("Init update on B...")
-                    opt_params["update_B"] = True
+    if partial_merge and not use_balanced_probe_tracking and not use_shared_ambient_ef:
+        _advance_alternating_phase(opt_params, server_epoch, alternate_update)
 
     print("="*10, " 5 ", "="*10)
     get_gpu_memory()
@@ -1767,7 +1969,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                         # Let Q*R = B_new (QR decomp). Set B <- gamma*Q.
                         # Correction to W: (lora_alpha/r) * (B_new - gamma*Q) @ A_weight,
                         # stored as rank-r factors (B_corr, A_corr_weight) and merged later.
-                        if opt_params["fedlora_avg"] == "muonlora_v14":
+                        if v14_style_reorth:
                             B_new = server_param_updates[grad_param_name_B]  # (m, r), float64
                             Q_B, _ = torch.linalg.qr(B_new, mode='reduced')   # Q_B: (m, r)
                             gamma_orth = float(opt_params.get("lora_init_scale", 1.0))
@@ -1777,7 +1979,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                                 opt_params["orth_corrections"] = {}
                             opt_params["orth_corrections"][base_name] = (B_corr, A_corr)
                             server_param_updates[grad_param_name_B] = gamma_orth * Q_B
-                            print(f"v14 B-side orth: ||B_new-gamma*Q||={B_corr.norm().item():.4f}")
+                            print(f"{opt_params['fedlora_avg']} B-side orth: ||B_new-gamma*Q||={B_corr.norm().item():.4f}")
                         elif use_product_preserving_qr_gauge:
                             B_new = server_param_updates[grad_param_name_B]  # (m, r), float64
                             gamma_orth = float(opt_params.get("lora_init_scale", 1.0))
@@ -1809,7 +2011,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                         # Let Q*R = A_math (QR decomp). Set A_math <- gamma*Q, i.e. A_weight <- gamma*Q.T.
                         # Correction: (lora_alpha/r) * B @ (A_weight_new - gamma*Q.T),
                         # stored as rank-r factors (B_corr, A_corr_weight) and merged later.
-                        if opt_params["fedlora_avg"] == "muonlora_v14":
+                        if v14_style_reorth:
                             A_weight_new = server_param_updates[grad_param_name_A]  # (r, n), float64
                             Q_A, _ = torch.linalg.qr(A_weight_new.T, mode='reduced')  # Q_A: (n, r)
                             gamma_orth = float(opt_params.get("lora_init_scale", 1.0))
@@ -1819,7 +2021,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                                 opt_params["orth_corrections"] = {}
                             opt_params["orth_corrections"][base_name] = (B_corr, A_corr)
                             server_param_updates[grad_param_name_A] = gamma_orth * Q_A.T
-                            print(f"v14 A-side orth: ||A_new-gamma*Q||={A_corr.norm().item():.4f}")
+                            print(f"{opt_params['fedlora_avg']} A-side orth: ||A_new-gamma*Q||={A_corr.norm().item():.4f}")
                         elif use_product_preserving_qr_gauge:
                             A_weight_new = server_param_updates[grad_param_name_A]  # (r, n), float64
                             gamma_orth = float(opt_params.get("lora_init_scale", 1.0))
@@ -1945,7 +2147,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
     get_gpu_memory()
 
     # v14: apply orthonormalization corrections via the orth_correction adapter
-    if opt_params["fedlora_avg"] == "muonlora_v14" and opt_params.get("orth_corrections"):
+    if v14_style_reorth and opt_params.get("orth_corrections"):
         for name, param in model.named_parameters():
             if "orth_correction" not in name:
                 continue

@@ -458,7 +458,7 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
         #no need to initialize, will be reset at every step
         #synchronize_lora_fr_neg(model, server_name=opt_params["server_name"], truncate_last=truncate_last)
 
-    if opt_params["fedlora_avg"] == "muonlora_v14":
+    if opt_params["fedlora_avg"] in ("muonlora_v14", "muonlora_v17", "muonlora_v19"):
         # extra adapter to carry the rank-r orthonormalization correction factors (Sec 3.7)
         model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
                                                                         lora_freeze_a=lora_freeze_a, adapter_name="orth_correction", \
