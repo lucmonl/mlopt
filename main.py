@@ -358,6 +358,17 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                          model_params, server_epoch)
         return
 
+    if opt_params["fedlora_avg"] == "muonlora_v21":
+        # New MuonLoRA versions live outside the historical fedlora.py
+        # implementation.  v21 differentiates the shared server adapter and
+        # performs its own factor/base update.
+        from optimizer.muonlora import federated_muonlora_v21
+        federated_muonlora_v21(
+            model, loss_name, criterion, train_graphs, device, train_loaders,
+            server_optimizer, server_lr_scheduler, client_lr, opt_params,
+            model_params, server_epoch)
+        return
+
     if opt_params["fedlora_avg"] in ("ef14muon", "ef21muon"):
         # dense weights of the LoRA target modules (run with --lora_rank -1);
         # must be checked before the lora_rank <= 0 branch below. ef21muon takes
@@ -1723,7 +1734,8 @@ def hook(self, input, output):
 
     
 if __name__ == "__main__":
-    DATASETS = ["spurious", "cifar", "cifar100", "imagenet_tiny", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature", 
+    from arch.lora import DEFAULT_LORA_DROPOUT
+    DATASETS = ["spurious", "cifar", "cifar100", "imagenet_tiny", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature",
                 "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds", "icl", "20newsgroups", "mathqa_gsm8k", "swag",
                 "spider", "fedllm_bench", "fineweb", "oasst2", "cot_collection", "megascience", "Salesforce/xlam-function-calling-60k"]
     HF_MODELS = ["google/vit-base-patch16-224-in21k", "gpt2", "roberta-base", "akjindal53244/Arithmo-Mistral-7B", 
@@ -1775,6 +1787,7 @@ if __name__ == "__main__":
     parser.add_argument("--hetero_rank", type=int, default=-1)
     parser.add_argument("--lora_freeze_a", action='store_true', help="freeze A matrix in lora")
     parser.add_argument("--lora_init_scale", type=float, default=-1.0, help="uniform singular-vector init scale for LoRA (>0 enables; replaces pissa)")
+    parser.add_argument("--lora_dropout", type=float, default=DEFAULT_LORA_DROPOUT, help="LoRA input dropout; 0 disables it (server-side optimizers then see unperturbed factor gradients)")
     parser.add_argument("--cls_lr", type=float, default=-1, help="specific learning rate for the output layer")
     parser.add_argument("--compute_base_grad", action='store_true', help="compute full base grad and the ratio of the real gradient to the full gradient")
 
@@ -1846,7 +1859,7 @@ if __name__ == "__main__":
     parser.add_argument("--client_momentum", type=float, default=0.0, help="momentum of clients")
     parser.add_argument("--client_weight_decay", type=float, default=0.0, help="momentum of clients")
     parser.add_argument("--client_epoch", type=int, default=200, help="total epochs of client training")
-    parser.add_argument("--sketch_size", type=float, default=-1, help="compression budget; for ef14muon a value in (0,1) is a fraction of EACH tensor's entries (0.02 = 2% per layer), >=1 is an absolute count per tensor, -1 disables. Other methods use it as an absolute sketch dimension")
+    parser.add_argument("--sketch_size", type=float, default=-1, help="compression budget; for ef14muon a value in (0,1) is a fraction of EACH tensor's entries (0.02 = 2%% per layer), >=1 is an absolute count per tensor, -1 disables. Other methods use it as an absolute sketch dimension")
     parser.add_argument("--compressor", type=str, default="topk", choices=["topk", "randk", "none"], help="layer-wise sparsifier used by fedlora_avg=ef14muon/ef21muon, applied per client and again to the server error buffer")
     parser.add_argument("--ef21_state_dir", type=str, default="", help="ef21muon: where to page the per-client (M_j, G_j) store. Defaults to the run's checkpoint directory; point it at scratch/project space, since it needs client_num * 2 * d * 2 bytes")
     parser.add_argument("--ef21_w2s", type=str, default="ef21", choices=["ef21", "none"], help="ef21muon: worker-to-server error feedback. 'ef21' keeps the per-client estimators G_j and sends C(M_j - G_j) (Algorithm 1); 'none' compresses each client gradient memorylessly with server-side momentum, as ef14muon does, which removes ALL per-client state and hence all disk paging -- an ablation of the s2w (EF21-P) mechanism alone")
@@ -1871,7 +1884,7 @@ if __name__ == "__main__":
                                                              "muonlora_v4", "muonlora_v5", "muonlora_v6",  "muonlora_v7", "muonlora_v8",
                                                              "muonlora_v9", "muonlora_v10", "muonlora_v11", "muonlora_v12",
                                                              "muonlora_v13", "muonlora_v14", "muonlora_v15", "muonlora_v16", "muonlora_v17", "muonlora_v18",
-                                                              "muonlora_v19", "muonlora_v20", "ef14muon",
+                                                              "muonlora_v19", "muonlora_v20", "muonlora_v21", "ef14muon",
                                                              "ef21muon", "riemannion", "polora"], default="avg",
                                                              help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
@@ -1883,7 +1896,7 @@ if __name__ == "__main__":
     parser.add_argument("--client_early_stop", type=int, default=-1, help="the number of minibatch for each client iteration, -1 for complete training")
     parser.add_argument("--marina_prob", type=float, default=-1.0, help="the probability of transmitting full gradient")
     parser.add_argument("--muonlora_switch_interval", type=int, default=-1.0, help="the probability of transmitting full gradient")
-    parser.add_argument("--muonlora_merge_alpha", type=float, default=1.0, help="merging alpha, larger alpha means faster change in B and A")
+    parser.add_argument("--muonlora_merge_alpha", type=float, default=1.0, help="MuonLoRA factor-motion multiplier; for v21 the factor learning rate is server_lr * this value")
     parser.add_argument("--muonlora_probe_beta", type=float, default=0.9, help="EMA weight on the current probe subspace; must be in [0, 1)")
     parser.add_argument("--muonlora_max_correction_ratio", type=float, default=15.0, help="maximum base-compensation spectral norm relative to the intended Muon update")
     parser.add_argument("--muonlora_scaled", action='store_true', help="scale every muon update by (I/J)**0.5")
@@ -2060,6 +2073,7 @@ if __name__ == "__main__":
     opt_params["uba_weight"]       = args.uba_weight
     opt_params["lora_freeze_a"]    = args.lora_freeze_a
     opt_params["lora_init_scale"]  = args.lora_init_scale
+    opt_params["lora_dropout"]     = args.lora_dropout
     opt_params["hetero_rank"]      = args.hetero_rank
     opt_params["use_ef"]           = args.use_ef
     opt_params["client_early_stop"]= args.client_early_stop
@@ -2773,6 +2787,10 @@ if __name__ == "__main__":
             model_params = model_params | {"lora_freeze": "a"}
         if args.lora_init_scale > 0:
             model_params = model_params | {"lora_init_scale": args.lora_init_scale}
+        if args.lora_dropout != DEFAULT_LORA_DROPOUT:
+            # Only non-default values enter the path, so every existing results
+            # directory keeps its name.
+            model_params = model_params | {"lora_dropout": args.lora_dropout}
         if opt_params["opt_name"] == "federated":
             if opt_params["fedlora_avg"] != 'avg':
                 model_params = model_params | {"fedlora_avg": opt_params["fedlora_avg"]}

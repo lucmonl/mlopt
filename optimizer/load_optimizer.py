@@ -6,7 +6,8 @@ import sys
 # fedlora_avg values whose clients differentiate the shared model and never take
 # a local step, so the client-side optimizer hyperparameters are inert. Keep in
 # sync with the methods that set opt_params["local_update_ON"] = False.
-GRAD_ONLY_FEDLORA = ("ef14muon", "ef21muon", "riemannion", "polora")
+GRAD_ONLY_FEDLORA = (
+    "ef14muon", "ef21muon", "riemannion", "polora", "muonlora_v21")
 
 def load_optimizer_param(opt_name, model, lr, momentum, weight_decay, lr_decay, epochs_lr_decay, warm_start, model_params, **kwargs):
     if kwargs['cls_lr'] == -1:

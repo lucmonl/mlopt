@@ -4,47 +4,71 @@ import torch.optim as optim
 import numpy as np
 from peft import PeftModel
 
-def add_adapters_dataset(model_name, model, lora_rank, lora_alpha, server_name, lora_freeze_a=False, adapter_name="default", init_lora_weights=True, add_to_output_layer=True):
-    if model_name == "google/vit-base-patch16-224-in21k": 
+# Historical hard-coded LoRA dropout.  Kept as the --lora_dropout default so
+# every existing method's trajectory (and results directory) is unchanged.
+DEFAULT_LORA_DROPOUT = 0.1
+
+
+def set_server_lora_dropout(model, server_name, dropout, tag):
+    """Reset the server adapter's LoRA dropout to `dropout` after construction.
+
+    PEFT applies dropout to the adapter's *input*, so it perturbs the factor
+    gradients the server-side optimizers consume.  Methods that step the shared
+    server adapter directly (polora, muonlora_v21) state this explicitly here
+    rather than inheriting whatever LoraConfig was built with.
+    """
+    layer = torch.nn.Identity() if dropout <= 0 else torch.nn.Dropout(p=dropout)
+    n_dropout = 0
+    for module in model.modules():
+        if hasattr(module, "lora_dropout") and server_name in getattr(module, "lora_dropout", {}):
+            module.lora_dropout[server_name] = layer
+            n_dropout += 1
+    print("[{}] server LoRA dropout set to {} on {} modules".format(
+        tag, dropout if dropout > 0 else "0 (Identity)", n_dropout))
+    return n_dropout
+
+
+def add_adapters_dataset(model_name, model, lora_rank, lora_alpha, server_name, lora_freeze_a=False, adapter_name="default", init_lora_weights=True, add_to_output_layer=True, lora_dropout=DEFAULT_LORA_DROPOUT):
+    if model_name == "google/vit-base-patch16-224-in21k":
         output_layer_name = "classifier" if add_to_output_layer else None
         model, Lora_config = add_adapters(model, lora_rank, lora_alpha, output_layer_name, ["query", "value"], server_name, \
-            freeze_a=lora_freeze_a, adapter_name=adapter_name, init_lora_weights=init_lora_weights)
-        output_layer_name = 'classifier' 
+            freeze_a=lora_freeze_a, adapter_name=adapter_name, init_lora_weights=init_lora_weights, lora_dropout=lora_dropout)
+        output_layer_name = 'classifier'
     elif model_name == 'flair':
         output_layer_name = "classifier" if add_to_output_layer else None
         add_adapters(model, lora_rank, lora_alpha, output_layer_name, ["query", "value"], \
-            freeze_a=lora_freeze_a, init_lora_weights=init_lora_weights)
+            freeze_a=lora_freeze_a, init_lora_weights=init_lora_weights, lora_dropout=lora_dropout)
         # add_adapters(model, lora_rank, lora_alpha, 'classifier', ['convolution'])
     elif model_name == 'gpt2':
         #output_layer_name = "score" if add_to_output_layer else None
         output_layer_name = "score"
         output_layer_name = None
         model, Lora_config = add_adapters(model, lora_rank, lora_alpha, output_layer_name, ["c_attn", "c_proj", "c_fc"], server_name, \
-             freeze_a=lora_freeze_a, adapter_name=adapter_name, init_lora_weights=init_lora_weights) #"score"
+             freeze_a=lora_freeze_a, adapter_name=adapter_name, init_lora_weights=init_lora_weights, lora_dropout=lora_dropout) #"score"
         #output_layer_name = 'score'
     elif model_name == "google-bert/bert-base-cased":
         sys.exit()
         output_layer_name = "classifier" if add_to_output_layer else None
         model, Lora_config = add_adapters(model, lora_rank, lora_alpha, output_layer_name, ["query", "value"], server_name, \
-            freeze_a=lora_freeze_a, adapter_name=adapter_name, init_lora_weights=init_lora_weights) #"score"
+            freeze_a=lora_freeze_a, adapter_name=adapter_name, init_lora_weights=init_lora_weights, lora_dropout=lora_dropout) #"score"
         output_layer_name = 'classifier'
     elif model_name == 'reddit':
-        add_adapters(model, lora_rank, lora_alpha, None, ["c_attn", "c_proj", "c_fc"], server_name)
+        add_adapters(model, lora_rank, lora_alpha, None, ["c_attn", "c_proj", "c_fc"], server_name, lora_dropout=lora_dropout)
     elif model_name == "roberta-base":
         output_layer_name = "classifier" if add_to_output_layer else None
         model, Lora_config = add_adapters(model, lora_rank, lora_alpha, output_layer_name, ["query", "value"], server_name, \
-            freeze_a=lora_freeze_a, adapter_name=adapter_name, init_lora_weights=init_lora_weights)
+            freeze_a=lora_freeze_a, adapter_name=adapter_name, init_lora_weights=init_lora_weights, lora_dropout=lora_dropout)
         output_layer_name = 'classifier'
     elif model_name in ["akjindal53244/Arithmo-Mistral-7B", "mistralai/Mistral-7B-v0.1"]:
         # from https://huggingface.co/upaya07/Arithmo2-Mistral-7B-adapter/blob/main/adapter_config.json
         #model, Lora_config = add_adapters(model, lora_rank, lora_alpha, None, ["o_proj", "q_proj", "v_proj", "down_proj", "up_proj", "k_proj", "gate_proj"], task_type="CAUSAL_LM")
         model, Lora_config = add_adapters(model, lora_rank, lora_alpha, None, ["q_proj", "v_proj"], server_name, \
-            freeze_a=lora_freeze_a, task_type="CAUSAL_LM", adapter_name=adapter_name, init_lora_weights=init_lora_weights)
-        output_layer_name = None   
+            freeze_a=lora_freeze_a, task_type="CAUSAL_LM", adapter_name=adapter_name, init_lora_weights=init_lora_weights, lora_dropout=lora_dropout)
+        output_layer_name = None
     elif model_name in ["meta-llama/Llama-3.1-8B-Instruct", "meta-llama/Llama-3.1-8B", "meta-llama/Llama-3.2-1B", "meta-llama/Llama-3.2-3B"]:
-        output_layer_name = None 
+        output_layer_name = None
         model, Lora_config = add_adapters(model, lora_rank, lora_alpha, output_layer_name, ["q_proj", "v_proj", "k_proj", "o_proj"], server_name, \
-            freeze_a=lora_freeze_a, task_type="CAUSAL_LM", adapter_name=adapter_name, init_lora_weights=init_lora_weights)
+            freeze_a=lora_freeze_a, task_type="CAUSAL_LM", adapter_name=adapter_name, init_lora_weights=init_lora_weights, lora_dropout=lora_dropout)
     return model, output_layer_name, Lora_config
 
 
@@ -237,15 +261,14 @@ def init_lora_uniform_sv(model, adapter_name, lora_rank, lora_alpha, scale):
         m = lora_B_w.shape[0]  # out_features
         n = lora_A_w.shape[1]  # in_features
 
-        # Handle both standard (m, n) and Conv1D-style transposed (n, m) weights
-        if W.shape == (m, n):
-            W_svd = W.float()
-            transposed = False
-        elif W.shape == (n, m):
-            W_svd = W.float().T  # view as (m, n)
-            transposed = True
-        else:
-            continue  # unexpected shape, skip
+        # PEFT records the orientation explicitly.  Shape alone is ambiguous
+        # for square Conv1D weights, including GPT-style attention projections.
+        transposed = bool(getattr(module, 'fan_in_fan_out', False))
+        W_svd = W.float().T if transposed else W.float()
+        if W_svd.shape != (m, n):
+            raise ValueError(
+                f"base weight {tuple(W.shape)} is incompatible with LoRA "
+                f"product {(m, n)} and fan_in_fan_out={transposed}")
 
         U, _, Vh = torch.linalg.svd(W_svd, full_matrices=False)
         U_r  = U[:, :r]   # (m, r)
@@ -349,6 +372,7 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
     #lora_alpha = lora_rank
     if opt_params["fedlora_avg"] == "sb":
         opt_params["server_name"] = "default"
+    lora_dropout = opt_params.get("lora_dropout", DEFAULT_LORA_DROPOUT)
     use_uniform_sv = opt_params.get("lora_init_scale", -1) > 0
     if opt_params["fedlora_avg"] in ["fr", "fr_v2"] or opt_params["fedlora_avg"].startswith("muonlora_v"):
         init_lora_weights = True if use_uniform_sv else "pissa"
@@ -363,11 +387,11 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
             torch.manual_seed(lora_seed)
             model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
                 lora_freeze_a=lora_freeze_a, adapter_name=opt_params["server_name"], init_lora_weights=init_lora_weights, \
-                server_name = opt_params["server_name"], add_to_output_layer = False)
+                server_name = opt_params["server_name"], add_to_output_layer = False, lora_dropout=lora_dropout)
     else:
         model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
             lora_freeze_a=lora_freeze_a, adapter_name=opt_params["server_name"], init_lora_weights=init_lora_weights, \
-            server_name = opt_params["server_name"], add_to_output_layer = False)
+            server_name = opt_params["server_name"], add_to_output_layer = False, lora_dropout=lora_dropout)
 
     if use_uniform_sv:
         init_lora_uniform_sv(model, opt_params["server_name"], lora_rank, lora_alpha, opt_params["lora_init_scale"])
@@ -396,14 +420,26 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
         # are no per-client adapters to create or synchronize.  Dropout is
         # turned off to match the paper's configuration (Table 3).
         assert lora_rank > 0, "polora needs --lora_rank > 0"
-        n_dropout = 0
-        for module in model.modules():
-            if hasattr(module, "lora_dropout") and opt_params["server_name"] in getattr(module, "lora_dropout", {}):
-                module.lora_dropout[opt_params["server_name"]] = torch.nn.Identity()
-                n_dropout += 1
-        print("[polora] rank {}, scaling {} (paper uses lora_alpha = rank), "
-              "dropout disabled on {} modules".format(
-                  lora_rank, lora_alpha / lora_rank, n_dropout))
+        set_server_lora_dropout(model, opt_params["server_name"], 0.0, "polora")
+        print("[polora] rank {}, scaling {} (paper uses lora_alpha = rank)".format(
+            lora_rank, lora_alpha / lora_rank))
+        return model, output_layer_name, Lora_config
+
+    if opt_params["fedlora_avg"] == "muonlora_v21":
+        # v21 owns and updates the single server adapter directly.  Keep this
+        # path free of the historical fr_save_init, muon_update, and
+        # orth_correction adapters; exact compensation is applied directly to
+        # each wrapped base weight by optimizer/muonlora.py.
+        assert lora_rank > 0, "muonlora_v21 needs --lora_rank > 0"
+        assert not lora_freeze_a, "muonlora_v21 alternates both factors"
+        # Dropout perturbs the very factor gradients v21's momentum, transport
+        # and Muon reconstruction are built from, so state it here rather than
+        # inheriting LoraConfig's value.  Pass --lora_dropout 0 for polora-style
+        # clean gradients; the default keeps parity with v14-v20.
+        set_server_lora_dropout(model, opt_params["server_name"], lora_dropout,
+                                "muonlora_v21")
+        model.set_adapter(opt_params["server_name"])
+        print("[muonlora_v21] initialized one server adapter; legacy helper adapters disabled")
         return model, output_layer_name, Lora_config
 
     use_model_grad = True
@@ -423,7 +459,7 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
             model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
                                                                             lora_freeze_a=lora_freeze_a, adapter_name=client_id, \
                                                                             init_lora_weights=True, server_name = opt_params["server_name"], \
-                                                                            add_to_output_layer = False) #don't do pissa again
+                                                                            add_to_output_layer = False, lora_dropout=lora_dropout) #don't do pissa again
         
     if opt_params["fedlora_avg"] == "svd":
         truncate_last=False
@@ -438,7 +474,7 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
         model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
                                                                         lora_freeze_a=lora_freeze_a, adapter_name="fr_save_init", \
                                                                          init_lora_weights=True, server_name = opt_params["server_name"], \
-                                                                        add_to_output_layer = False)
+                                                                        add_to_output_layer = False, lora_dropout=lora_dropout)
         synchronize_lora_fr(model, server_name=opt_params["server_name"], truncate_last=truncate_last, output_layer_name=output_layer_name)
     
     if opt_params["fedlora_avg"] in ["fr", "fr_v2"]: #"muonlora_v1", "muonlora_v2", "muonlora_v3",  "muonlora_v4"
@@ -446,7 +482,7 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
         model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
                                                                         lora_freeze_a=lora_freeze_a, adapter_name="fr_save_neg_init", \
                                                                          init_lora_weights=True, server_name = opt_params["server_name"], \
-                                                                        add_to_output_layer = False)
+                                                                        add_to_output_layer = False, lora_dropout=lora_dropout)
         synchronize_lora_fr_neg(model, server_name=opt_params["server_name"], truncate_last=truncate_last, output_layer_name=output_layer_name)
 
     if opt_params["fedlora_avg"].startswith("muonlora_v"): # in ["muonlora_v1", "muonlora_v2", "muonlora_v3",  "muonlora_v4", "muonlora_v5", "muonlora_v6", "muonlora_v7", "muonlora_v8"]:
@@ -454,7 +490,7 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
         model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
                                                                         lora_freeze_a=lora_freeze_a, adapter_name="muon_update", \
                                                                          init_lora_weights=True, server_name = opt_params["server_name"], \
-                                                                        add_to_output_layer = False)
+                                                                        add_to_output_layer = False, lora_dropout=lora_dropout)
         #no need to initialize, will be reset at every step
         #synchronize_lora_fr_neg(model, server_name=opt_params["server_name"], truncate_last=truncate_last)
 
@@ -463,7 +499,7 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
         model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
                                                                         lora_freeze_a=lora_freeze_a, adapter_name="orth_correction", \
                                                                         init_lora_weights=True, server_name=opt_params["server_name"], \
-                                                                        add_to_output_layer=False)
+                                                                        add_to_output_layer=False, lora_dropout=lora_dropout)
 
     if Lora_config:
         model.set_adapter(opt_params["server_name"])
@@ -513,7 +549,7 @@ def add_ft(model, output_layer_name, target_modules):
             p.requires_grad = require_grad
                 
 
-def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules, server_name, freeze_a=False, task_type=None, adapter_name="default", init_lora_weights=True):
+def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules, server_name, freeze_a=False, task_type=None, adapter_name="default", init_lora_weights=True, lora_dropout=DEFAULT_LORA_DROPOUT):
     from peft import LoraConfig, get_peft_model, LoraModel
 
     if lora_rank > 0:
@@ -521,7 +557,7 @@ def add_adapters(model, lora_rank, lora_alpha, output_layer_name, target_modules
             r=lora_rank,
             lora_alpha=lora_alpha,
             target_modules=target_modules,
-            lora_dropout=0.1,
+            lora_dropout=lora_dropout,
             bias="none",
             modules_to_save=[output_layer_name] if output_layer_name is not None else [],
             task_type=task_type,
@@ -789,7 +825,3 @@ def compute_base_proj(model, server_name):
             proj_A = U_A @ (U_A.T @ base_layers[name]["base_grad"])
             ratio_A.append((torch.norm(proj_A) / torch.norm(base_layers[name]["base_grad"])).item())
     return {"ratio_A": ratio_A, "ratio_B": ratio_B}
-
-
-
-    

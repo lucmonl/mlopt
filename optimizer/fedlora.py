@@ -2188,7 +2188,7 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
 
     for name, param in model.named_parameters():
         if "muon_update" in name:
-            param.data = muon_updates[name].to(param.dtype)
+            param.data = muon_updates[name]
         #if opt_params["server_name"] in name:
         #   muon_name = name.replace(opt_params["server_name"], "muon_update")
         #    param.data = muon_updates[muon_name]
