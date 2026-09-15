@@ -358,12 +358,12 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                          model_params, server_epoch)
         return
 
-    if opt_params["fedlora_avg"] == "muonlora_v21":
+    if opt_params["fedlora_avg"] in ("muonlora_v21", "muonlora_v22"):
         # New MuonLoRA versions live outside the historical fedlora.py
-        # implementation.  v21 differentiates the shared server adapter and
-        # performs its own factor/base update.
-        from optimizer.muonlora import federated_muonlora_v21
-        federated_muonlora_v21(
+        # implementation.  They differentiate the shared server adapter and
+        # perform their own factor/base update.
+        from optimizer.muonlora import run_muonlora_round
+        run_muonlora_round(
             model, loss_name, criterion, train_graphs, device, train_loaders,
             server_optimizer, server_lr_scheduler, client_lr, opt_params,
             model_params, server_epoch)
@@ -1884,7 +1884,7 @@ if __name__ == "__main__":
                                                              "muonlora_v4", "muonlora_v5", "muonlora_v6",  "muonlora_v7", "muonlora_v8",
                                                              "muonlora_v9", "muonlora_v10", "muonlora_v11", "muonlora_v12",
                                                              "muonlora_v13", "muonlora_v14", "muonlora_v15", "muonlora_v16", "muonlora_v17", "muonlora_v18",
-                                                              "muonlora_v19", "muonlora_v20", "muonlora_v21", "ef14muon",
+                                                              "muonlora_v19", "muonlora_v20", "muonlora_v21", "muonlora_v22", "ef14muon",
                                                              "ef21muon", "riemannion", "polora"], default="avg",
                                                              help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")

@@ -4,6 +4,23 @@ This module is intentionally independent of the historical implementation in
 ``optimizer/fedlora.py``.  The old versions remain frozen there; new versions
 share the small, explicit building blocks below.
 
+v22 is v21 with one building block replaced: the active factor still steps along
+its own momentum, but that momentum is rescaled to Frobenius norm sqrt(r) first.
+v21 stepped along the raw ``M``, so the frame rotation was proportional to the
+gradient magnitude; as training converges the gradients shrink, the adapter frame
+freezes, and the rank-r update is left confined to a stale subspace.  Normalizing
+fixes the rotation rate without changing the direction v21 chose to move along.
+
+v22 also splits the momentum in two.  The transported (aligned) momenta M_A and
+M_B drive the factor step, where the frame correction belongs: A and B move
+inside the current frame.  A second pair N_A and N_B accumulates the same
+gradients with no transport, and the Muon reconstruction U, V is built from
+those instead -- it approximates an ambient weight-space direction, which does
+not depend on the adapter frame.
+
+``factor_direction="muon"`` is kept as an ablation: it steps along the
+orthonormalized Muon factor instead, which is what v14 did.
+
 v21 keeps v14's approximate-Muon base-weight target and alternating factor
 schedule, but changes how the server adapter moves.  If A is active,
 
@@ -45,15 +62,82 @@ class MuonLoRAV21Config:
     update_both_factors: bool = False
 
     # Direction for the factor step.  False is a useful no-momentum ablation.
+    # Only consulted when factor_direction is "momentum".
     use_factor_momentum: bool = True
+
+    # Keep a second, untransported heavy-ball momentum and build the Muon
+    # reconstruction (U, V) from it.  The transported momenta still drive the
+    # factor step: the frame correction belongs to the A/B update, which moves
+    # inside the current frame, not to the reconstruction of the ambient
+    # weight-space direction.
+    muon_from_unaligned_momentum: bool = False
+
+    # Which direction the active factor steps along:
+    #   "momentum"            raw heavy-ball momentum M (v21)
+    #   "gradient"            this round's averaged factor gradient
+    #   "normalized_momentum" M rescaled to Frobenius norm sqrt(r) (v22)
+    #   "muon"                orthonormalized Muon factor, ||.||_F = sqrt(r); v14's rule
+    # The last two are scale-free, so the frame keeps rotating at a fixed rate
+    # as gradients shrink.
+    factor_direction: str = "momentum"
 
     # Keep active factors at the initialization radius after their raw step.
     retract_updated_factors: bool = True
 
 
+_VERSION_CONFIGS = {
+    "muonlora_v21": MuonLoRAV21Config(),
+    "muonlora_v22": MuonLoRAV21Config(
+        factor_direction="normalized_momentum",
+        muon_from_unaligned_momentum=True,
+    ),
+}
+
+
+def get_muonlora_config(fedlora_avg_name):
+    """Single source of truth for each new version's design toggles."""
+    try:
+        return _VERSION_CONFIGS[fedlora_avg_name]
+    except KeyError:
+        raise NotImplementedError(
+            "{} has no MuonLoRA config; known versions: {}".format(
+                fedlora_avg_name, ", ".join(sorted(_VERSION_CONFIGS))))
+
+
 def get_muonlora_v21_hparams():
-    """Single source of truth for v21's new design toggles."""
-    return MuonLoRAV21Config()
+    """Back-compatible accessor for v21's toggles."""
+    return get_muonlora_config("muonlora_v21")
+
+
+@torch.no_grad()
+def _rescaled(M, rank):
+    """M scaled to Frobenius norm sqrt(rank).  A zero input stays zero."""
+    norm = M.norm()
+    if norm.item() == 0.0:
+        return M
+    return M * (math.sqrt(rank) / norm)
+
+
+@torch.no_grad()
+def _factor_directions(config, M_A, M_B, grad_A, grad_B, U, V):
+    """Direction the active factor steps along, per config.factor_direction.
+
+    Returns (direction_A, direction_B) shaped like (A, B).  The "muon" and
+    "normalized_momentum" forms have a Frobenius norm that does not depend on
+    the gradient magnitude, which is what keeps the adapter frame moving once
+    the loss flattens.
+    """
+    mode = config.factor_direction
+    if mode == "muon":
+        return V, U
+    if mode == "normalized_momentum":
+        rank = M_A.shape[0]
+        return _rescaled(M_A, rank), _rescaled(M_B, rank)
+    if mode == "gradient" or not config.use_factor_momentum:
+        return grad_A, grad_B
+    if mode != "momentum":
+        raise ValueError("unknown factor_direction {!r}".format(mode))
+    return M_A, M_B
 
 
 def adapter_metadata(model, server_name):
@@ -153,7 +237,7 @@ def _retract_B(B, radius):
     return radius * _qr_positive_diagonal(B)
 
 
-def _init_state(params, layers):
+def _init_state(params, layers, config=None):
     state = {"last_updated": (), "layers": {}}
     bytes_used = 0
     for base, (name_A, name_B) in layers.items():
@@ -167,7 +251,12 @@ def _init_state(params, layers):
             "previous_A": A.clone(),
             "previous_B": B.clone(),
         }
-        bytes_used += (2 * A.numel() + 2 * B.numel()) * A.element_size()
+        if config is not None and config.muon_from_unaligned_momentum:
+            state["layers"][base]["N_A"] = torch.zeros_like(A)
+            state["layers"][base]["N_B"] = torch.zeros_like(B)
+        bytes_used += sum(
+            value.numel() * value.element_size()
+            for value in state["layers"][base].values() if torch.is_tensor(value))
     return state, bytes_used
 
 
@@ -256,11 +345,27 @@ def muonlora_v21_step(params, layers, scalings, state, grad_A, grad_B,
         layer_state["previous_A"] = A_old.clone()
         layer_state["previous_B"] = B_old.clone()
 
-        U, V = _approximate_muon_factors(B_old, M_A, M_B)
+        if config.muon_from_unaligned_momentum:
+            # The same heavy-ball recursion without the frame transport.  U, V
+            # approximate an ambient weight-space direction, which does not
+            # depend on the adapter frame, so they are built from these; the
+            # factor step below still uses the transported M_A / M_B.  Created
+            # lazily so a checkpoint written before this existed still loads.
+            if "N_A" not in layer_state:
+                layer_state["N_A"] = torch.zeros_like(M_A)
+                layer_state["N_B"] = torch.zeros_like(M_B)
+            N_A = beta * layer_state["N_A"] + grad_A[base]
+            N_B = beta * layer_state["N_B"] + grad_B[base]
+            layer_state["N_A"], layer_state["N_B"] = N_A, N_B
+            muon_A, muon_B = N_A, N_B
+        else:
+            muon_A, muon_B = M_A, M_B
+
+        U, V = _approximate_muon_factors(B_old, muon_A, muon_B)
         muon_scale = math.sqrt(U.shape[0] / V.shape[1]) if aspect_scaled else 1.0
 
-        direction_A = M_A if config.use_factor_momentum else grad_A[base]
-        direction_B = M_B if config.use_factor_momentum else grad_B[base]
+        direction_A, direction_B = _factor_directions(
+            config, M_A, M_B, grad_A[base], grad_B[base], U, V)
         A_candidate = A_old - factor_eta * direction_A if "A" in update_sides else A_old
         B_candidate = B_old - factor_eta * direction_B if "B" in update_sides else B_old
 
@@ -292,17 +397,26 @@ def muonlora_v21_step(params, layers, scalings, state, grad_A, grad_B,
     return step_sq ** 0.5, factor_step_sq ** 0.5
 
 
-def federated_muonlora_v21(model, loss_name, criterion, train_graphs, device,
-                            train_loaders, server_optimizer,
-                            server_lr_scheduler, client_lr, opt_params,
-                            model_params, server_epoch):
-    """Collect averaged factor gradients and run one MuonLoRA-v21 step."""
-    if opt_params["client_epoch"] != 1:
-        raise ValueError("muonlora_v21 needs --client_epoch 1")
-    if opt_params.get("lora_freeze_a", False):
-        raise ValueError("muonlora_v21 updates both sides over time; do not use --lora_freeze_a")
+def run_muonlora_round(model, loss_name, criterion, train_graphs, device,
+                       train_loaders, server_optimizer,
+                       server_lr_scheduler, client_lr, opt_params,
+                       model_params, server_epoch):
+    """Collect averaged factor gradients and run one MuonLoRA step.
 
-    config = get_muonlora_v21_hparams()
+    Shared by every version in ``_VERSION_CONFIGS``; the version only selects
+    which building blocks the step uses.
+    """
+    version = opt_params["fedlora_avg"]
+    if opt_params["client_epoch"] != 1:
+        raise ValueError("{} needs --client_epoch 1".format(version))
+    if opt_params.get("lora_freeze_a", False):
+        raise ValueError(
+            "{} updates both sides over time; do not use --lora_freeze_a".format(version))
+
+    config = get_muonlora_config(version)
+    # v21's key, so an in-flight v21 run still restores from its checkpoint.
+    state_key = version
+    opt_state_key = version + "_state"
     opt_params["local_update_ON"] = False
     server_name = opt_params["server_name"]
     model.set_adapter(server_name)
@@ -310,21 +424,21 @@ def federated_muonlora_v21(model, loss_name, criterion, train_graphs, device,
     layers = adapter_layers(model, server_name)
     scalings, fan_in_fan_out = adapter_metadata(model, server_name)
     if not layers:
-        raise ValueError("muonlora_v21 found no server LoRA layers")
+        raise ValueError("{} found no server LoRA layers".format(version))
 
     covered = {name for pair in layers.values() for name in pair}
     missing = [name for name, param in model.named_parameters()
                if param.requires_grad and name not in covered]
     if missing:
         raise ValueError(
-            "muonlora_v21 only steps LoRA pairs; unhandled trainable parameters: {}"
-            .format(missing[:5]))
+            "{} only steps LoRA pairs; unhandled trainable parameters: {}"
+            .format(version, missing[:5]))
 
-    checkpoint_state = server_optimizer.state.get("muonlora_v21")
-    if "muonlora_v21_state" not in opt_params:
+    checkpoint_state = server_optimizer.state.get(state_key)
+    if opt_state_key not in opt_params:
         if checkpoint_state is None:
-            state, bytes_used = _init_state(params, layers)
-            server_optimizer.state["muonlora_v21"] = state
+            state, bytes_used = _init_state(params, layers, config)
+            server_optimizer.state[state_key] = state
         else:
             state = checkpoint_state
             bytes_used = sum(
@@ -332,13 +446,13 @@ def federated_muonlora_v21(model, loss_name, criterion, train_graphs, device,
                 for layer_state in state["layers"].values()
                 for value in layer_state.values()
                 if torch.is_tensor(value))
-            print("[muonlora_v21] restored momentum/transport state from optimizer checkpoint")
-        opt_params["muonlora_v21_state"] = state
-        print("[muonlora_v21] {} layers, FP64 state {:.3f} GB, config={}".format(
-            len(layers), bytes_used / 1024 ** 3, config))
-    state = opt_params["muonlora_v21_state"]
+            print("[{}] restored momentum/transport state from optimizer checkpoint".format(version))
+        opt_params[opt_state_key] = state
+        print("[{}] {} layers, FP64 state {:.3f} GB, config={}".format(
+            version, len(layers), bytes_used / 1024 ** 3, config))
+    state = opt_params[opt_state_key]
     # Keep the in-process reference and optimizer checkpoint reference unified.
-    server_optimizer.state["muonlora_v21"] = state
+    server_optimizer.state[state_key] = state
 
     grad_A = {base: torch.zeros_like(params[names[0]], dtype=STATE_DTYPE)
               for base, names in layers.items()}
@@ -353,20 +467,20 @@ def federated_muonlora_v21(model, loss_name, criterion, train_graphs, device,
     client_num = collect_client_grads(
         model, loss_name, criterion, train_graphs, device, train_loaders,
         client_lr, opt_params, model_params, server_epoch, _accumulate,
-        exclude_from_copy=("muonlora_v21_state",))
+        exclude_from_copy=(opt_state_key,))
     for base in layers:
         grad_A[base].div_(client_num)
         grad_B[base].div_(client_num)
 
     eta = server_optimizer.param_groups[0]["lr"]
     if any(group["lr"] != eta for group in server_optimizer.param_groups):
-        raise ValueError("muonlora_v21 expects one server learning rate")
+        raise ValueError("{} expects one server learning rate".format(version))
     beta = float(opt_params["server_momentum"])
     factor_multiplier = float(opt_params["muonlora_merge_alpha"])
     radius = float(opt_params["lora_init_scale"])
     if config.retract_updated_factors and radius <= 0:
         raise ValueError(
-            "muonlora_v21 retraction needs --lora_init_scale > 0")
+            "{} retraction needs --lora_init_scale > 0".format(version))
     active = _current_factor(
         server_epoch, int(opt_params["muonlora_switch_interval"]))
 
@@ -376,9 +490,10 @@ def federated_muonlora_v21(model, loss_name, criterion, train_graphs, device,
         eta, beta, factor_multiplier, radius, active,
         bool(opt_params.get("muonlora_scaled", False)), config,
         fan_in_fan_out=fan_in_fan_out)
-    print("[muonlora_v21] epoch={} active={} eta={:.3e} factor_eta={:.3e} "
+    print("[{}] epoch={} active={} dir={} eta={:.3e} factor_eta={:.3e} "
           "||Delta W_mu||_F={:.6f} ||Delta(A,B)||_F={:.6f}".format(
-              server_epoch, "+".join(state["last_updated"]), eta,
+              version, server_epoch, "+".join(state["last_updated"]),
+              config.factor_direction, eta,
               eta * factor_multiplier, step_norm, factor_step_norm))
 
     if opt_params.get("train_stats", False):
@@ -387,3 +502,7 @@ def federated_muonlora_v21(model, loss_name, criterion, train_graphs, device,
         server_lr_scheduler.step()
     for group in server_optimizer.param_groups:
         print("server lr", group["lr"])
+
+
+# Back-compatible name for the shared wrapper.
+federated_muonlora_v21 = run_muonlora_round

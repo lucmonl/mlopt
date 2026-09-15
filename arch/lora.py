@@ -425,21 +425,22 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
             lora_rank, lora_alpha / lora_rank))
         return model, output_layer_name, Lora_config
 
-    if opt_params["fedlora_avg"] == "muonlora_v21":
-        # v21 owns and updates the single server adapter directly.  Keep this
-        # path free of the historical fr_save_init, muon_update, and
+    if opt_params["fedlora_avg"] in ("muonlora_v21", "muonlora_v22"):
+        # These versions own and update the single server adapter directly.
+        # Keep this path free of the historical fr_save_init, muon_update, and
         # orth_correction adapters; exact compensation is applied directly to
         # each wrapped base weight by optimizer/muonlora.py.
-        assert lora_rank > 0, "muonlora_v21 needs --lora_rank > 0"
-        assert not lora_freeze_a, "muonlora_v21 alternates both factors"
-        # Dropout perturbs the very factor gradients v21's momentum, transport
+        version = opt_params["fedlora_avg"]
+        assert lora_rank > 0, "{} needs --lora_rank > 0".format(version)
+        assert not lora_freeze_a, "{} alternates both factors".format(version)
+        # Dropout perturbs the very factor gradients the momentum, transport
         # and Muon reconstruction are built from, so state it here rather than
         # inheriting LoraConfig's value.  Pass --lora_dropout 0 for polora-style
         # clean gradients; the default keeps parity with v14-v20.
         set_server_lora_dropout(model, opt_params["server_name"], lora_dropout,
-                                "muonlora_v21")
+                                version)
         model.set_adapter(opt_params["server_name"])
-        print("[muonlora_v21] initialized one server adapter; legacy helper adapters disabled")
+        print("[{}] initialized one server adapter; legacy helper adapters disabled".format(version))
         return model, output_layer_name, Lora_config
 
     use_model_grad = True
