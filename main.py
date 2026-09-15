@@ -1900,6 +1900,7 @@ if __name__ == "__main__":
     parser.add_argument("--muonlora_probe_beta", type=float, default=0.9, help="EMA weight on the current probe subspace; must be in [0, 1)")
     parser.add_argument("--muonlora_max_correction_ratio", type=float, default=15.0, help="maximum base-compensation spectral norm relative to the intended Muon update")
     parser.add_argument("--muonlora_scaled", action='store_true', help="scale every muon update by (I/J)**0.5")
+    parser.add_argument("--muonlora_update_both_factors", action='store_true', help="muonlora v21+: step A and B every round instead of alternating. --muonlora_switch_interval then has no effect, and the per-round frame motion roughly doubles, so --muonlora_merge_alpha usually wants halving")
     parser.add_argument("--dion_rank", type=int, default=-1, help="the rank of dion for projection")
     parser.add_argument("--use_model_grad", action='store_true', help="use model_grad-based federated_train (optimizer/federated_train.py) instead of the param-diff-based one")
 
@@ -2085,6 +2086,7 @@ if __name__ == "__main__":
     opt_params["muonlora_probe_beta"] = args.muonlora_probe_beta
     opt_params["muonlora_max_correction_ratio"] = args.muonlora_max_correction_ratio
     opt_params["muonlora_scaled"]  = args.muonlora_scaled
+    opt_params["muonlora_update_both_factors"] = args.muonlora_update_both_factors
     opt_params["privacy_clip"]     = args.privacy_clip
     opt_params["privacy_noise"]    = args.privacy_noise
     opt_params["double_sketch"]    = args.double_sketch
@@ -2842,6 +2844,9 @@ if __name__ == "__main__":
             elif opt_params["muonlora_switch_interval"] != -1:
                 model_params = model_params | {"muonlora_switch_interval": args.muonlora_switch_interval}
                 model_params = model_params | {"muonlora_merge_alpha": args.muonlora_merge_alpha}
+            if opt_params["muonlora_update_both_factors"]:
+                # Only tagged when on, so the alternating runs keep their paths.
+                model_params = model_params | {"muonlora_factors": "both"}
         
         if 'fedlora_uba' in model_params and opt_params["uba_mode"] != "none":
             model_params["uba_mode"] = opt_params["uba_mode"]

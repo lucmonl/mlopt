@@ -36,7 +36,7 @@ model's storage precision.  This separates the useful adapter-frame evolution
 from the approximate-Muon update applied to the represented dense weight.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 
 import torch
@@ -57,8 +57,10 @@ class MuonLoRAV21Config:
     block at a time while retaining the same federated wrapper.
     """
 
-    # v21 itself is one-sided.  True is the planned simultaneous-factor
-    # extension and is retained as an implementation toggle for later work.
+    # v21 itself is one-sided.  --muonlora_update_both_factors turns the
+    # simultaneous-factor extension on for any version; a version that wants it
+    # unconditionally sets True here instead.  The CLI flag can only enable it,
+    # so a version's own True is never silently overridden.
     update_both_factors: bool = False
 
     # Direction for the factor step.  False is a useful no-momentum ablation.
@@ -280,6 +282,13 @@ def _apply_effective_update(base_weight, U, V, eta, muon_scale,
     is cast once to the base parameter dtype.  A/B and optimizer state remain
     FP64 until the actual adapter assignment.  The factor differences are
     formed in FP64, so only the outer product is rounded.
+
+    Returns the squared Frobenius norm of the part of the intended update that
+    the base parameter's own dtype could not represent.  This, not the FP32
+    accumulation above, is what actually limits the effective-update identity:
+    in a bf16 run the step is added to a weight whose ULP can exceed it, and
+    then most of the round is silently discarded.  Measuring it is the point of
+    the `storage_residual` term in the round log.
     """
     delta = torch.mm(U.float(), V.float())
     delta.mul_(-eta * muon_scale)
@@ -301,7 +310,16 @@ def _apply_effective_update(base_weight, U, V, eta, muon_scale,
             "(fan_in_fan_out={})".format(
                 tuple(base_weight.shape), tuple(stored_delta.shape),
                 fan_in_fan_out))
+    previous = base_weight.clone()
     base_weight.add_(stored_delta.to(base_weight.dtype))
+    # W_after - W_before is exact in the base dtype: the two are far closer than
+    # a factor of two, so Sterbenz applies.  This is the update the model
+    # actually received, not an estimate of it.
+    previous.neg_().add_(base_weight)
+    # stored_delta is dead after this point, so it doubles as the residual
+    # buffer.  The mixed-dtype in-place subtract casts elementwise and never
+    # materializes an FP32 copy of the base weight.
+    return stored_delta.sub_(previous).pow_(2).sum(dtype=torch.float64).item()
 
 
 @torch.no_grad()
@@ -315,6 +333,7 @@ def muonlora_v21_step(params, layers, scalings, state, grad_A, grad_B,
 
     step_sq = 0.0
     factor_step_sq = 0.0
+    storage_residual_sq = 0.0
     for base, (name_A, name_B) in layers.items():
         A_param, B_param = params[name_A], params[name_B]
         base_name = base + ".weight"
@@ -380,7 +399,7 @@ def muonlora_v21_step(params, layers, scalings, state, grad_A, grad_B,
         A_new = A_stored.to(STATE_DTYPE)
         B_new = B_stored.to(STATE_DTYPE)
 
-        _apply_effective_update(
+        storage_residual_sq += _apply_effective_update(
             params[base_name].data, U, V, eta, muon_scale,
             A_old, B_old, A_new, B_new, scalings[base], fan_in_fan_out[base],
             active_side=None if config.update_both_factors else active_factor)
@@ -394,7 +413,7 @@ def muonlora_v21_step(params, layers, scalings, state, grad_A, grad_B,
         factor_step_sq += (B_new - B_old).pow(2).sum().item()
 
     state["last_updated"] = tuple(sorted(update_sides))
-    return step_sq ** 0.5, factor_step_sq ** 0.5
+    return step_sq ** 0.5, factor_step_sq ** 0.5, storage_residual_sq ** 0.5
 
 
 def run_muonlora_round(model, loss_name, criterion, train_graphs, device,
@@ -414,6 +433,10 @@ def run_muonlora_round(model, loss_name, criterion, train_graphs, device,
             "{} updates both sides over time; do not use --lora_freeze_a".format(version))
 
     config = get_muonlora_config(version)
+    if opt_params.get("muonlora_update_both_factors", False):
+        # The flag enables only; a version whose config already asks for both
+        # factors keeps them regardless.
+        config = replace(config, update_both_factors=True)
     # v21's key, so an in-flight v21 run still restores from its checkpoint.
     state_key = version
     opt_state_key = version + "_state"
@@ -481,20 +504,29 @@ def run_muonlora_round(model, loss_name, criterion, train_graphs, device,
     if config.retract_updated_factors and radius <= 0:
         raise ValueError(
             "{} retraction needs --lora_init_scale > 0".format(version))
-    active = _current_factor(
+    # The alternation schedule is meaningless once both factors move every
+    # round, and demanding a valid switch interval for it would be a trap.
+    active = None if config.update_both_factors else _current_factor(
         server_epoch, int(opt_params["muonlora_switch_interval"]))
 
     server_optimizer.zero_grad()
-    step_norm, factor_step_norm = muonlora_v21_step(
+    step_norm, factor_step_norm, storage_residual = muonlora_v21_step(
         params, layers, scalings, state, grad_A, grad_B,
         eta, beta, factor_multiplier, radius, active,
         bool(opt_params.get("muonlora_scaled", False)), config,
         fan_in_fan_out=fan_in_fan_out)
+    # Fraction of the intended update the base dtype could not store.  A value
+    # approaching 1 means the round is being quantized away rather than applied,
+    # which no amount of server-side precision can fix -- eta or the base dtype
+    # has to change.
+    residual_fraction = storage_residual / step_norm if step_norm > 0 else float("nan")
     print("[{}] epoch={} active={} dir={} eta={:.3e} factor_eta={:.3e} "
-          "||Delta W_mu||_F={:.6f} ||Delta(A,B)||_F={:.6f}".format(
+          "||Delta W_mu||_F={:.6f} ||Delta(A,B)||_F={:.6f} "
+          "storage_residual={:.6f} ({:.1%} of ||Delta W_mu||_F)".format(
               version, server_epoch, "+".join(state["last_updated"]),
               config.factor_direction, eta,
-              eta * factor_multiplier, step_norm, factor_step_norm))
+              eta * factor_multiplier, step_norm, factor_step_norm,
+              storage_residual, residual_fraction))
 
     if opt_params.get("train_stats", False):
         train_graphs.grad_norm.append(step_norm)
