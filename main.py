@@ -1734,7 +1734,7 @@ def hook(self, input, output):
 
     
 if __name__ == "__main__":
-    from arch.lora import DEFAULT_LORA_DROPOUT
+    from arch.lora import DEFAULT_LORA_DROPOUT, POLORA_LORA_DROPOUT, resolve_lora_dropout
     DATASETS = ["spurious", "cifar", "cifar100", "imagenet_tiny", "mnist", "emnist", "mnist_cifar", "spurious-2d", "multi-view", "secondary_feature",
                 "multi-view-orthogonal", "orthogonal", "scalarized", "weight_norm_teacher", "glue", "cub", "wilds", "icl", "20newsgroups", "mathqa_gsm8k", "swag",
                 "spider", "fedllm_bench", "fineweb", "oasst2", "cot_collection", "megascience", "Salesforce/xlam-function-calling-60k"]
@@ -1787,7 +1787,7 @@ if __name__ == "__main__":
     parser.add_argument("--hetero_rank", type=int, default=-1)
     parser.add_argument("--lora_freeze_a", action='store_true', help="freeze A matrix in lora")
     parser.add_argument("--lora_init_scale", type=float, default=-1.0, help="uniform singular-vector init scale for LoRA (>0 enables; replaces pissa)")
-    parser.add_argument("--lora_dropout", type=float, default=DEFAULT_LORA_DROPOUT, help="LoRA input dropout; 0 disables it (server-side optimizers then see unperturbed factor gradients)")
+    parser.add_argument("--lora_dropout", type=float, default=None, help="LoRA input dropout; 0 disables it (server-side optimizers then see unperturbed factor gradients). Default: {} (polora: {})".format(DEFAULT_LORA_DROPOUT, POLORA_LORA_DROPOUT))
     parser.add_argument("--cls_lr", type=float, default=-1, help="specific learning rate for the output layer")
     parser.add_argument("--compute_base_grad", action='store_true', help="compute full base grad and the ratio of the real gradient to the full gradient")
 
@@ -2073,7 +2073,7 @@ if __name__ == "__main__":
     opt_params["uba_weight"]       = args.uba_weight
     opt_params["lora_freeze_a"]    = args.lora_freeze_a
     opt_params["lora_init_scale"]  = args.lora_init_scale
-    opt_params["lora_dropout"]     = args.lora_dropout
+    opt_params["lora_dropout"]     = resolve_lora_dropout(args.lora_dropout, args.fedlora_avg)
     opt_params["hetero_rank"]      = args.hetero_rank
     opt_params["use_ef"]           = args.use_ef
     opt_params["client_early_stop"]= args.client_early_stop
@@ -2787,10 +2787,11 @@ if __name__ == "__main__":
             model_params = model_params | {"lora_freeze": "a"}
         if args.lora_init_scale > 0:
             model_params = model_params | {"lora_init_scale": args.lora_init_scale}
-        if args.lora_dropout != DEFAULT_LORA_DROPOUT:
-            # Only non-default values enter the path, so every existing results
-            # directory keeps its name.
-            model_params = model_params | {"lora_dropout": args.lora_dropout}
+        if opt_params["lora_dropout"] != resolve_lora_dropout(None, opt_params["fedlora_avg"]):
+            # Only values that differ from the method's default enter the path,
+            # so every existing results directory keeps its name -- including
+            # polora's, whose default is 0.
+            model_params = model_params | {"lora_dropout": opt_params["lora_dropout"]}
         if opt_params["opt_name"] == "federated":
             if opt_params["fedlora_avg"] != 'avg':
                 model_params = model_params | {"fedlora_avg": opt_params["fedlora_avg"]}

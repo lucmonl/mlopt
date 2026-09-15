@@ -8,6 +8,22 @@ from peft import PeftModel
 # every existing method's trajectory (and results directory) is unchanged.
 DEFAULT_LORA_DROPOUT = 0.1
 
+# PoLoRA's reference configuration (Table 3 of the paper) has no LoRA dropout,
+# so that is what --lora_dropout defaults to there; every other method keeps the
+# historical 0.1.
+POLORA_LORA_DROPOUT = 0.0
+
+
+def resolve_lora_dropout(lora_dropout, fedlora_avg):
+    """The LoRA dropout to use, given --lora_dropout (None if not passed).
+
+    Kept separate from the argparse default so the default can depend on the
+    method, and so callers can tell an explicit value from an inherited one.
+    """
+    if lora_dropout is not None:
+        return lora_dropout
+    return POLORA_LORA_DROPOUT if fedlora_avg == "polora" else DEFAULT_LORA_DROPOUT
+
 
 def set_server_lora_dropout(model, server_name, dropout, tag):
     """Reset the server adapter's LoRA dropout to `dropout` after construction.
@@ -417,10 +433,12 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
     if opt_params["fedlora_avg"] == "polora":
         # PoLoRA steps the server adapter itself: every client differentiates
         # that one adapter in place and uploads its factor gradients, so there
-        # are no per-client adapters to create or synchronize.  Dropout is
-        # turned off to match the paper's configuration (Table 3).
+        # are no per-client adapters to create or synchronize.  Dropout defaults
+        # to 0 to match the paper's configuration (Table 3); --lora_dropout > 0
+        # turns it on, and the exact-distribution argument survives it (see the
+        # module docstring of optimizer/polora.py).
         assert lora_rank > 0, "polora needs --lora_rank > 0"
-        set_server_lora_dropout(model, opt_params["server_name"], 0.0, "polora")
+        set_server_lora_dropout(model, opt_params["server_name"], lora_dropout, "polora")
         print("[polora] rank {}, scaling {} (paper uses lora_alpha = rank)".format(
             lora_rank, lora_alpha / lora_rank))
         return model, output_layer_name, Lora_config

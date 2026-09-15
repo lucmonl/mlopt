@@ -33,6 +33,16 @@ single-node method; it is the same method, with the batch spread over clients.
 Consequently ``--client_epoch`` must stay 1 and the client optimizer is used
 only to produce a gradient, never to take a step.
 
+LoRA dropout (``--lora_dropout``, 0 by default here to match the paper's Table 3)
+does not break this.  PEFT drops the adapter's *input*, so with xh = drop(x) the
+two factor gradients of one client are still B^T Gh and Gh A^T for the same
+Gh = dL/dout xh^T -- the same mask enters both -- and B and A are the server's,
+shared.  The average over clients is therefore B^T mean_j(Gh_j), exactly as
+above, with the per-sample dropout masks playing the role they already play in a
+single-node run.  What dropout does change is the variance of G_A and G_B, which
+lines 7 and 8 read raw, so the curvature estimate is noisier; that is an
+argument about regularization, not about correctness of the distribution.
+
 Adapter scaling
 ---------------
 The paper sets alpha = r so the merged weight is W_0 + BA.  Here the adapter
