@@ -2844,6 +2844,12 @@ if __name__ == "__main__":
             elif opt_params["muonlora_switch_interval"] != -1:
                 model_params = model_params | {"muonlora_switch_interval": args.muonlora_switch_interval}
                 model_params = model_params | {"muonlora_merge_alpha": args.muonlora_merge_alpha}
+            elif opt_params["muonlora_update_both_factors"]:
+                # Both-factor runs have no alternation schedule, so the branch
+                # above never fires -- but the factor step is still
+                # server_lr * merge_alpha, and two factor learning rates would
+                # otherwise share a path.
+                model_params = model_params | {"muonlora_merge_alpha": args.muonlora_merge_alpha}
             if opt_params["muonlora_update_both_factors"]:
                 # Only tagged when on, so the alternating runs keep their paths.
                 model_params = model_params | {"muonlora_factors": "both"}
