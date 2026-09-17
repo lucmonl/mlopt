@@ -18,6 +18,30 @@ prompt_format = """<|begin_of_text|><|start_header_id|>user<|end_header_id|>
 
                 {}<|eot_id|>"""
 
+# Every target built here ends with <|eot_id|>, so that is the token a fine-tuned
+# model learns to stop on. It is not tokenizer.eos_token: the base Llama-3.x
+# checkpoints set eos_token to <|end_of_text|> (128001) while <|eot_id|> is
+# 128009, and only the Instruct variants make the two agree.
+RESPONSE_END_TOKEN = "<|eot_id|>"
+
+
+def generation_stop_token_ids(tokenizer):
+    """Token ids generate() should treat as end-of-response.
+
+    Passing only tokenizer.eos_token_id lets decoding run past the <|eot_id|>
+    the model actually emits, all the way to max_new_tokens, which surfaces as
+    degenerate repetition after an otherwise correct answer.
+    """
+    stop_ids = []
+    if tokenizer.eos_token_id is not None:
+        stop_ids.append(tokenizer.eos_token_id)
+    response_end_id = tokenizer.convert_tokens_to_ids(RESPONSE_END_TOKEN)
+    if (response_end_id is not None
+            and response_end_id != tokenizer.unk_token_id
+            and response_end_id not in stop_ids):
+        stop_ids.append(response_end_id)
+    return stop_ids
+
 def formatting_prompts_func(examples):
     instructions = examples["instruction"]
     outputs      = examples["response"]

@@ -6,6 +6,21 @@ import sys
 import numpy as np
 from utilities import dict_to_, get_gpu_memory
 
+EVAL_BASE_SIZE = 128
+
+
+def eval_prefix_sizes(eval_exp):
+    """Nested eval prefix sizes requested by --eval_exp.
+
+    Returns [] for the default eval_exp=1, which leaves the historical
+    single-number test_loss path untouched for every dataset whose test set was
+    never capped at EVAL_BASE_SIZE in the first place.
+    """
+    if eval_exp is None or eval_exp <= 1:
+        return []
+    return [EVAL_BASE_SIZE * 2 ** i for i in range(eval_exp)]
+
+
 @torch.no_grad
 def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, num_classes, loader_abridged, test_loader, opt_params, \
                  compute_acc=False, compute_model_output=False, dataset_name=None, model_name=None, model_path=None, tokenizer=None, is_val=True, no_val=False):
@@ -101,6 +116,12 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
         pbar = tqdm(total=len(test_loader), position=0, leave=True)
         loss_sum = 0
         accuracy_sum = 0
+        # The eval loader is sequential, so the running sums after k samples are
+        # exactly the loss on the first k. Snapshotting them costs one pass.
+        eval_sizes = eval_prefix_sizes(opt_params.get("eval_exp", 1))
+        prefix_losses = []
+        prefix_counts = []
+        seen = 0
         for batch_idx, input in enumerate(test_loader, start=1):
             if opt_params["wild_data"]:
                 data, target, metadata = input
@@ -166,8 +187,35 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
                     accuracy / physical_batch_size))
             loss_sum += loss.item()
             accuracy_sum += accuracy
+            seen += physical_batch_size
+            # A boundary that falls inside a batch is recorded at the end of
+            # that batch: per-sample losses are not available here, and the
+            # existing loss_sum already aggregates whole batches.
+            while len(prefix_losses) < len(eval_sizes) and seen >= eval_sizes[len(prefix_losses)]:
+                prefix_losses.append(loss_sum / seen)
+                prefix_counts.append(seen)
         test_loss = loss_sum / len(test_loader.dataset)
-        graphs.test_loss.append(test_loss)
+        if eval_sizes:
+            if len(prefix_losses) < len(eval_sizes):
+                # The eval split ran out before the largest requested prefix.
+                print(f"--eval_exp asked for {eval_sizes[-1]} eval samples but only "
+                      f"{seen} are available; the trailing sizes repeat the full-set loss.",
+                      flush=True)
+                while len(prefix_losses) < len(eval_sizes):
+                    prefix_losses.append(test_loss)
+                    prefix_counts.append(seen)
+            # Compatibility: test_loss remains the first-128 value.
+            graphs.test_loss.append(prefix_losses[0])
+        else:
+            graphs.test_loss.append(test_loss)
+            prefix_losses = [test_loss]
+            prefix_counts = [len(test_loader.dataset)]
+        if not hasattr(graphs, "test_loss_by_size"):
+            # A run resumed from a checkpoint written before --eval_exp existed
+            # unpickles a graphs object without these attributes.
+            graphs.test_loss_by_size = []
+        graphs.test_loss_by_size.append(prefix_losses)
+        graphs.eval_sizes = prefix_counts
         if opt_params["compute_ex_score"] is not None:
             if "tokenizer" in opt_params:
                 test_accuracy = opt_params["compute_ex_score"](model, opt_params["test_dataset"], device, tokenizer=opt_params["tokenizer"])
@@ -187,6 +235,12 @@ def compute_loss(graphs, model, loss_name, criterion, criterion_summed, device, 
             save_best_model = True
         
         print("Mean Test Loss: {} \t Accuarcy: {}".format(graphs.test_loss[-1], graphs.test_accuracy[-1]), flush=True)
+        if eval_sizes:
+            # Kept next to the summary above: compute_ex_score can print a lot
+            # between the eval loop and here.
+            print("Test loss by eval size: "
+                  + ", ".join(f"{n}: {l:.6f}" for n, l in zip(prefix_counts, prefix_losses)),
+                  flush=True)
 
     enable_running_stats(model)
     print("="*10, " 9 ", "="*10)

@@ -22,6 +22,15 @@ class graphs:
         self.test_accuracy = []
         self.best_test_accuracy = -1
 
+        # --eval_exp: one inner list per analysis step, holding the test loss on
+        # the nested eval prefixes of 128*2**i samples for i in [0, eval_exp).
+        # test_loss stays the i=0 entry, so it keeps its historical meaning.
+        self.test_loss_by_size = []
+        # Sample count behind each column of test_loss_by_size. Written on every
+        # analysis step (the value is constant within a run) so a plot can label
+        # the x axis without re-deriving eval_exp.
+        self.eval_sizes        = []
+
         self.reg_loss     = []
         self.test_reg_loss     = []
 

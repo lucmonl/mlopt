@@ -1844,6 +1844,7 @@ if __name__ == "__main__":
     parser.add_argument("--no_train", action='store_true', help="train model")
     parser.add_argument("--do_eval", action='store_true', help="evaluate model")
     parser.add_argument("--no_val", action='store_true', help="no validation dataset in analysis")
+    parser.add_argument("--eval_exp", type=int, default=1, help="expand the eval dataset to 128*2**(eval_exp-1) samples; test losses on the nested prefixes 128*2**i for i in [0, eval_exp) are logged in train_graphs.test_loss_by_size, while test_loss keeps the first-128 value")
     parser.add_argument("--model_average", nargs='+', type=int, default=[0,1], help="index of runs to be averaged")
     parser.add_argument("--topk", type=int, default=1, help="topk")
     parser.add_argument("--zero_out_attn", type=int, default=-1, help="zero out small entries in attention maps")
@@ -1923,6 +1924,9 @@ if __name__ == "__main__":
     no_train            = args.no_train
     do_eval             = args.do_eval
     analysis_params["no_val"] = args.no_val
+    if args.eval_exp < 1:
+        raise ValueError("--eval_exp must be at least 1")
+    opt_params["eval_exp"] = args.eval_exp
     multi_run           = args.multiple_run
     opt_params["timeit"]= args.timeit
     run_from_scratch    = args.run_from_scratch
@@ -2244,7 +2248,7 @@ if __name__ == "__main__":
         model_params = {"task_name": args.task_name, }
         if opt_params["opt_name"] == "federated":
             from data.fedllm_bench import load_fedllm_bench_federated
-            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_fedllm_bench_federated(model_name, args.task_name, batch_size, opt_params["client_num"], model_params, do_eval, opt_params["dtype"], init_weights)
+            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_fedllm_bench_federated(model_name, args.task_name, batch_size, opt_params["client_num"], model_params, do_eval, opt_params["dtype"], init_weights, eval_exp=args.eval_exp)
         else:
             raise NotImplementedError
         opt_params["tokenizer"] = tokenizer
@@ -2254,7 +2258,7 @@ if __name__ == "__main__":
             model_params = model_params | {"length": args.max_length}
         if opt_params["opt_name"] == "federated":
             from data.oasst2 import load_oasst2_federated
-            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_oasst2_federated(model_name, args.task_name, batch_size, opt_params["client_num"], model_params, opt_params["dtype"], init_weights)
+            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_oasst2_federated(model_name, args.task_name, batch_size, opt_params["client_num"], model_params, opt_params["dtype"], init_weights, eval_exp=args.eval_exp)
         else:
             raise NotImplementedError
         opt_params["tokenizer"] = tokenizer
@@ -2262,7 +2266,7 @@ if __name__ == "__main__":
         model_params = {}
         if opt_params["opt_name"] == "federated":
             from data.cot_collection import load_cot_collection_federated
-            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_cot_collection_federated(model_name, batch_size, opt_params["client_num"], model_params, opt_params["dtype"], init_weights)
+            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_cot_collection_federated(model_name, batch_size, opt_params["client_num"], model_params, opt_params["dtype"], init_weights, eval_exp=args.eval_exp)
         else:
             raise NotImplementedError
         opt_params["tokenizer"] = tokenizer
@@ -2271,7 +2275,7 @@ if __name__ == "__main__":
             model_params = {"length": args.max_length}
         if opt_params["opt_name"] == "federated":
             from data.megascience import load_megascience_federated
-            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_megascience_federated(model_name, batch_size, opt_params["client_num"], model_params, opt_params["dtype"], init_weights, max_length=args.max_length)
+            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_megascience_federated(model_name, batch_size, opt_params["client_num"], model_params, opt_params["dtype"], init_weights, max_length=args.max_length, eval_exp=args.eval_exp)
         else:
             raise NotImplementedError
         opt_params["tokenizer"] = tokenizer
@@ -2280,7 +2284,7 @@ if __name__ == "__main__":
             model_params = {"length": args.max_length}
         if opt_params["opt_name"] == "federated":
             from data.func_call import load_func_call_federated
-            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_func_call_federated(model_name, batch_size, opt_params["client_num"], model_params, opt_params["dtype"], init_weights, max_length=args.max_length)
+            model, tokenizer, train_loader, client_loaders, val_loader, test_loader, analysis_loader, analysis_test_loader, C, transform_to_one_hot, data_params = load_func_call_federated(model_name, batch_size, opt_params["client_num"], model_params, opt_params["dtype"], init_weights, max_length=args.max_length, eval_exp=args.eval_exp)
         else:
             raise NotImplementedError
         opt_params["tokenizer"] = tokenizer
@@ -2859,6 +2863,12 @@ if __name__ == "__main__":
         #load_optimizer = load_optimizer_param
     else:
         print("number of parameters:", len(parameters_to_vector(model.parameters())))
+
+    if args.eval_exp > 1:
+        # A wider eval set changes what test_loss/test_accuracy mean, so it has
+        # to reach the path. The default is excluded, which keeps every existing
+        # results directory name.
+        model_params = model_params | {"eval_exp": args.eval_exp}
 
     #intialize train_graphs
     train_graphs = graphs()

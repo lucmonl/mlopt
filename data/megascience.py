@@ -6,7 +6,7 @@ import argparse
 from datasets import load_dataset, Dataset, concatenate_datasets, load_from_disk
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from arch.llama import get_llama_model_and_formats, format_and_mask_instruction
+from arch.llama import get_llama_model_and_formats, format_and_mask_instruction, generation_stop_token_ids
 
 import random
 from transformers import (
@@ -23,7 +23,7 @@ import evaluate
 from tqdm import tqdm
 
 
-def load_megascience_federated(model_name, batch_size, client_num, model_params, dtype, init_weights, max_length=None):
+def load_megascience_federated(model_name, batch_size, client_num, model_params, dtype, init_weights, max_length=None, eval_exp=1):
     DATA_FOLDER = os.environ["DATA_HOME"]
     if max_length is not None:
         SAVE_DIR = DATA_FOLDER + f"tokenized_megascience/{model_name}/length_{max_length}/"
@@ -58,12 +58,16 @@ def load_megascience_federated(model_name, batch_size, client_num, model_params,
     analysis_size = min(max(batch_size, 128), len(train_dataset))
     analysis_dataset = train_dataset.select(range(analysis_size))
 
+    # --eval_exp widens the eval split; analysis/loss.py then reports the loss on
+    # each nested prefix 128, 256, ..., max_eval_size.
+    max_eval_size = 128 * 2 ** (max(eval_exp, 1) - 1)
+
     if "train_size" in model_params:
         max_eval_samples = min(len(eval_dataset), model_params["train_size"])
-        max_eval_samples = min(max_eval_samples, 128)
+        max_eval_samples = min(max_eval_samples, max_eval_size)
         eval_dataset = eval_dataset.select(range(max_eval_samples))
 
-    max_eval_samples = min(len(eval_dataset), 128)
+    max_eval_samples = min(len(eval_dataset), max_eval_size)
     eval_dataset = eval_dataset.select(range(max_eval_samples))
     print("Number of samples in train dataset: {}".format(len(train_dataset)))
     print("Number of samples in eval dataset: {}".format(len(eval_dataset)))
@@ -185,7 +189,7 @@ def evaluate_func(model, eval_dataset, device, tokenizer=None):
             input_ids,
             max_new_tokens=max_new_tokens,
             do_sample=False,
-            eos_token_id=tokenizer.eos_token_id,
+            eos_token_id=generation_stop_token_ids(tokenizer),
             pad_token_id=tokenizer.eos_token_id,
         )
 
