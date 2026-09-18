@@ -390,6 +390,12 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
         opt_params["server_name"] = "default"
     lora_dropout = opt_params.get("lora_dropout", DEFAULT_LORA_DROPOUT)
     use_uniform_sv = opt_params.get("lora_init_scale", -1) > 0
+    if opt_params["fedlora_avg"] == "muonlora_v23":
+        gamma = float(opt_params.get("lora_init_scale", -1))
+        if not 0 < gamma < float("inf"):
+            raise ValueError("muonlora_v23 requires lora_init_scale > 0 for scaled-orthonormal factors")
+        if lora_rank <= 0 or lora_freeze_a:
+            raise ValueError("muonlora_v23 requires positive rank and both factors trainable")
     if opt_params["fedlora_avg"] in ["fr", "fr_v2"] or opt_params["fedlora_avg"].startswith("muonlora_v"):
         init_lora_weights = True if use_uniform_sv else "pissa"
     else:
@@ -513,7 +519,7 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
         #no need to initialize, will be reset at every step
         #synchronize_lora_fr_neg(model, server_name=opt_params["server_name"], truncate_last=truncate_last)
 
-    if opt_params["fedlora_avg"] in ("muonlora_v14", "muonlora_v17", "muonlora_v19", "muonlora_v20"):
+    if opt_params["fedlora_avg"] in ("muonlora_v14", "muonlora_v17", "muonlora_v19", "muonlora_v20", "muonlora_v23"):
         # extra adapter to carry the rank-r orthonormalization correction factors (Sec 3.7)
         model, output_layer_name, Lora_config = add_adapters_dataset(model_name, model, client_rank, lora_alpha, \
                                                                         lora_freeze_a=lora_freeze_a, adapter_name="orth_correction", \

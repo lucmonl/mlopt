@@ -1325,6 +1325,37 @@ def _advance_alternating_phase(opt_params, server_epoch, alternate_update):
             opt_params["update_B"] = True
 
 
+def _projected_muon_factor_split(B, A, U, V, merge_alpha, update_B,
+                                 use_scaled_identity, gamma):
+    """Split U @ V into a one-sided adapter move and a rank-r residual.
+
+    A is the stored (r, n) weight. U @ V already includes -lr / s and
+    optional shape scaling. Never materialize this dense product here.
+    The shortcut assumes A A.T = B.T B = gamma**2 I (up to storage rounding);
+    disable it to use the actual partner Gram matrix's pseudoinverse.
+    """
+    if use_scaled_identity and (not math.isfinite(gamma) or gamma <= 0):
+        raise ValueError("projected Muon scaled-identity inverse needs lora_init_scale > 0")
+    if update_B:
+        coordinates = V @ A.T
+        if use_scaled_identity:
+            coordinates = coordinates / gamma**2
+        else:
+            coordinates = coordinates @ torch.linalg.pinv(A @ A.T, rcond=1e-6)
+        B_new = B + merge_alpha * (U @ coordinates)
+        # U V - (B_new - B) A = U (V - alpha * coordinates * A).
+        return B_new, U, V - merge_alpha * (coordinates @ A)
+
+    coordinates = B.T @ U
+    if use_scaled_identity:
+        coordinates = coordinates / gamma**2
+    else:
+        coordinates = torch.linalg.pinv(B.T @ B, rcond=1e-6) @ coordinates
+    A_new = A + merge_alpha * (coordinates @ V)
+    # U V - B (A_new - A) = (U - alpha * B * coordinates) V.
+    return A_new, U - merge_alpha * (B @ coordinates), V
+
+
 def get_muonlora_hparams(fedlora_avg_name):
     if fedlora_avg_name == 'muonlora_v1':
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = False, True, False, False, True
@@ -1345,7 +1376,7 @@ def get_muonlora_hparams(fedlora_avg_name):
     elif fedlora_avg_name == 'muonlora_v9':
         """directly adding momentum to the lora adapters."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, True, True
-    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11', 'muonlora_v12', 'muonlora_v13', 'muonlora_v14', 'muonlora_v15', 'muonlora_v16', 'muonlora_v17', 'muonlora_v18', 'muonlora_v19', 'muonlora_v20']:
+    elif fedlora_avg_name in ['muonlora_v10', 'muonlora_v11', 'muonlora_v12', 'muonlora_v13', 'muonlora_v14', 'muonlora_v15', 'muonlora_v16', 'muonlora_v17', 'muonlora_v18', 'muonlora_v19', 'muonlora_v20', 'muonlora_v23']:
         """split muon update: fuse singular-vector-aligned part into server adapter, keep residual as muon update; alternates A/B sides across epochs."""
         use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor = True, False, True, False, True
     else:
@@ -1383,8 +1414,8 @@ def get_muonlora_hparams(fedlora_avg_name):
         """v14 exactly, plus one shared ambient buffer that accumulates the momentum
         alignment loss so the other factor's phase can absorb it."""
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
-    elif fedlora_avg_name == 'muonlora_v20':
-        """v14 with post-alignment, factor-owned momentum error feedback."""
+    elif fedlora_avg_name in ('muonlora_v20', 'muonlora_v23'):
+        """v20: factor-owned EF; v23: same EF with projected Muon factor steps."""
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = True, False, True, True
     else:
         partial_merge, orth_then_merge, alternate_update, aligned_momentum = False, False, False, False
@@ -1394,12 +1425,20 @@ def get_muonlora_hparams(fedlora_avg_name):
     # Toggle this off to make v18 use the legacy alternating merge path.
     use_balanced_probe_tracking = fedlora_avg_name == 'muonlora_v18'
     use_shared_ambient_ef = fedlora_avg_name == 'muonlora_v19'
-    use_factor_ambient_ef = fedlora_avg_name == 'muonlora_v20'
-    use_dense_ef_buffer = fedlora_avg_name in ['muonlora_v19', 'muonlora_v20']
+    use_factor_ambient_ef = fedlora_avg_name in ('muonlora_v20', 'muonlora_v23')
+    use_dense_ef_buffer = fedlora_avg_name in ['muonlora_v19', 'muonlora_v20', 'muonlora_v23']
+    # v23-only design toggles, configured here rather than on the CLI.
+    # Disable the projected step to recover v20's singular-vector factor move.
+    use_projected_muon_factor_update = fedlora_avg_name == 'muonlora_v23'
+    # Uniform-SV initialization and per-round QR give Gram = gamma**2 I.
+    # False uses the measured Gram pseudoinverse instead. This shortcut applies
+    # ONLY to the factor step, not to momentum transport or error feedback.
+    projected_muon_scaled_identity = True
     return use_model_grad, use_rtol_inv, use_norm_grad, apply_momentum, moment_on_factor, partial_merge, \
             orth_then_merge, alternate_update, aligned_momentum, use_damped_inv, use_momentum_error_feedback, \
             use_balanced_probe_tracking, use_product_preserving_qr_gauge, use_shared_ambient_ef, \
-            use_dense_ef_buffer, use_factor_ambient_ef
+            use_dense_ef_buffer, use_factor_ambient_ef, \
+            use_projected_muon_factor_update, projected_muon_scaled_identity
 
 def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, device, train_loaders, server_optimizer, server_lr_scheduler, client_lr, opt_params, model_params, server_epoch):
     client_num, client_opt_name, client_epoch = opt_params["client_num"], opt_params["client_opt_name"], opt_params["client_epoch"]
@@ -1412,11 +1451,18 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
         orth_then_merge, alternate_update, aligned_momentum, use_damped_inv, \
         use_momentum_error_feedback, use_balanced_probe_tracking, \
         use_product_preserving_qr_gauge, use_shared_ambient_ef, \
-        use_dense_ef_buffer, use_factor_ambient_ef = get_muonlora_hparams(
+        use_dense_ef_buffer, use_factor_ambient_ef, \
+        use_projected_muon_factor_update, projected_muon_scaled_identity = get_muonlora_hparams(
             fedlora_avg_name=opt_params["fedlora_avg"])
     # v14-style re-orthonormalization of the updated factor after each merge.
     v14_style_reorth = opt_params["fedlora_avg"] in (
-        "muonlora_v14", "muonlora_v17", "muonlora_v19", "muonlora_v20")
+        "muonlora_v14", "muonlora_v17", "muonlora_v19", "muonlora_v20", "muonlora_v23")
+    if opt_params["fedlora_avg"] == "muonlora_v23":
+        gamma = float(opt_params.get("lora_init_scale", -1))
+        if not math.isfinite(gamma) or gamma <= 0:
+            raise ValueError("muonlora_v23 requires lora_init_scale > 0 for scaled-orthonormal factors")
+        print(f"[muonlora_v23] projected_factor_update={use_projected_muon_factor_update}, "
+              f"projected_scaled_identity={projected_muon_scaled_identity}")
     if use_model_grad:
         opt_params["local_update_ON"] = False
     else:
@@ -2053,8 +2099,17 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             scale = math.sqrt(I_size / J_size)
                             muon_updates[muon_update_name_B] *= scale
                             U = muon_updates[muon_update_name_B]
-                        server_param_updates[grad_param_name_B] = B_param + opt_params["muonlora_merge_alpha"] * U
-                        muon_updates[muon_update_name_A] = V - opt_params["muonlora_merge_alpha"] * A_param.T
+                        if use_projected_muon_factor_update:
+                            (server_param_updates[grad_param_name_B],
+                             muon_updates[muon_update_name_B],
+                             muon_updates[muon_update_name_A]) = _projected_muon_factor_split(
+                                B_param, A_param.T, U, V,
+                                opt_params["muonlora_merge_alpha"], True,
+                                projected_muon_scaled_identity,
+                                float(opt_params["lora_init_scale"]))
+                        else:
+                            server_param_updates[grad_param_name_B] = B_param + opt_params["muonlora_merge_alpha"] * U
+                            muon_updates[muon_update_name_A] = V - opt_params["muonlora_merge_alpha"] * A_param.T
                         # muon_updates[muon_update_name_B] = U (unchanged)
                         from utilities import principal_angle
                         print(f"param norm: {B_param.float().norm().item()} U norm: {U.float().norm().item()}")
@@ -2093,8 +2148,17 @@ def federated_muonlora(model, loss_name, criterion, lora_rank, train_graphs, dev
                             scale = math.sqrt(I_size / J_size)
                             muon_updates[muon_update_name_A] *= scale
                             V = muon_updates[muon_update_name_A]
-                        server_param_updates[grad_param_name_A] = A_param.T + opt_params["muonlora_merge_alpha"] * V
-                        muon_updates[muon_update_name_B] = U - opt_params["muonlora_merge_alpha"] * B_param
+                        if use_projected_muon_factor_update:
+                            (server_param_updates[grad_param_name_A],
+                             muon_updates[muon_update_name_B],
+                             muon_updates[muon_update_name_A]) = _projected_muon_factor_split(
+                                B_param, A_param.T, U, V,
+                                opt_params["muonlora_merge_alpha"], False,
+                                projected_muon_scaled_identity,
+                                float(opt_params["lora_init_scale"]))
+                        else:
+                            server_param_updates[grad_param_name_A] = A_param.T + opt_params["muonlora_merge_alpha"] * V
+                            muon_updates[muon_update_name_B] = U - opt_params["muonlora_merge_alpha"] * B_param
                         from utilities import principal_angle
                         print(f"param norm: {A_param.float().norm().item()} V norm: {V.float().norm().item()}")
                         #principal_angle(grad_param_name_A, original_params_data[grad_param_name_A].float().T, V.float().T)

@@ -1885,7 +1885,7 @@ if __name__ == "__main__":
                                                              "muonlora_v4", "muonlora_v5", "muonlora_v6",  "muonlora_v7", "muonlora_v8",
                                                              "muonlora_v9", "muonlora_v10", "muonlora_v11", "muonlora_v12",
                                                              "muonlora_v13", "muonlora_v14", "muonlora_v15", "muonlora_v16", "muonlora_v17", "muonlora_v18",
-                                                              "muonlora_v19", "muonlora_v20", "muonlora_v21", "muonlora_v22", "ef14muon",
+                                                              "muonlora_v19", "muonlora_v20", "muonlora_v21", "muonlora_v22", "muonlora_v23", "ef14muon",
                                                              "ef21muon", "riemannion", "polora"], default="avg",
                                                              help="methods to average A and B matrix in federated lora")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
@@ -2840,6 +2840,13 @@ if __name__ == "__main__":
                         model_params = model_params | {"loi_q": args.riemann_loi_power}
             if opt_params["muonlora_scaled"]:
                 model_params = model_params | {"muon": "scaled"}
+            if opt_params["fedlora_avg"] == "muonlora_v23":
+                from optimizer.fedlora import get_muonlora_hparams
+                projected_step, scaled_identity = get_muonlora_hparams("muonlora_v23")[-2:]
+                model_params = model_params | {
+                    "projected_muon_factor_update": projected_step,
+                    "projected_muon_scaled_identity": scaled_identity,
+                }
             if opt_params["fedlora_avg"] == "muonlora_v18":
                 model_params = model_params | {
                     "muonlora_probe_beta": args.muonlora_probe_beta,
