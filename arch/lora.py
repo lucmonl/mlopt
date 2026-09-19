@@ -390,6 +390,8 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
         opt_params["server_name"] = "default"
     lora_dropout = opt_params.get("lora_dropout", DEFAULT_LORA_DROPOUT)
     use_uniform_sv = opt_params.get("lora_init_scale", -1) > 0
+    if opt_params["fedlora_avg"] == "signmuon-server" and lora_rank != -1:
+        raise ValueError("signmuon-server requires --lora_rank -1 (dense target weights)")
     if opt_params["fedlora_avg"] == "muonlora_v23":
         gamma = float(opt_params.get("lora_init_scale", -1))
         if not 0 < gamma < float("inf"):
@@ -428,8 +430,8 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
         find_and_initialize(model, Lora_config, lora_rank, model_name)
         return model, output_layer_name, Lora_config
 
-    if opt_params["fedlora_avg"] in ("ef14muon", "ef21muon"):
-        # EF14-/EF21-Muon train the dense weights of the LoRA target modules, so
+    if opt_params["fedlora_avg"] in ("ef14muon", "ef21muon", "signmuon-server"):
+        # These baselines train the dense weights of the LoRA target modules, so
         # the call above only ran add_ft() to set requires_grad. There are no
         # LoRA factors and no per-client adapters to create or synchronize.
         assert lora_rank == -1, "{} expects --lora_rank -1 (dense target modules)".format(

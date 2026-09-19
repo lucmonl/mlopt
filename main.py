@@ -369,6 +369,16 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
             model_params, server_epoch)
         return
 
+    if opt_params["fedlora_avg"] == "signmuon-server":
+        # Must precede the generic dense/use_model_grad path: signs are taken
+        # per client, before averaging, and again after the server Muon step.
+        from optimizer.signmuon_server import federated_signmuon_server
+        federated_signmuon_server(
+            model, loss_name, criterion, train_graphs, device, train_loaders,
+            server_optimizer, server_lr_scheduler, client_lr, opt_params,
+            model_params, server_epoch)
+        return
+
     if opt_params["fedlora_avg"] in ("ef14muon", "ef21muon"):
         # dense weights of the LoRA target modules (run with --lora_rank -1);
         # must be checked before the lora_rank <= 0 branch below. ef21muon takes
@@ -1887,8 +1897,10 @@ if __name__ == "__main__":
                                                              "muonlora_v9", "muonlora_v10", "muonlora_v11", "muonlora_v12",
                                                              "muonlora_v13", "muonlora_v14", "muonlora_v15", "muonlora_v16", "muonlora_v17", "muonlora_v18",
                                                               "muonlora_v19", "muonlora_v20", "muonlora_v21", "muonlora_v22", "muonlora_v23", "ef14muon",
-                                                             "ef21muon", "riemannion", "polora"], default="avg",
+                                                             "ef21muon", "signmuon-server", "riemannion", "polora"], default="avg",
                                                              help="methods to average A and B matrix in federated lora")
+    parser.add_argument("--signmuon_normalization", choices=["rms", "none"], default="rms", help="signmuon-server: preserve the Muon direction's per-tensor RMS after taking sign, or use unscaled signs")
+    parser.add_argument("--signmuon_lmo", choices=["ns5", "svd"], default="ns5", help="signmuon-server: fast BF16 Newton-Schulz Muon or a costly FP32 rank-aware SVD reference")
     parser.add_argument("--fedlora_uba", type=float, default=-1.0, help="the scale of unbalance in fedlora_svd")
     parser.add_argument("--uba_mode", type=str, default='none', choices=["ada", "none"], help="ada means adaptive uba")
     parser.add_argument("--uba_weight", type=float, default=1.0, help="uba adaptive weight")
@@ -2040,6 +2052,8 @@ if __name__ == "__main__":
     opt_params["ef21_w2s"]         = args.ef21_w2s
     opt_params["ef21_state_dir"]   = args.ef21_state_dir
     opt_params["ef21_lmo"]         = args.ef21_lmo
+    opt_params["signmuon_normalization"] = args.signmuon_normalization
+    opt_params["signmuon_lmo"]     = args.signmuon_lmo
     opt_params["fedlora_avg"]      = args.fedlora_avg
     opt_params["riemann_retract"]  = args.riemann_retract
     if opt_params["fedlora_avg"] == "riemannion":
@@ -2819,6 +2833,11 @@ if __name__ == "__main__":
                 model_params = model_params | {"ef21_s2w": args.ef21_s2w}
             if opt_params["fedlora_avg"] == "ef21muon" and args.ef21_w2s != "ef21":
                 model_params = model_params | {"ef21_w2s": args.ef21_w2s}
+            if opt_params["fedlora_avg"] == "signmuon-server":
+                model_params = model_params | {
+                    "signmuon_normalization": args.signmuon_normalization,
+                    "signmuon_lmo": args.signmuon_lmo,
+                }
             if opt_params["fedlora_avg"] == "polora":
                 # beta1/beta2 change the trajectory; the numerical settings are
                 # kept out of the path unless moved off their paper defaults
@@ -3060,11 +3079,14 @@ if __name__ == "__main__":
                 if lr_scheduler is not None:
                     torch.save(lr_scheduler.state_dict(), f"{directory}/lr_scheduler.ckpt")
 
-                # ef14/ef21 server state holds device tensors (and, for ef21, a
-                # handle on the on-disk client store); none of it is picklable
-                # metadata, and the ef21 buffers already live under `directory`
+                # ef14/ef21/signmuon server state holds device tensors (and, for
+                # ef21, a handle on the on-disk client store); none of it is
+                # picklable metadata, and the ef21 buffers already live under
+                # `directory`. signmuon-server carries two dense buffers over
+                # every trainable parameter, so leaving it in writes gigabytes
+                # per save and resurrects stale round-local votes on resume.
                 _skip_keys = {"server_params", "device", "accelerator",
-                              "ef14_state", "ef21_state"}
+                              "ef14_state", "ef21_state", "signmuon_server_state"}
                 opt_params_to_save = {k: v for k, v in opt_params.items() if k not in _skip_keys}
                 pickle.dump(opt_params_to_save, open(f"{directory}/opt_params.pk", "wb"))
                 
