@@ -1865,6 +1865,7 @@ if __name__ == "__main__":
     parser.add_argument("--ef21_state_dir", type=str, default="", help="ef21muon: where to page the per-client (M_j, G_j) store. Defaults to the run's checkpoint directory; point it at scratch/project space, since it needs client_num * 2 * d * 2 bytes")
     parser.add_argument("--ef21_w2s", type=str, default="ef21", choices=["ef21", "none"], help="ef21muon: worker-to-server error feedback. 'ef21' keeps the per-client estimators G_j and sends C(M_j - G_j) (Algorithm 1); 'none' compresses each client gradient memorylessly with server-side momentum, as ef14muon does, which removes ALL per-client state and hence all disk paging -- an ablation of the s2w (EF21-P) mechanism alone")
     parser.add_argument("--ef21_s2w", type=str, default="same", choices=["same", "none"], help="ef21muon: server-to-worker compressor C^k. 'same' uses --compressor in both directions (Algorithm 1); 'none' sets C^k=I, the setting Theorems 4/6 and the paper's experiments assume")
+    parser.add_argument("--ef21_lmo", type=str, default="ns5", choices=["ns5", "svd"], help="ef14muon/ef21muon: how the spectral-norm LMO of the server step is evaluated. 'ns5' is the quintic Newton-Schulz iteration used for training; 'svd' is the exact U V^T, an fp32 reference that costs a full SVD per trainable matrix per round (~2s each for 3072x3072, i.e. minutes per round for a 3B model) and is meant for measuring how far the polynomial iteration is from the true orthogonal factor")
     parser.add_argument("--riemann_alpha", type=float, default=None, help="riemannion: scale of the initial manifold point, dW^(0) = alpha * U_1r V_r2r^T so |alpha| is its spectral norm. Default follows Appendix F: -0.01/sqrt(rank) for --riemann_init loi, +0.01/sqrt(rank) for random (where the sign is absorbed by the random frame). Negative values are allowed")
     parser.add_argument("--riemann_init", type=str, default="random", choices=["random", "loi"], help="riemannion: initial point on M_r. 'random' is a random orthonormal frame at radius alpha; 'loi' is the Locally Optimal Initialization of Section 5, computed with BackPropRSVD (Algorithm 3) through a temporary wide adapter -- costs 2(q+1) extra federated rounds, once")
     parser.add_argument("--riemann_loi_oversample", type=int, default=16, help="riemannion LOI: randomized-SVD oversampling p, sketch width is k = 2*rank + p (paper Appendix F uses 16)")
@@ -2038,6 +2039,7 @@ if __name__ == "__main__":
     opt_params["ef21_s2w"]         = args.ef21_s2w
     opt_params["ef21_w2s"]         = args.ef21_w2s
     opt_params["ef21_state_dir"]   = args.ef21_state_dir
+    opt_params["ef21_lmo"]         = args.ef21_lmo
     opt_params["fedlora_avg"]      = args.fedlora_avg
     opt_params["riemann_retract"]  = args.riemann_retract
     if opt_params["fedlora_avg"] == "riemannion":
@@ -2807,6 +2809,12 @@ if __name__ == "__main__":
                 model_params = model_params | {"dl_density": args.dl_density, "ul_density": args.ul_density}
             if opt_params["fedlora_avg"] in ("ef14muon", "ef21muon"):
                 model_params = model_params | {"compressor": args.compressor, "sketch_size": args.sketch_size}
+                # tagged unconditionally, unlike the other optional switches:
+                # every ef14/ef21 result written before --ef21_lmo existed used
+                # the exact SVD, and those paths carry no segment at all, so a
+                # conditional tag would let the new ns5 default land on top of
+                # them. The two LMOs are also the point of the comparison.
+                model_params = model_params | {"ef21_lmo": args.ef21_lmo}
             if opt_params["fedlora_avg"] == "ef21muon" and args.ef21_s2w != "same":
                 model_params = model_params | {"ef21_s2w": args.ef21_s2w}
             if opt_params["fedlora_avg"] == "ef21muon" and args.ef21_w2s != "ef21":

@@ -261,10 +261,11 @@ class ServerState:
 
     def __init__(self, named, compressor, ratio, momentum, device,
                  client_ef=False, server_ef=False, s2w_compressor=None,
-                 store_root=None, dtype=BUF_DTYPE):
+                 store_root=None, lmo_method="ns5", dtype=BUF_DTYPE):
         self.compressor = compressor
         self.s2w_compressor = compressor if s2w_compressor is None else s2w_compressor
         self.ratio = ratio
+        self.lmo_method = lmo_method
         self.momentum = momentum
         self.client_ef = client_ef
         self.server_ef = server_ef
@@ -403,7 +404,7 @@ class ServerState:
                 empty += 1
                 continue
             # LMO_{B(0,1)}(G) = -NS5(G) / -sign(G), hence the subtraction
-            step = radius * lmo_step(chunk, "svd")
+            step = radius * lmo_step(chunk, self.lmo_method)
             # norms are printed diagnostics only, so they are reduced in fp32
             step_norm += step.float().norm().item() ** 2
             if self.server_ef:
@@ -461,6 +462,10 @@ def federated_ef14muon(model, loss_name, criterion, train_graphs, device, train_
     # reported experiments run with it, so the s2w side can be turned off alone.
     s2w_compressor = ("none" if is_ef21 and opt_params.get("ef21_s2w") == "none"
                       else compressor)
+    # "svd" is the exact reference LMO: one fp32 factorization per trainable
+    # matrix per round, which for a 3B model costs minutes of server time and
+    # dwarfs the client backward passes it serves.  "ns5" is the training path.
+    lmo_method = opt_params.get("ef21_lmo", "ns5")
 
     if state_key not in opt_params:
         store_root = None
@@ -476,7 +481,8 @@ def federated_ef14muon(model, loss_name, criterion, train_graphs, device, train_
             store_root = os.path.join(root, "ef21_state")
         state = ServerState(named, compressor, ratio, opt_params["server_momentum"],
                             device, client_ef=client_ef, server_ef=server_ef,
-                            s2w_compressor=s2w_compressor, store_root=store_root)
+                            s2w_compressor=s2w_compressor, store_root=store_root,
+                            lmo_method=lmo_method)
         opt_params[state_key] = state
         opt_params[tag + "_bits"] = 0
         if compressor == "none":
@@ -492,6 +498,10 @@ def federated_ef14muon(model, loss_name, criterion, train_graphs, device, train_
         print("[{}] error feedback: w2s {}, s2w {}".format(
             tag, "EF21 (per-client G_j)" if client_ef else "off (memoryless)",
             "EF21-P (X - W)" if server_ef else "off (memoryless)"))
+        print("[{}] spectral LMO: {}".format(
+            tag, "exact SVD (fp32 reference, one factorization per matrix "
+            "per round)" if lmo_method == "svd"
+            else "quintic Newton-Schulz ({} steps, bf16)".format(NS_STEPS)))
         if client_ef:
             # size this now, not after the first round has half-filled the disk
             per = state.store.bytes_per_client()
