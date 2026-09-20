@@ -348,6 +348,13 @@ def federated_lora(model, loss_name, criterion, device, train_loaders, server_op
                              model_params, server_epoch)
         return
 
+    if opt_params["fedlora_avg"] == "imuon":
+        from optimizer.imuon import federated_imuon
+        federated_imuon(model, loss_name, criterion, train_graphs, device, train_loaders,
+                        server_optimizer, server_lr_scheduler, client_lr, opt_params,
+                        model_params, server_epoch)
+        return
+
     if opt_params["fedlora_avg"] == "polora":
         # Algorithm 1 of the PoLoRA paper, run on the averaged factor gradients.
         # The clients never take a local step, so this must precede the
@@ -1888,6 +1895,8 @@ if __name__ == "__main__":
     parser.add_argument("--polora_power_iters", type=int, default=3, help="polora: power iterations per spectral-norm estimate (Appendix E.1)")
     parser.add_argument("--polora_delta", type=float, default=1e-4, help="polora: relative damping delta, capping the condition number of each damped curvature matrix at about 1/delta (Appendix E)")
     parser.add_argument("--polora_eps", type=float, default=1e-12, help="polora: numerical-stability constant eps, also the initial value of the curvature vectors p and q (Appendix E)")
+    parser.add_argument("--imuon_polar", choices=["ns", "svd"], default="ns", help="imuon: Newton-Schulz polar approximation or exact thin-SVD reference; QR and solves use fp32")
+    parser.add_argument("--imuon_ns_steps", type=int, default=10, help="imuon: Newton-Schulz iterations per polar factor")
     parser.add_argument("--non_iid_alpha", type=float, default=0.0, help="percentage of majority class in one client")
     parser.add_argument("--clip_tau", type=float, default=-1, help="clip tau in clipping method")
     parser.add_argument("--fedlora_avg", type= str, choices=["avg", "svd", "svd_v2", "svd_grad", "fd", "sketch",
@@ -1897,7 +1906,7 @@ if __name__ == "__main__":
                                                              "muonlora_v9", "muonlora_v10", "muonlora_v11", "muonlora_v12",
                                                              "muonlora_v13", "muonlora_v14", "muonlora_v15", "muonlora_v16", "muonlora_v17", "muonlora_v18",
                                                               "muonlora_v19", "muonlora_v20", "muonlora_v21", "muonlora_v22", "muonlora_v23", "ef14muon",
-                                                             "ef21muon", "signmuon-server", "riemannion", "polora"], default="avg",
+                                                             "ef21muon", "signmuon-server", "riemannion", "polora", "imuon"], default="avg",
                                                              help="methods to average A and B matrix in federated lora")
     parser.add_argument("--signmuon_normalization", choices=["rms", "none"], default="rms", help="signmuon-server: preserve the Muon direction's per-tensor RMS after taking sign, or use unscaled signs")
     parser.add_argument("--signmuon_lmo", choices=["ns5", "svd"], default="ns5", help="signmuon-server: fast BF16 Newton-Schulz Muon or a costly FP32 rank-aware SVD reference")
@@ -2083,6 +2092,21 @@ if __name__ == "__main__":
         opt_params["polora_power_iters"] = args.polora_power_iters
         opt_params["polora_delta"] = args.polora_delta
         opt_params["polora_eps"] = args.polora_eps
+    if opt_params["fedlora_avg"] == "imuon":
+        if args.opt != "federated" or not args.apply_lora or args.lora_rank <= 0 or args.lora_freeze_a:
+            raise ValueError("imuon requires --opt federated --apply_lora, positive rank and both factors trainable")
+        if args.hetero_rank != -1:
+            raise ValueError("imuon requires homogeneous server adapters (--hetero_rank -1)")
+        if args.client_epoch != 1:
+            raise ValueError("imuon requires --client_epoch 1")
+        if not 0 < args.lora_init_scale < float("inf"):
+            raise ValueError("imuon requires --lora_init_scale > 0 for full-rank factors (e.g. 1.0)")
+        if args.lora_alpha <= 0:
+            raise ValueError("imuon requires positive --lora_alpha")
+        if not 0 <= args.momentum < 1 or args.imuon_ns_steps < 1:
+            raise ValueError("imuon needs --momentum in [0, 1) and positive ns_steps")
+        opt_params["imuon_polar"] = args.imuon_polar
+        opt_params["imuon_ns_steps"] = args.imuon_ns_steps
     opt_params["server_lr"]        = args.lr
     opt_params["server_momentum"]  = args.momentum
     opt_params["client_momentum"]  = args.client_momentum
@@ -2838,6 +2862,10 @@ if __name__ == "__main__":
                     "signmuon_normalization": args.signmuon_normalization,
                     "signmuon_lmo": args.signmuon_lmo,
                 }
+            if opt_params["fedlora_avg"] == "imuon":
+                model_params = model_params | {"imuon_polar": args.imuon_polar}
+                if args.imuon_polar == "ns":
+                    model_params = model_params | {"imuon_ns": args.imuon_ns_steps}
             if opt_params["fedlora_avg"] == "polora":
                 # beta1/beta2 change the trajectory; the numerical settings are
                 # kept out of the path unless moved off their paper defaults

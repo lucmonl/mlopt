@@ -390,6 +390,12 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
         opt_params["server_name"] = "default"
     lora_dropout = opt_params.get("lora_dropout", DEFAULT_LORA_DROPOUT)
     use_uniform_sv = opt_params.get("lora_init_scale", -1) > 0
+    if opt_params["fedlora_avg"] == "imuon":
+        scale = opt_params.get("lora_init_scale", -1)
+        if not 0 < scale < float("inf") or lora_rank <= 0 or lora_freeze_a:
+            raise ValueError("imuon requires positive rank/init scale and both factors trainable")
+        if lora_alpha <= 0:
+            raise ValueError("imuon requires positive lora_alpha")
     if opt_params["fedlora_avg"] == "signmuon-server" and lora_rank != -1:
         raise ValueError("signmuon-server requires --lora_rank -1 (dense target weights)")
     if opt_params["fedlora_avg"] == "muonlora_v23":
@@ -436,6 +442,13 @@ def add_adapters_homo(client_num, model_name, model, lora_rank, lora_alpha, opt_
         # LoRA factors and no per-client adapters to create or synchronize.
         assert lora_rank == -1, "{} expects --lora_rank -1 (dense target modules)".format(
             opt_params["fedlora_avg"])
+        return model, output_layer_name, Lora_config
+
+    if opt_params["fedlora_avg"] == "imuon":
+        # One shared full-rank adapter: clients supply gradients, not local steps.
+        set_server_lora_dropout(model, opt_params["server_name"], lora_dropout, "imuon")
+        print("[imuon] rank {}, scaling {}, init scale {}".format(
+            lora_rank, lora_alpha / lora_rank, opt_params["lora_init_scale"]))
         return model, output_layer_name, Lora_config
 
     if opt_params["fedlora_avg"] == "polora":
