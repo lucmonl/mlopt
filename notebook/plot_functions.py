@@ -953,14 +953,21 @@ def plot_figures_opts_attr_ci(opts_list, model_params, opt_params, attrs, start=
     if return_max:
         return max_val
 
-def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attrs, start=None, end=None, alpha=0.9, linewidth=2.0, legend_fontsize=11, ylabel=None, legends=[], titles=[], yaxis=[], xlabels=[], save_dir=None, return_last=False, return_max=False, overlap=False, use_seaborn=True, linestyles=[], ci=True):
-    """Beautified version of plot_figures_opts_attr_ci with improved aesthetics."""
+def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attrs, start=None, end=None, alpha=0.9, linewidth=2.0, legend_fontsize=11, ylabel=None, legends=[], titles=[], yaxis=[], xlabels=[], save_dir=None, return_last=False, return_max=False, overlap=False, use_seaborn=True, linestyles=[], ci=True, exp=False):
+    """Beautified version of plot_figures_opts_attr_ci with improved aesthetics.
+
+    If exp is True, the plotted quantity is exponentiated: exp(y) is shown on the y-axis.
+    """
     import matplotlib.ticker as mtick
     import seaborn as sns
     import pandas as pd
 
-    # Colorblind-friendly palette (Wong 2011)
-    PALETTE = ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#56B4E9', '#E69F00', '#F0E442', '#000000']
+    # Colorblind-friendly palette (Wong 2011), with the duplicate orange (#E69F00)
+    # and the low-contrast yellow (#F0E442) swapped for a purple and a dark gold.
+    PALETTE = ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#56B4E9', '#7B3294', '#8C6D1F', '#000000']
+
+    def _scale(v):
+        return np.exp(np.asarray(v, dtype=float)) if exp else v
 
     rows, cols = 1, len(opts_list)
     fig, axs = plt.subplots(rows, cols, figsize=(cols * 5, rows * 3.8))
@@ -1034,7 +1041,7 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
                 label = legend[opt_idx] if opt_idx < len(legend) else opt_name
                 if not ci:
                     tg = train_graphs[0]
-                    vals = get_attr_from_graph(tg, attr)[start:end]
+                    vals = _scale(get_attr_from_graph(tg, attr)[start:end])
                     xax = tg.log_epochs[start:end]
                     line, = ax.plot(xax, vals, label=label, linewidth=linewidth,
                                     alpha=opt_alpha, linestyle=optlinestyle, color=color)
@@ -1044,7 +1051,7 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
                 else:
                     df_rows = []
                     for tg in train_graphs:
-                        vals = get_attr_from_graph(tg, attr)[start:end]
+                        vals = _scale(get_attr_from_graph(tg, attr)[start:end])
                         xax = tg.log_epochs[start:end]
                         for x, y in zip(xax, vals):
                             df_rows.append({'x': x, 'value': y, 'run': id(tg)})
@@ -1063,7 +1070,7 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
             else:
                 if not ci:
                     tg = train_graphs[0]
-                    vals = np.array(get_attr_from_graph(tg, attr)[start:end])
+                    vals = _scale(np.array(get_attr_from_graph(tg, attr)[start:end]))
                     xax = tg.log_epochs[start:end]
                     line, = ax.plot(xax, vals, alpha=opt_alpha, linewidth=linewidth, linestyle=optlinestyle, color=color)
                     line_handles.append(line)
@@ -1071,8 +1078,16 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
                     max_val[-1].append(float(np.max(vals)))
                 else:
                     plot_fn = plot_attr_overlap if overlap else plot_attr
+                    n_colls = len(ax.collections)
                     line = plot_fn(ax=ax, train_graphs=train_graphs, attr=attr, start=start, end=end,
                                    alpha=opt_alpha, linewidth=linewidth, linestyle=optlinestyle)
+                    if exp:
+                        line.set_ydata(_scale(line.get_ydata()))
+                        for coll in ax.collections[n_colls:]:
+                            for path in coll.get_paths():
+                                path.vertices[:, 1] = np.exp(path.vertices[:, 1])
+                        ax.relim()
+                        ax.autoscale_view()
                     line.set_color(color)
                     line_handles.append(line)
                     ydata = line.get_ydata()
