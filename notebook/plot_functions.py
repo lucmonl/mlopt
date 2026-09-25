@@ -953,10 +953,16 @@ def plot_figures_opts_attr_ci(opts_list, model_params, opt_params, attrs, start=
     if return_max:
         return max_val
 
-def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attrs, start=None, end=None, alpha=0.9, linewidth=2.0, legend_fontsize=11, ylabel=None, legends=[], titles=[], yaxis=[], xlabels=[], save_dir=None, return_last=False, return_max=False, overlap=False, use_seaborn=True, linestyles=[], ci=True, exp=False):
+def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attrs, start=None, end=None, alpha=0.9, linewidth=2.0, legend_fontsize=11, ylabel=None, legends=[], titles=[], yaxis=[], xlabels=[], save_dir=None, return_last=False, return_max=False, overlap=False, use_seaborn=True, linestyles=[], ci=True, exp=False, x_multiplier={}):
     """Beautified version of plot_figures_opts_attr_ci with improved aesthetics.
 
     If exp is True, the plotted quantity is exponentiated: exp(y) is shown on the y-axis.
+
+    x_multiplier maps an opt name to the factor its x axis is scaled by, so runs
+    logged on different scales (e.g. steps vs. rounds) can be overlaid, e.g.
+    {'ef21muon': 4}. Opts absent from the dict default to 1. When x_multiplier is
+    non-empty, the x limits of every subplot are set to the (scaled) range of its
+    first opt.
     """
     import matplotlib.ticker as mtick
     import seaborn as sns
@@ -968,6 +974,9 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
 
     def _scale(v):
         return np.exp(np.asarray(v, dtype=float)) if exp else v
+
+    def _scale_x(v, mult):
+        return np.asarray(v, dtype=float) * mult if mult != 1.0 else v
 
     rows, cols = 1, len(opts_list)
     fig, axs = plt.subplots(rows, cols, figsize=(cols * 5, rows * 3.8))
@@ -988,10 +997,14 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
     if linestyles == []:
         linestyles = [[] for _ in range(len(opts_list))]
 
+    # x_multiplier: {opt_name: factor}; opts not listed keep their own x axis
+    scale_xlim = len(x_multiplier) > 0
+
     for opts, legend, title, attr, xlabel, linestyle in zip(opts_list, legends, titles, attrs, xlabels, linestyles):
         last_val.append([])
         max_val.append([])
         ax = axs[ax_ptr]
+        first_xrange = None
 
         # Background and grid
         ax.set_facecolor('#f7f7f7')
@@ -1009,6 +1022,7 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
         line_handles = []
         for opt_idx, opt_name in enumerate(opts):
             optlinestyle = linestyle[opt_idx] if opt_idx < len(linestyle) else 'solid'
+            xmult = float(x_multiplier.get(opt_name, 1.0))
             color = PALETTE[opt_idx % len(PALETTE)]
             # dashed lines: same hue, reduced alpha
             opt_alpha = 0.55 if optlinestyle == 'dashed' else alpha
@@ -1037,12 +1051,26 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
                     with open(run_path, 'rb') as f:
                         train_graphs.append(pickle.load(f))
 
+            # start/end are indices into each opt's own log, so once an opt's x axis is
+            # rescaled the same indices no longer cover the same x range. Window the
+            # later opts by the x range the first opt spans instead: take every entry
+            # whose scaled x falls inside it, even though the grids are not aligned.
+            opt_start, opt_end = start, end
+            if scale_xlim and first_xrange is not None:
+                xfull = _scale_x(np.asarray(train_graphs[0].log_epochs, dtype=float), xmult)
+                i0 = int(np.searchsorted(xfull, first_xrange[0], side='left'))
+                i1 = int(np.searchsorted(xfull, first_xrange[1], side='right'))
+                if i1 - i0 >= 2:
+                    opt_start, opt_end = i0, i1
+                else:
+                    print(f"warning: {opt_name} has no data inside the x range of {opts[0]}, keeping start/end")
+
             if use_seaborn:
                 label = legend[opt_idx] if opt_idx < len(legend) else opt_name
                 if not ci:
                     tg = train_graphs[0]
-                    vals = _scale(get_attr_from_graph(tg, attr)[start:end])
-                    xax = tg.log_epochs[start:end]
+                    vals = _scale(get_attr_from_graph(tg, attr)[opt_start:opt_end])
+                    xax = _scale_x(tg.log_epochs[opt_start:opt_end], xmult)
                     line, = ax.plot(xax, vals, label=label, linewidth=linewidth,
                                     alpha=opt_alpha, linestyle=optlinestyle, color=color)
                     line_handles.append(line)
@@ -1051,8 +1079,8 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
                 else:
                     df_rows = []
                     for tg in train_graphs:
-                        vals = _scale(get_attr_from_graph(tg, attr)[start:end])
-                        xax = tg.log_epochs[start:end]
+                        vals = _scale(get_attr_from_graph(tg, attr)[opt_start:opt_end])
+                        xax = _scale_x(tg.log_epochs[opt_start:opt_end], xmult)
                         for x, y in zip(xax, vals):
                             df_rows.append({'x': x, 'value': y, 'run': id(tg)})
                     df = pd.DataFrame(df_rows)
@@ -1070,8 +1098,8 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
             else:
                 if not ci:
                     tg = train_graphs[0]
-                    vals = _scale(np.array(get_attr_from_graph(tg, attr)[start:end]))
-                    xax = tg.log_epochs[start:end]
+                    vals = _scale(np.array(get_attr_from_graph(tg, attr)[opt_start:opt_end]))
+                    xax = _scale_x(tg.log_epochs[opt_start:opt_end], xmult)
                     line, = ax.plot(xax, vals, alpha=opt_alpha, linewidth=linewidth, linestyle=optlinestyle, color=color)
                     line_handles.append(line)
                     last_val[-1].append(float(vals[-1]))
@@ -1079,13 +1107,19 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
                 else:
                     plot_fn = plot_attr_overlap if overlap else plot_attr
                     n_colls = len(ax.collections)
-                    line = plot_fn(ax=ax, train_graphs=train_graphs, attr=attr, start=start, end=end,
+                    line = plot_fn(ax=ax, train_graphs=train_graphs, attr=attr, start=opt_start, end=opt_end,
                                    alpha=opt_alpha, linewidth=linewidth, linestyle=optlinestyle)
-                    if exp:
-                        line.set_ydata(_scale(line.get_ydata()))
+                    if exp or xmult != 1.0:
+                        if exp:
+                            line.set_ydata(_scale(line.get_ydata()))
+                        if xmult != 1.0:
+                            line.set_xdata(_scale_x(line.get_xdata(), xmult))
                         for coll in ax.collections[n_colls:]:
                             for path in coll.get_paths():
-                                path.vertices[:, 1] = np.exp(path.vertices[:, 1])
+                                if exp:
+                                    path.vertices[:, 1] = np.exp(path.vertices[:, 1])
+                                if xmult != 1.0:
+                                    path.vertices[:, 0] *= xmult
                         ax.relim()
                         ax.autoscale_view()
                     line.set_color(color)
@@ -1094,6 +1128,15 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
                     last_val[-1].append(ydata[-1])
                     max_val[-1].append(np.max(ydata))
 
+            if opt_idx == 0:
+                xdata = np.asarray(line.get_xdata(), dtype=float)
+                if xdata.size:
+                    first_xrange = (float(np.min(xdata)), float(np.max(xdata)))
+
+        if scale_xlim and first_xrange is not None:
+            xlo, xhi = first_xrange
+            pad = 0.05 * (xhi - xlo) if xhi > xlo else 0.5  # matplotlib's default margin
+            ax.set_xlim(xlo - pad, xhi + pad)
         ax.set_xlabel(xlabel, fontsize=12, labelpad=4)
         ax.set_title(title, fontsize=13, fontweight='bold', pad=6)
         ax.tick_params(axis='both', labelsize=10)
