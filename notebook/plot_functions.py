@@ -953,7 +953,7 @@ def plot_figures_opts_attr_ci(opts_list, model_params, opt_params, attrs, start=
     if return_max:
         return max_val
 
-def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attrs, start=None, end=None, alpha=0.9, linewidth=2.0, legend_fontsize=11, ylabel=None, legends=[], titles=[], yaxis=[], xlabels=[], save_dir=None, return_last=False, return_max=False, overlap=False, use_seaborn=True, linestyles=[], ci=True, exp=False, x_multiplier={}):
+def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attrs, start=None, end=None, alpha=0.9, linewidth=2.0, legend_fontsize=11, ylabel=None, legends=[], titles=[], yaxis=[], xlabels=[], save_dir=None, return_last=False, return_max=False, overlap=False, use_seaborn=True, linestyles=[], ci=True, exp=False, x_multiplier={}, return_std=False):
     """Beautified version of plot_figures_opts_attr_ci with improved aesthetics.
 
     If exp is True, the plotted quantity is exponentiated: exp(y) is shown on the y-axis.
@@ -963,6 +963,19 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
     {'ef21muon': 4}. Opts absent from the dict default to 1. When x_multiplier is
     non-empty, the x limits of every subplot are set to the (scaled) range of its
     first opt.
+
+    end is a number of logged entries, or a dict giving that count per opt, e.g.
+    {'signmuon': 150} to keep signmuon's first 150 entries. It counts entries in
+    the opt's own log -- x_multiplier does not enter into it. Opts absent from
+    that dict are drawn in full.
+
+    return_std returns the across-run std of every plotted entry, as one array per
+    opt ([subplot][opt] -> array over steps), so std_val[0][1][-1] is the spread of
+    the second opt at its last step. It is taken on the quantity actually plotted,
+    i.e. of the perplexity when exp is set, and matches the shaded band: population
+    std over every run found, truncated to their common length. A single seed gives
+    all zeros. With several of return_last/return_max/return_std set, they come back
+    as a tuple in that order.
     """
     import matplotlib.ticker as mtick
     import seaborn as sns
@@ -982,6 +995,7 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
     fig, axs = plt.subplots(rows, cols, figsize=(cols * 5, rows * 3.8))
     last_val = []
     max_val = []
+    std_val = []
     if len(opts_list) > 1:
         axs = axs.reshape(-1)
     else:
@@ -1003,6 +1017,7 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
     for opts, legend, title, attr, xlabel, linestyle in zip(opts_list, legends, titles, attrs, xlabels, linestyles):
         last_val.append([])
         max_val.append([])
+        std_val.append([])
         ax = axs[ax_ptr]
         first_xrange = None
 
@@ -1051,19 +1066,36 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
                     with open(run_path, 'rb') as f:
                         train_graphs.append(pickle.load(f))
 
+            xfull = _scale_x(np.asarray(train_graphs[0].log_epochs, dtype=float), xmult)
+
+            # an end given per opt counts that opt's own log entries, like the int form
+            opt_start, opt_end = start, end
+            if isinstance(end, dict):
+                opt_end = end.get(opt_name)
+
             # start/end are indices into each opt's own log, so once an opt's x axis is
             # rescaled the same indices no longer cover the same x range. Window the
             # later opts by the x range the first opt spans instead: take every entry
             # whose scaled x falls inside it, even though the grids are not aligned.
-            opt_start, opt_end = start, end
             if scale_xlim and first_xrange is not None:
-                xfull = _scale_x(np.asarray(train_graphs[0].log_epochs, dtype=float), xmult)
                 i0 = int(np.searchsorted(xfull, first_xrange[0], side='left'))
                 i1 = int(np.searchsorted(xfull, first_xrange[1], side='right'))
+                if opt_end is not None:
+                    i1 = min(i1, opt_end)
                 if i1 - i0 >= 2:
                     opt_start, opt_end = i0, i1
                 else:
                     print(f"warning: {opt_name} has no data inside the x range of {opts[0]}, keeping start/end")
+
+            if return_std:
+                # spread over the runs at every plotted entry, on the quantity actually
+                # plotted (perplexity when exp is set); runs are truncated to their
+                # common length, as the shaded band is
+                runs = [np.asarray(_scale(get_attr_from_graph(tg, attr)[opt_start:opt_end]), dtype=float)
+                        for tg in train_graphs]
+                n_common = min(len(r) for r in runs) if runs else 0
+                std_val[-1].append(np.std(np.stack([r[:n_common] for r in runs]), axis=0)
+                                   if n_common else np.array([]))
 
             if use_seaborn:
                 label = legend[opt_idx] if opt_idx < len(legend) else opt_name
@@ -1156,10 +1188,12 @@ def plot_figures_opts_attr_ci_beautify(opts_list, model_params, opt_params, attr
     plt.tight_layout(pad=1.5)
     if save_dir:
         plt.savefig(save_dir, dpi=150, bbox_inches='tight')
-    if return_last:
-        return last_val
-    if return_max:
-        return max_val
+
+    requested = [v for flag, v in ((return_last, last_val), (return_max, max_val), (return_std, std_val)) if flag]
+    if len(requested) == 1:
+        return requested[0]
+    if requested:
+        return tuple(requested)
 
 
 def plot_figure_cos_descent_ascent(opts, model_params, opt_params):
@@ -1345,3 +1379,267 @@ def plot_loss_ratio_vs_grad(opts, model_params, opt_params, savefig=None):
 
     if savefig is not None:
         plt.savefig(savefig)
+
+
+def plot_figures_opts_attr_ci_beautify_run(opts_list, model_params, opt_params, attrs, start=None, end=None, alpha=0.9, linewidth=2.0, legend_fontsize=11, ylabel=None, legends=[], titles=[], yaxis=[], xlabels=[], save_dir=None, return_last=False, return_max=False, overlap=False, use_seaborn=True, linestyles=[], ci=True, exp=False, x_multiplier={}, return_std=False, run_id=[]):
+    """Beautified version of plot_figures_opts_attr_ci with improved aesthetics.
+
+    If exp is True, the plotted quantity is exponentiated: exp(y) is shown on the y-axis.
+
+    x_multiplier maps an opt name to the factor its x axis is scaled by, so runs
+    logged on different scales (e.g. steps vs. rounds) can be overlaid, e.g.
+    {'ef21muon': 4}. Opts absent from the dict default to 1. When x_multiplier is
+    non-empty, the x limits of every subplot are set to the (scaled) range of its
+    first opt.
+
+    end is a number of logged entries, or a dict giving that count per opt, e.g.
+    {'signmuon': 150} to keep signmuon's first 150 entries. It counts entries in
+    the opt's own log -- x_multiplier does not enter into it. Opts absent from
+    that dict are drawn in full.
+
+    run_id picks which runs are loaded, instead of every run* directory found:
+    [0, 2] or ['run_0', 'run_2'] applies to every opt, and a dict such as
+    {'signmuon': 0, 'ef21muon': [0, 1]} selects per opt (opts absent from the dict
+    keep all their runs). The runs are loaded in the order given, so with ci=False
+    -- which draws a single run -- the first entry is the one plotted.
+
+    return_std returns the across-run std of every plotted entry, as one array per
+    opt ([subplot][opt] -> array over steps), so std_val[0][1][-1] is the spread of
+    the second opt at its last step. It is taken on the quantity actually plotted,
+    i.e. of the perplexity when exp is set, and matches the shaded band: population
+    std over every run found, truncated to their common length. A single seed gives
+    all zeros. With several of return_last/return_max/return_std set, they come back
+    as a tuple in that order.
+    """
+    import matplotlib.ticker as mtick
+    import seaborn as sns
+    import pandas as pd
+
+    # Colorblind-friendly palette (Wong 2011), with the duplicate orange (#E69F00)
+    # and the low-contrast yellow (#F0E442) swapped for a purple and a dark gold.
+    PALETTE = ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#56B4E9', '#7B3294', '#8C6D1F', '#000000']
+
+    def _scale(v):
+        return np.exp(np.asarray(v, dtype=float)) if exp else v
+
+    def _scale_x(v, mult):
+        return np.asarray(v, dtype=float) * mult if mult != 1.0 else v
+
+    def _wanted_runs(opt_name):
+        # None -> every run* directory, as plot_figures_opts_attr_ci_beautify does
+        sel = run_id.get(opt_name) if isinstance(run_id, dict) else run_id
+        if sel is None or (isinstance(sel, (list, tuple)) and len(sel) == 0):
+            return None
+        if not isinstance(sel, (list, tuple)):
+            sel = [sel]
+        return [s if isinstance(s, str) else f'run_{s}' for s in sel]
+
+    rows, cols = 1, len(opts_list)
+    fig, axs = plt.subplots(rows, cols, figsize=(cols * 5, rows * 3.8))
+    last_val = []
+    max_val = []
+    std_val = []
+    if len(opts_list) > 1:
+        axs = axs.reshape(-1)
+    else:
+        axs = [axs]
+    ax_ptr = 0
+
+    if isinstance(attrs, str):
+        attrs = [attrs for _ in range(len(opts_list))]
+    if isinstance(yaxis, str):
+        yaxis = [yaxis for _ in range(len(opts_list))]
+    if xlabels == []:
+        xlabels = ["Epoch" for _ in range(len(opts_list))]
+    if linestyles == []:
+        linestyles = [[] for _ in range(len(opts_list))]
+
+    # x_multiplier: {opt_name: factor}; opts not listed keep their own x axis
+    scale_xlim = len(x_multiplier) > 0
+
+    for opts, legend, title, attr, xlabel, linestyle in zip(opts_list, legends, titles, attrs, xlabels, linestyles):
+        last_val.append([])
+        max_val.append([])
+        std_val.append([])
+        ax = axs[ax_ptr]
+        first_xrange = None
+
+        # Background and grid
+        ax.set_facecolor('#f7f7f7')
+        ax.grid(True, color='white', linewidth=1.2, linestyle='-', zorder=0)
+        ax.set_axisbelow(True)
+        for spine in ['top', 'right']:
+            ax.spines[spine].set_visible(False)
+        for spine in ['bottom', 'left']:
+            ax.spines[spine].set_color('#cccccc')
+            ax.spines[spine].set_linewidth(0.8)
+
+        if attr in ['test_err', 'train_err', 'test_acc', 'acc']:
+            ax.yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1, decimals=0))
+
+        line_handles = []
+        for opt_idx, opt_name in enumerate(opts):
+            optlinestyle = linestyle[opt_idx] if opt_idx < len(linestyle) else 'solid'
+            xmult = float(x_multiplier.get(opt_name, 1.0))
+            color = PALETTE[opt_idx % len(PALETTE)]
+            # dashed lines: same hue, reduced alpha
+            opt_alpha = 0.55 if optlinestyle == 'dashed' else alpha
+
+            model_param = model_params[opt_name]
+            directory = get_running_directory(
+                opt_params[opt_name]['lr'],
+                opt_params[opt_name]['dataset_name'],
+                opt_params[opt_name]['loss'],
+                opt_params[opt_name]['opt'],
+                opt_params[opt_name]['model_name'],
+                opt_params[opt_name]['momentum'],
+                opt_params[opt_name]['weight_decay'],
+                opt_params[opt_name]['batch_size'],
+                opt_params[opt_name]['epochs'],
+                **model_param
+            )
+            print(directory)
+            wanted = _wanted_runs(opt_name)
+            if wanted is None:
+                run_dir = [r for r in sorted(os.listdir(directory)) if 'run' in r]
+            else:
+                run_dir = wanted
+            train_graphs = []
+            for run_name in run_dir:
+                run_path = f'{directory}{run_name}/train_graphs.pk'
+                if os.path.exists(run_path):
+                    with open(run_path, 'rb') as f:
+                        train_graphs.append(pickle.load(f))
+                elif wanted is not None:
+                    print(f"warning: {opt_name} has no {run_name}/train_graphs.pk under {directory}")
+            if not train_graphs:
+                raise FileNotFoundError(f"no train_graphs.pk for {opt_name} in {directory} (run_id={run_id})")
+
+            xfull = _scale_x(np.asarray(train_graphs[0].log_epochs, dtype=float), xmult)
+
+            # an end given per opt counts that opt's own log entries, like the int form
+            opt_start, opt_end = start, end
+            if isinstance(end, dict):
+                opt_end = end.get(opt_name)
+
+            # start/end are indices into each opt's own log, so once an opt's x axis is
+            # rescaled the same indices no longer cover the same x range. Window the
+            # later opts by the x range the first opt spans instead: take every entry
+            # whose scaled x falls inside it, even though the grids are not aligned.
+            if scale_xlim and first_xrange is not None:
+                i0 = int(np.searchsorted(xfull, first_xrange[0], side='left'))
+                i1 = int(np.searchsorted(xfull, first_xrange[1], side='right'))
+                if opt_end is not None:
+                    i1 = min(i1, opt_end)
+                if i1 - i0 >= 2:
+                    opt_start, opt_end = i0, i1
+                else:
+                    print(f"warning: {opt_name} has no data inside the x range of {opts[0]}, keeping start/end")
+
+            if return_std:
+                # spread over the runs at every plotted entry, on the quantity actually
+                # plotted (perplexity when exp is set); runs are truncated to their
+                # common length, as the shaded band is
+                runs = [np.asarray(_scale(get_attr_from_graph(tg, attr)[opt_start:opt_end]), dtype=float)
+                        for tg in train_graphs]
+                n_common = min(len(r) for r in runs) if runs else 0
+                std_val[-1].append(np.std(np.stack([r[:n_common] for r in runs]), axis=0)
+                                   if n_common else np.array([]))
+
+            if use_seaborn:
+                label = legend[opt_idx] if opt_idx < len(legend) else opt_name
+                if not ci:
+                    tg = train_graphs[0]
+                    vals = _scale(get_attr_from_graph(tg, attr)[opt_start:opt_end])
+                    xax = _scale_x(tg.log_epochs[opt_start:opt_end], xmult)
+                    line, = ax.plot(xax, vals, label=label, linewidth=linewidth,
+                                    alpha=opt_alpha, linestyle=optlinestyle, color=color)
+                    line_handles.append(line)
+                    last_val[-1].append(float(vals[-1]))
+                    max_val[-1].append(float(np.max(vals)))
+                else:
+                    df_rows = []
+                    for tg in train_graphs:
+                        vals = _scale(get_attr_from_graph(tg, attr)[opt_start:opt_end])
+                        xax = _scale_x(tg.log_epochs[opt_start:opt_end], xmult)
+                        for x, y in zip(xax, vals):
+                            df_rows.append({'x': x, 'value': y, 'run': id(tg)})
+                    df = pd.DataFrame(df_rows)
+                    sns.lineplot(
+                        data=df, x='x', y='value',
+                        ax=ax, label=label,
+                        errorbar='sd', linewidth=linewidth,
+                        alpha=opt_alpha, linestyle=optlinestyle, color=color,
+                    )
+                    line = ax.lines[-1]
+                    line_handles.append(line)
+                    mean_vals = df.groupby('x')['value'].mean()
+                    last_val[-1].append(float(mean_vals.iloc[-1]))
+                    max_val[-1].append(float(mean_vals.max()))
+            else:
+                if not ci:
+                    tg = train_graphs[0]
+                    vals = _scale(np.array(get_attr_from_graph(tg, attr)[opt_start:opt_end]))
+                    xax = _scale_x(tg.log_epochs[opt_start:opt_end], xmult)
+                    line, = ax.plot(xax, vals, alpha=opt_alpha, linewidth=linewidth, linestyle=optlinestyle, color=color)
+                    line_handles.append(line)
+                    last_val[-1].append(float(vals[-1]))
+                    max_val[-1].append(float(np.max(vals)))
+                else:
+                    plot_fn = plot_attr_overlap if overlap else plot_attr
+                    n_colls = len(ax.collections)
+                    line = plot_fn(ax=ax, train_graphs=train_graphs, attr=attr, start=opt_start, end=opt_end,
+                                   alpha=opt_alpha, linewidth=linewidth, linestyle=optlinestyle)
+                    if exp or xmult != 1.0:
+                        if exp:
+                            line.set_ydata(_scale(line.get_ydata()))
+                        if xmult != 1.0:
+                            line.set_xdata(_scale_x(line.get_xdata(), xmult))
+                        for coll in ax.collections[n_colls:]:
+                            for path in coll.get_paths():
+                                if exp:
+                                    path.vertices[:, 1] = np.exp(path.vertices[:, 1])
+                                if xmult != 1.0:
+                                    path.vertices[:, 0] *= xmult
+                        ax.relim()
+                        ax.autoscale_view()
+                    line.set_color(color)
+                    line_handles.append(line)
+                    ydata = line.get_ydata()
+                    last_val[-1].append(ydata[-1])
+                    max_val[-1].append(np.max(ydata))
+
+            if opt_idx == 0:
+                xdata = np.asarray(line.get_xdata(), dtype=float)
+                if xdata.size:
+                    first_xrange = (float(np.min(xdata)), float(np.max(xdata)))
+
+        if scale_xlim and first_xrange is not None:
+            xlo, xhi = first_xrange
+            pad = 0.05 * (xhi - xlo) if xhi > xlo else 0.5  # matplotlib's default margin
+            ax.set_xlim(xlo - pad, xhi + pad)
+        ax.set_xlabel(xlabel, fontsize=12, labelpad=4)
+        ax.set_title(title, fontsize=13, fontweight='bold', pad=6)
+        ax.tick_params(axis='both', labelsize=10)
+        if use_seaborn:
+            ax.legend(fontsize=legend_fontsize, framealpha=0.9, edgecolor='#cccccc', loc='upper right')
+        else:
+            ax.legend(line_handles, legend, fontsize=legend_fontsize, framealpha=0.9, edgecolor='#cccccc', loc='upper right')
+        ax_ptr += 1
+
+    if yaxis == []:
+        ylabel_text = ylabel if ylabel else "Test Accuracy"
+        axs[0].set_ylabel(ylabel_text, fontsize=12)
+    else:
+        for i in range(len(yaxis)):
+            axs[i].set_ylabel(yaxis[i], fontsize=12)
+
+    plt.tight_layout(pad=1.5)
+    if save_dir:
+        plt.savefig(save_dir, dpi=150, bbox_inches='tight')
+
+    requested = [v for flag, v in ((return_last, last_val), (return_max, max_val), (return_std, std_val)) if flag]
+    if len(requested) == 1:
+        return requested[0]
+    if requested:
+        return tuple(requested)
